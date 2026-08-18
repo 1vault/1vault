@@ -1,0 +1,4 @@
+{
+  "note": "Run `anchor build` to generate onevault.json. Copy to frontend/backend idl folders.",
+  "programId": "J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G"
+}

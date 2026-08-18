@@ -1,0 +1,26 @@
+# Secrets — never commit real env or wallets
+.env
+.env.*
+!.env.example
+**/*-keypair.json
+**/*.pem
+
+# Dependencies
+node_modules/
+
+# Rust / Anchor build artifacts (includes program keypair)
+**/target/
+.anchor/
+test-ledger/
+**/*.rs.bk
+.yarn/
+.surfpool/
+
+# TypeScript build
+dist/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+*.swp

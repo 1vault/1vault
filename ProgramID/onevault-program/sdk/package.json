@@ -1,0 +1,20 @@
+{
+  "name": "@1vault/sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "1Vault program ID, PDAs, and Anchor client helpers",
+  "main": "index.ts",
+  "types": "index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "@coral-xyz/anchor": "^0.30.0 || ^0.31.0 || ^0.32.0",
+    "@solana/web3.js": "^1.95.0"
+  },
+  "devDependencies": {
+    "@coral-xyz/anchor": "^0.31.1",
+    "@solana/web3.js": "^1.98.0",
+    "typescript": "^5.6.0"
+  }
+}

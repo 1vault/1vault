@@ -1,0 +1,30 @@
+[package]
+name = "onevault"
+version = "0.1.0"
+description = "1Vault - Non-custodial strategy vault protocol on Solana"
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "onevault"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+anchor-lang = { version = "1.1.2", features = ["init-if-needed"] }
+anchor-spl = { version = "1.1.2", features = ["token", "associated_token"] }
+solana-stake-interface = "2.0.1"
+
+[dev-dependencies]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

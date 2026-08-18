@@ -1,0 +1,27 @@
+pub mod accounting_ix;
+pub mod follow_ix;
+pub mod investor_ix;
+pub mod keeper_ix;
+pub mod multisig_ix;
+pub mod position_ix;
+pub mod protocol_ix;
+pub mod risk_ix;
+pub mod staking_ix;
+pub mod strategist_ix;
+pub mod trading_ix;
+pub mod vault_ix;
+pub mod vault_stake_ix;
+
+pub use accounting_ix::*;
+pub use follow_ix::*;
+pub use investor_ix::*;
+pub use keeper_ix::*;
+pub use multisig_ix::*;
+pub use position_ix::*;
+pub use protocol_ix::*;
+pub use risk_ix::*;
+pub use staking_ix::*;
+pub use strategist_ix::*;
+pub use trading_ix::*;
+pub use vault_ix::*;
+pub use vault_stake_ix::*;
