@@ -81,16 +81,16 @@ pub struct ClosePosition<'info> {
     pub strategist: Signer<'info>,
     #[account(mut, seeds = [VAULT_SEED, strategist.key().as_ref(), &vault.vault_id.to_le_bytes()], bump = vault.bump,
         constraint = vault.strategist == strategist.key() @ OneVaultError::Unauthorized)]
-    pub vault: Account<'info, Vault>,
+    pub vault: Box<Account<'info, Vault>>,
     #[account(mut, seeds = [VAULT_POSITION_SEED, vault.key().as_ref(), &vault_position.position_id.to_le_bytes()],
         bump = vault_position.bump, constraint = vault_position.vault == vault.key(),
         constraint = vault_position.status != PositionStatus::Closed @ OneVaultError::PositionNotOpen,
         close = strategist)]
-    pub vault_position: Account<'info, VaultPosition>,
+    pub vault_position: Box<Account<'info, VaultPosition>>,
     #[account(mut, constraint = vault_token_account.key() == vault.vault_token_account)]
-    pub vault_token_account: Account<'info, TokenAccount>,
+    pub vault_token_account: Box<Account<'info, TokenAccount>>,
     #[account(mut)]
-    pub output_token_account: Account<'info, TokenAccount>,
+    pub output_token_account: Box<Account<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
 }
 
@@ -136,10 +136,10 @@ pub struct UpdatePositionValue<'info> {
     pub strategist: Signer<'info>,
     #[account(mut, seeds = [VAULT_SEED, strategist.key().as_ref(), &vault.vault_id.to_le_bytes()], bump = vault.bump,
         constraint = vault.strategist == strategist.key() @ OneVaultError::Unauthorized)]
-    pub vault: Account<'info, Vault>,
+    pub vault: Box<Account<'info, Vault>>,
     #[account(mut, seeds = [VAULT_POSITION_SEED, vault.key().as_ref(), &vault_position.position_id.to_le_bytes()],
         bump = vault_position.bump, constraint = vault_position.vault == vault.key())]
-    pub vault_position: Account<'info, VaultPosition>,
+    pub vault_position: Box<Account<'info, VaultPosition>>,
 }
 
 pub fn handle_update_position_value(ctx: Context<UpdatePositionValue>, new_value: u64) -> Result<()> {

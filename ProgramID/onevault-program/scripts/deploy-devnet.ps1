@@ -39,5 +39,5 @@ anchor deploy --provider.cluster devnet
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "`n=== Deploy Complete ===" -ForegroundColor Green
-Write-Host "Program ID: J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G"
+Write-Host "Program ID: 2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP"
 Write-Host "Next: run initialize_protocol with your treasury and 1VAULT mint"

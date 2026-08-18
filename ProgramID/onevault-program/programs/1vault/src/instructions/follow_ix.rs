@@ -144,9 +144,9 @@ pub struct AutoMirrorPosition<'info> {
 
     #[account(seeds = [PROTOCOL_SEED], bump = protocol_config.bump,
         constraint = !protocol_config.is_paused @ OneVaultError::ProtocolPaused)]
-    pub protocol_config: Account<'info, ProtocolConfig>,
+    pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
-    pub vault: Account<'info, Vault>,
+    pub vault: Box<Account<'info, Vault>>,
 
     /// CHECK: investor being mirrored
     pub investor: UncheckedAccount<'info>,
@@ -154,17 +154,17 @@ pub struct AutoMirrorPosition<'info> {
     #[account(mut, seeds = [INVESTOR_CONFIG_SEED, vault.key().as_ref(), investor.key().as_ref()],
         bump = investor_config.bump, constraint = investor_config.investor == investor.key(),
         constraint = investor_config.auto_follow @ OneVaultError::AutoFollowDisabled)]
-    pub investor_config: Account<'info, InvestorVaultConfig>,
+    pub investor_config: Box<Account<'info, InvestorVaultConfig>>,
 
     #[account(seeds = [VAULT_POSITION_SEED, vault.key().as_ref(), &vault_position.position_id.to_le_bytes()],
         bump = vault_position.bump, constraint = vault_position.vault == vault.key(),
         constraint = vault_position.status == PositionStatus::Open @ OneVaultError::PositionNotOpen)]
-    pub vault_position: Account<'info, VaultPosition>,
+    pub vault_position: Box<Account<'info, VaultPosition>>,
 
     #[account(init, payer = payer, space = 8 + InvestorPosition::INIT_SPACE,
         seeds = [INVESTOR_POSITION_SEED, vault.key().as_ref(), investor.key().as_ref(), &position_id.to_le_bytes()],
         bump)]
-    pub investor_position: Account<'info, InvestorPosition>,
+    pub investor_position: Box<Account<'info, InvestorPosition>>,
 
     pub system_program: Program<'info, System>,
 }
@@ -226,18 +226,18 @@ pub fn handle_auto_mirror_position(
 pub struct CloseInvestorPosition<'info> {
     pub investor: Signer<'info>,
 
-    pub vault: Account<'info, Vault>,
+    pub vault: Box<Account<'info, Vault>>,
 
     #[account(mut, seeds = [INVESTOR_CONFIG_SEED, vault.key().as_ref(), investor.key().as_ref()],
         bump = investor_config.bump, constraint = investor_config.investor == investor.key())]
-    pub investor_config: Account<'info, InvestorVaultConfig>,
+    pub investor_config: Box<Account<'info, InvestorVaultConfig>>,
 
     #[account(mut, seeds = [INVESTOR_POSITION_SEED, vault.key().as_ref(), investor.key().as_ref(),
         &investor_position.position_id.to_le_bytes()],
         bump = investor_position.bump, constraint = investor_position.investor == investor.key(),
         constraint = investor_position.status == PositionStatus::Open @ OneVaultError::PositionNotOpen,
         close = investor)]
-    pub investor_position: Account<'info, InvestorPosition>,
+    pub investor_position: Box<Account<'info, InvestorPosition>>,
 }
 
 pub fn handle_close_investor_position(ctx: Context<CloseInvestorPosition>, is_full_exit: bool) -> Result<()> {

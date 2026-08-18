@@ -45,7 +45,12 @@ export async function handleProgramLog(
       await pool.query(
         `INSERT INTO vaults (pubkey, strategist, vault_id, base_mint, performance_fee_bps, created_at, updated_at)
          VALUES ($1,$2,$3,$4,$5,$6,NOW())
-         ON CONFLICT (pubkey) DO UPDATE SET updated_at = NOW()`,
+         ON CONFLICT (pubkey) DO UPDATE SET
+           strategist = EXCLUDED.strategist,
+           vault_id = EXCLUDED.vault_id,
+           base_mint = EXCLUDED.base_mint,
+           performance_fee_bps = EXCLUDED.performance_fee_bps,
+           updated_at = NOW()`,
         [vault, strategist, vaultId.toString(), baseMint, performanceFeeBps, ts]
       );
       await pool.query(
@@ -63,7 +68,8 @@ export async function handleProgramLog(
       const nav = readU64(buf, offset); offset += 8;
       await pool.query(
         `INSERT INTO deposits (vault, investor, amount, shares_minted, nav, signature, block_time)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+         SELECT $1,$2,$3,$4,$5,$6,$7
+         WHERE NOT EXISTS (SELECT 1 FROM deposits WHERE signature = $6)`,
         [vault, investor, amount.toString(), shares.toString(), nav.toString(), signature, ts]
       );
       await pool.query(`UPDATE vaults SET nav = $1, updated_at = NOW() WHERE pubkey = $2`, [nav.toString(), vault]);
@@ -78,7 +84,8 @@ export async function handleProgramLog(
       const fee = readU64(buf, offset); offset += 8;
       await pool.query(
         `INSERT INTO withdrawals (vault, investor, shares_burned, gross_amount, net_amount, fee_amount, signature, block_time)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+         SELECT $1,$2,$3,$4,$5,$6,$7,$8
+         WHERE NOT EXISTS (SELECT 1 FROM withdrawals WHERE signature = $7)`,
         [vault, investor, shares.toString(), gross.toString(), net.toString(), fee.toString(), signature, ts]
       );
       break;
@@ -185,6 +192,14 @@ export async function handleProgramLog(
       await pool.query(
         `INSERT INTO staking_events (owner, event_type, amount, signature, block_time) VALUES ($1,'unstake',$2,$3,$4)`,
         [owner, amount.toString(), signature, ts]
+      );
+      break;
+    }
+    case "InvestorMirrored": {
+      const vault = pk(readPubkey(buf, offset));
+      await pool.query(
+        `UPDATE vaults SET active_followers = COALESCE(active_followers, 0) + 1, updated_at = NOW() WHERE pubkey = $1`,
+        [vault]
       );
       break;
     }

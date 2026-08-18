@@ -2,7 +2,7 @@
 
 Complete catalog of all **69** program instructions grouped by module.
 
-**Program ID:** `J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G`
+**Program ID:** `2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP`
 
 Legend: **Auth** = required signer role.
 

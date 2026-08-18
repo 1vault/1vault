@@ -279,6 +279,85 @@ pub fn handle_initialize_treasury(_ctx: Context<InitializeTreasury>) -> Result<(
 }
 
 #[derive(Accounts)]
+pub struct SweepTreasurySol<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    #[account(
+        seeds = [PROTOCOL_SEED],
+        bump = protocol_config.bump,
+        has_one = authority @ OneVaultError::Unauthorized,
+    )]
+    pub protocol_config: Box<Account<'info, ProtocolConfig>>,
+
+    /// CHECK: platform native-SOL recipient.
+    #[account(mut, constraint = platform_wallet.key() == protocol_config.treasury @ OneVaultError::Unauthorized)]
+    pub platform_wallet: UncheckedAccount<'info>,
+
+    /// CHECK: treasury authority PDA
+    #[account(seeds = [TREASURY_SEED], bump)]
+    pub treasury_authority: UncheckedAccount<'info>,
+
+    #[account(
+        mut,
+        seeds = [TREASURY_SEED, native_mint.key().as_ref()],
+        bump,
+        token::mint = native_mint,
+        token::authority = treasury_authority,
+    )]
+    pub treasury_token_account: Box<Account<'info, TokenAccount>>,
+
+    #[account(
+        mut,
+        seeds = [FEE_UNWRAP_SEED, treasury_token_account.key().as_ref()],
+        bump
+    )]
+    /// CHECK: temporary wSOL ATA, created and closed in this instruction.
+    pub unwrap_account: UncheckedAccount<'info>,
+
+    #[account(address = WSOL_MINT)]
+    pub native_mint: Box<Account<'info, Mint>>,
+
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+    pub rent: Sysvar<'info, Rent>,
+}
+
+pub fn handle_sweep_treasury_sol(ctx: Context<SweepTreasurySol>) -> Result<()> {
+    let amount = ctx.accounts.treasury_token_account.amount;
+    require!(amount > 0, OneVaultError::NothingToClaim);
+
+    let bump = [ctx.bumps.treasury_authority];
+    let seeds = [TREASURY_SEED, bump.as_ref()];
+    let signer = &[&seeds[..]];
+
+    let unwrap_bump = [ctx.bumps.unwrap_account];
+    let treasury_ata = ctx.accounts.treasury_token_account.key();
+    let unwrap_seeds = [FEE_UNWRAP_SEED, treasury_ata.as_ref(), unwrap_bump.as_ref()];
+
+    crate::utils::create_wsol_unwrap_account(
+        ctx.accounts.authority.to_account_info(),
+        ctx.accounts.unwrap_account.to_account_info(),
+        ctx.accounts.native_mint.to_account_info(),
+        ctx.accounts.treasury_authority.to_account_info(),
+        ctx.accounts.token_program.to_account_info(),
+        ctx.accounts.system_program.to_account_info(),
+        &[&unwrap_seeds],
+    )?;
+
+    crate::utils::unwrap_wsol_to_wallet(
+        ctx.accounts.token_program.to_account_info(),
+        ctx.accounts.treasury_token_account.to_account_info(),
+        ctx.accounts.treasury_authority.to_account_info(),
+        ctx.accounts.unwrap_account.to_account_info(),
+        ctx.accounts.platform_wallet.to_account_info(),
+        amount,
+        signer,
+    )?;
+    Ok(())
+}
+
+#[derive(Accounts)]
 pub struct UpdateProtectedDex<'info> {
     pub authority: Signer<'info>,
 

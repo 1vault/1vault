@@ -31,7 +31,7 @@ Or copy `constants.ts`, `pda.ts` directly into your app.
 import { ONEVAULT_PROGRAM_ID } from "@1vault/sdk";
 
 console.log(ONEVAULT_PROGRAM_ID.toBase58());
-// J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G
+// 2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP
 ```
 
 See [docs/PROGRAM_ID.md](../docs/PROGRAM_ID.md) for build & keypair sync.

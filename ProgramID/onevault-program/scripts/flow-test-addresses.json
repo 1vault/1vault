@@ -1,0 +1,14 @@
+{
+  "cluster": "devnet",
+  "programId": "2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP",
+  "vaultId": 6,
+  "vaultName": "SOL Fee Vault",
+  "vault": "53n7NEZ9hEbnBo2uZGhJ8fdiTH25vto8q6E2o2cr4Vhz",
+  "shareMint": "81pni3zpJ3ZTPBnDB96JYZSgfhL69kMikvZkvzj21XSU",
+  "vaultExplorer": "https://explorer.solana.com/address/53n7NEZ9hEbnBo2uZGhJ8fdiTH25vto8q6E2o2cr4Vhz?cluster=devnet",
+  "protocolConfig": "2WXErzw6DEZsVQ2QD3oTcwumCknpzhLf99akKu7qweQR",
+  "treasuryPda": "4zAHZr2MgiG6CAAL2qtDTYKVts5tSMVLpGUNVYabxZWg",
+  "platformWalletRequested": "9YajdkrkvyzDm57bPSijfy6sFNj9wuqQtYmuYUXZtPDx",
+  "degenWalletRequested": "EXQCB3PJnza9oBNMupBQjVGSuQXaLvTyXNffCJ5zz286",
+  "degenFeeActual": "9WDdee1AwqRCJ2WSr9dDAcaoCXPkfd19vR5RQdc2zcan"
+}

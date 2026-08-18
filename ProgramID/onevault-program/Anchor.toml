@@ -6,14 +6,14 @@ skip_local_validator = true
 resolution = true
 skip-lint = false
 
-[programs.mainnet]
-onevault = "J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G"
+[programs.devnet]
+onevault = "2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP"
 
 [programs.localnet]
-onevault = "J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G"
+onevault = "2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP"
 
-[programs.devnet]
-onevault = "J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G"
+[programs.mainnet]
+onevault = "2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP"
 
 [provider]
 cluster = "devnet"

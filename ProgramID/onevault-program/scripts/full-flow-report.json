@@ -1,0 +1,134 @@
+{
+  "ranAt": "2026-08-18T14:58:02.537Z",
+  "cluster": "devnet",
+  "programId": "2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP",
+  "vaultId": 6,
+  "vaultName": "SOL Fee Vault",
+  "vault": "53n7NEZ9hEbnBo2uZGhJ8fdiTH25vto8q6E2o2cr4Vhz",
+  "shareMint": "81pni3zpJ3ZTPBnDB96JYZSgfhL69kMikvZkvzj21XSU",
+  "vaultExplorer": "https://explorer.solana.com/address/53n7NEZ9hEbnBo2uZGhJ8fdiTH25vto8q6E2o2cr4Vhz?cluster=devnet",
+  "protocolConfig": "2WXErzw6DEZsVQ2QD3oTcwumCknpzhLf99akKu7qweQR",
+  "treasuryPda": "4zAHZr2MgiG6CAAL2qtDTYKVts5tSMVLpGUNVYabxZWg",
+  "platformWalletRequested": "9YajdkrkvyzDm57bPSijfy6sFNj9wuqQtYmuYUXZtPDx",
+  "degenWalletRequested": "EXQCB3PJnza9oBNMupBQjVGSuQXaLvTyXNffCJ5zz286",
+  "degenFeeActual": "9WDdee1AwqRCJ2WSr9dDAcaoCXPkfd19vR5RQdc2zcan",
+  "summary": {
+    "passed": 11,
+    "failed": 0,
+    "skipped": 2,
+    "total": 13
+  },
+  "fees": {
+    "note": "claim_fees unwraps wSOL to native SOL on platform + degen wallets.",
+    "requested": {
+      "platformSolWallet": "9YajdkrkvyzDm57bPSijfy6sFNj9wuqQtYmuYUXZtPDx",
+      "degenSolWallet": "EXQCB3PJnza9oBNMupBQjVGSuQXaLvTyXNffCJ5zz286",
+      "platformSolBefore": "0.002539280",
+      "platformSolAfter": "0.007817840",
+      "platformSolDelta": "0.005278560",
+      "degenSolBefore": "0.011539280",
+      "degenSolAfter": "0.023078560",
+      "degenSolDelta": "0.011539280"
+    },
+    "actual": {
+      "treasuryPda": "4zAHZr2MgiG6CAAL2qtDTYKVts5tSMVLpGUNVYabxZWg",
+      "treasuryWsolBefore": "0.004349999",
+      "treasuryWsolAfter": "0.004349999",
+      "treasuryWsolDelta": "0.000000000",
+      "strategistWsolAta": "5aaUkRr6bdLHcKLp3oJrmH8gqd4NM5TB9ZSE8LPM4JZA",
+      "strategistWsolBefore": "0.895650000",
+      "strategistWsolAfter": "1.034950000",
+      "strategistWsolDelta": "0.139300000"
+    }
+  },
+  "steps": [
+    {
+      "id": "S1",
+      "title": "register_strategist",
+      "status": "SKIP",
+      "detail": "already exists"
+    },
+    {
+      "id": "S2",
+      "title": "lock_license",
+      "status": "SKIP",
+      "detail": "already exists"
+    },
+    {
+      "id": "S3",
+      "title": "create_vault",
+      "status": "PASS",
+      "detail": "SOL Fee Vault id=6 53n7NEZ9hEbnBo2uZGhJ8fdiTH25vto8q6E2o2cr4Vhz token=98BLuubTnbM7KjCnvK34MB1KXt2jcujDVtJi9GVdKJz4",
+      "tx": "2aiEAUP7GP461dFHsa4JqstPtT49HwtGezdWurX6QoY4yEKzhnjp7gjxvwdY6RpMMhqH1crKgCK9pkaK2NBaHZz8"
+    },
+    {
+      "id": "S4",
+      "title": "fetch vault",
+      "status": "PASS",
+      "detail": "name=SOL Fee Vault shares=0 assets=0"
+    },
+    {
+      "id": "S5",
+      "title": "wrap wSOL + share ATA",
+      "status": "PASS",
+      "detail": "0.15 wSOL",
+      "tx": "2dmU57ng6gzW84htDPeQkyVpvQeAbX2vKguqxi1KEHxHY8DZx4vUHg5J8PEZ54SaUrsTYN9MGgDy5GqLJ1B2yWsA"
+    },
+    {
+      "id": "S6",
+      "title": "deposit 0.10 wSOL",
+      "status": "PASS",
+      "detail": "shares=100000000",
+      "tx": "2hvJgT9QDZbxSNzdmb1RfwkazrC9amHfCwm8dmfCc5Veu83vp9ujFF946AFrVMJsTMniTxrP61BqVbiiEgVfLrcQ"
+    },
+    {
+      "id": "S7",
+      "title": "inject 0.05 wSOL PnL into vault ATA",
+      "status": "PASS",
+      "detail": "real tokens",
+      "tx": "4WWaz8z83RBu62YQ8vXoPjHSedzPj1iFUEVwqAZFCHA1ApubyBRBpdTAES4BxNPpEy9PbkwkSYXopsS6tnght4PC"
+    },
+    {
+      "id": "S8",
+      "title": "update_vault_staked_value 0.05",
+      "status": "PASS",
+      "detail": "NAV +0.05 without raising HWM in this ix",
+      "tx": "3a6H2WWy9fWZ4Upu2BJL9W9eadzR1Gq29dRYA4LSejZai19vLeVrA3jX43BL2nbF1XWfPHUWSLRN3gCVHG6duy9V"
+    },
+    {
+      "id": "S9",
+      "title": "accrue_fees",
+      "status": "PASS",
+      "detail": "degen=0.009500000 protocol=0.000500000",
+      "tx": "46GhyHWVndDnDzdo4zcNHov26bMC8FANEKLwVqgBi7fSL8qvWxyBwvMSV57uTZ1G9WCQi7RB2ty8ACCwkCG5iy4p"
+    },
+    {
+      "id": "S10",
+      "title": "claim_fees",
+      "status": "PASS",
+      "detail": "native SOL → platform + degen wallets",
+      "tx": "3RbVonxuyAoNDYHMDPAz6Nu9rTbGZyFEvr3nWmmKRzGUJnJB3EzRRxqfJRUnfuvTQkULL72RSxbaQWzjWGTBpkM2"
+    },
+    {
+      "id": "S10b",
+      "title": "clear staked_value",
+      "status": "PASS",
+      "detail": "set 0 so NAV can match vault ATA",
+      "tx": "JWjUKPkYELRiG28cPQN96uspJoRou6qNy2y5X2ryTuGKzV29L9ksMVQquhbbnZLsGrYw4zpF31WuyDBfaJN4Dp3"
+    },
+    {
+      "id": "S10c",
+      "title": "update_nav",
+      "status": "PASS",
+      "detail": "assets=140000000 staked=0",
+      "tx": "2zztJMjQ9eMzJfn3BCLNv9PohFihKgGPNwPB6TuiSB2cXjw8FsGyNfTG8gfgzJZ3o9G7mBQcr8fjo77PdydLXstS"
+    },
+    {
+      "id": "S11",
+      "title": "withdraw (exit)",
+      "status": "PASS",
+      "detail": "burned 100000000 shares",
+      "tx": "5KMHAKcEwbgeGj76382waBSdLVmgtGbKFKHBwLsDXiNd76sDcriacXCLUQAvq9HccKBan5VmYLdqJDgrwNekydEv"
+    }
+  ]
+}

@@ -200,40 +200,40 @@ pub struct Deposit<'info> {
         bump = protocol_config.bump,
         constraint = !protocol_config.is_paused @ OneVaultError::ProtocolPaused,
     )]
-    pub protocol_config: Account<'info, ProtocolConfig>,
+    pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
     #[account(
         mut,
         constraint = vault.accepts_deposits() @ OneVaultError::VaultPaused,
     )]
-    pub vault: Account<'info, Vault>,
+    pub vault: Box<Account<'info, Vault>>,
 
     #[account(
         mut,
         constraint = investor_token_account.mint == vault.base_mint,
         constraint = investor_token_account.owner == investor.key(),
     )]
-    pub investor_token_account: Account<'info, TokenAccount>,
+    pub investor_token_account: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
         constraint = vault_token_account.key() == vault.vault_token_account,
         constraint = vault_token_account.mint == vault.base_mint,
     )]
-    pub vault_token_account: Account<'info, TokenAccount>,
+    pub vault_token_account: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
         constraint = share_mint.key() == vault.share_mint,
     )]
-    pub share_mint: Account<'info, Mint>,
+    pub share_mint: Box<Account<'info, Mint>>,
 
     #[account(
         mut,
         constraint = investor_share_account.mint == vault.share_mint,
         constraint = investor_share_account.owner == investor.key(),
     )]
-    pub investor_share_account: Account<'info, TokenAccount>,
+    pub investor_share_account: Box<Account<'info, TokenAccount>>,
 
     pub token_program: Program<'info, Token>,
 }
@@ -330,40 +330,40 @@ pub struct Withdraw<'info> {
         bump = protocol_config.bump,
         constraint = !protocol_config.is_paused @ OneVaultError::ProtocolPaused,
     )]
-    pub protocol_config: Account<'info, ProtocolConfig>,
+    pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
     #[account(
         mut,
         constraint = vault.accepts_withdrawals() @ OneVaultError::VaultClosed,
     )]
-    pub vault: Account<'info, Vault>,
+    pub vault: Box<Account<'info, Vault>>,
 
     #[account(
         mut,
         constraint = investor_share_account.mint == vault.share_mint,
         constraint = investor_share_account.owner == investor.key(),
     )]
-    pub investor_share_account: Account<'info, TokenAccount>,
+    pub investor_share_account: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
         constraint = investor_token_account.mint == vault.base_mint,
         constraint = investor_token_account.owner == investor.key(),
     )]
-    pub investor_token_account: Account<'info, TokenAccount>,
+    pub investor_token_account: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
         constraint = vault_token_account.key() == vault.vault_token_account,
         constraint = vault_token_account.mint == vault.base_mint,
     )]
-    pub vault_token_account: Account<'info, TokenAccount>,
+    pub vault_token_account: Box<Account<'info, TokenAccount>>,
 
     #[account(
         mut,
         constraint = share_mint.key() == vault.share_mint,
     )]
-    pub share_mint: Account<'info, Mint>,
+    pub share_mint: Box<Account<'info, Mint>>,
 
     #[account(
         mut,
@@ -371,11 +371,26 @@ pub struct Withdraw<'info> {
         bump,
         token::mint = vault.base_mint,
     )]
-    pub treasury_token_account: Account<'info, TokenAccount>,
+    pub treasury_token_account: Box<Account<'info, TokenAccount>>,
 
     /// CHECK: treasury authority PDA
     #[account(seeds = [TREASURY_SEED], bump)]
     pub treasury_authority: UncheckedAccount<'info>,
+
+    /// CHECK: platform native-SOL recipient (ProtocolConfig.treasury).
+    #[account(mut, constraint = platform_wallet.key() == protocol_config.treasury @ OneVaultError::Unauthorized)]
+    pub platform_wallet: UncheckedAccount<'info>,
+
+    #[account(
+        mut,
+        seeds = [FEE_UNWRAP_SEED, vault.key().as_ref(), platform_wallet.key().as_ref()],
+        bump
+    )]
+    /// CHECK: temporary wSOL ATA, created and closed when withdrawal fee is unwrapped.
+    pub unwrap_platform: UncheckedAccount<'info>,
+
+    #[account(address = WSOL_MINT)]
+    pub native_mint: Box<Account<'info, Mint>>,
 
     #[account(
         seeds = [STAKER_SEED, investor.key().as_ref()],
@@ -391,6 +406,8 @@ pub struct Withdraw<'info> {
     pub referral_account: Option<Account<'info, ReferralAccount>>,
 
     pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+    pub rent: Sysvar<'info, Rent>,
 }
 
 pub fn handle_withdraw(ctx: Context<Withdraw>, shares: u64) -> Result<()> {
@@ -467,19 +484,49 @@ pub fn handle_withdraw(ctx: Context<Withdraw>, shares: u64) -> Result<()> {
     )?;
 
     if fee_amount > 0 {
-        let transfer_fee = Transfer {
-            from: ctx.accounts.vault_token_account.to_account_info(),
-            to: ctx.accounts.treasury_token_account.to_account_info(),
-            authority: ctx.accounts.vault.to_account_info(),
-        };
-        token::transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.key(),
-                transfer_fee,
+        if ctx.accounts.vault.base_mint == WSOL_MINT {
+            let vault_key = ctx.accounts.vault.key();
+            let platform_key = ctx.accounts.platform_wallet.key();
+            let unwrap_bump = [ctx.bumps.unwrap_platform];
+            let unwrap_seeds = [
+                FEE_UNWRAP_SEED,
+                vault_key.as_ref(),
+                platform_key.as_ref(),
+                unwrap_bump.as_ref(),
+            ];
+            crate::utils::create_wsol_unwrap_account(
+                ctx.accounts.investor.to_account_info(),
+                ctx.accounts.unwrap_platform.to_account_info(),
+                ctx.accounts.native_mint.to_account_info(),
+                ctx.accounts.vault.to_account_info(),
+                ctx.accounts.token_program.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+                &[&unwrap_seeds],
+            )?;
+            crate::utils::unwrap_wsol_to_wallet(
+                ctx.accounts.token_program.to_account_info(),
+                ctx.accounts.vault_token_account.to_account_info(),
+                ctx.accounts.vault.to_account_info(),
+                ctx.accounts.unwrap_platform.to_account_info(),
+                ctx.accounts.platform_wallet.to_account_info(),
+                fee_amount,
                 signer,
-            ),
-            fee_amount,
-        )?;
+            )?;
+        } else {
+            let transfer_fee = Transfer {
+                from: ctx.accounts.vault_token_account.to_account_info(),
+                to: ctx.accounts.treasury_token_account.to_account_info(),
+                authority: ctx.accounts.vault.to_account_info(),
+            };
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.key(),
+                    transfer_fee,
+                    signer,
+                ),
+                fee_amount,
+            )?;
+        }
     }
 
     if referral_share > 0 {

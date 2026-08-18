@@ -28,13 +28,22 @@ npm run dev        # start indexer
 npm run api        # start REST API on port 3001
 ```
 
-## PostgreSQL
+## PostgreSQL / Supabase
 
-Run migration automatically on indexer start, or manually:
+Indexer reads `DATABASE_URL` from `.env` (not `.env.example`). Schema is applied automatically on start:
 
 ```bash
-psql $DATABASE_URL -f schema/001_init.sql
+cd onevault-indexer
+cp .env.example .env
+# set DATABASE_URL to the Supabase URI (URL-encode special chars in the password)
+npm install
+npm run migrate    # push schema/001_init.sql
+npm run backfill   # index existing Devnet program txs
+npm run api        # REST + POST /api/ingest  (port 3001)
+npm run dev        # poll new program txs into the same DB
 ```
+
+Demo scripts (`fee-demo:devnet`, `product-flow:devnet`) POST each confirmed signature to `http://127.0.0.1:3001/api/ingest` so rows land immediately.
 
 ## API Endpoints
 
@@ -59,4 +68,4 @@ psql $DATABASE_URL -f schema/001_init.sql
 
 ## Program ID
 
-`J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G`
+`2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP`

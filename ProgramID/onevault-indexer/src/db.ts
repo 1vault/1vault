@@ -6,7 +6,16 @@ import { config } from "./config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export const pool = new pg.Pool({ connectionString: config.databaseUrl });
+const connectionString = config.databaseUrl
+  .replace(/[?&]sslmode=[^&]*/g, "")
+  .replace(/\?$/, "");
+
+export const pool = new pg.Pool({
+  connectionString,
+  ssl: /supabase\.(co|com)/i.test(connectionString)
+    ? { rejectUnauthorized: false }
+    : undefined,
+});
 
 export async function migrate(): Promise<void> {
   const schemaPath = path.join(__dirname, "..", "schema", "001_init.sql");

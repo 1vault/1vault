@@ -21,7 +21,7 @@ Example: 3-of-5 members, Squads vault holds upgrade authority.
 
 ```powershell
 .\scripts\set-upgrade-authority-multisig.ps1 `
-  -ProgramId J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G `
+  -ProgramId 2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP `
   -SquadsMultisig <SQUADS_MULTISIG_PUBKEY> `
   -Cluster devnet
 ```

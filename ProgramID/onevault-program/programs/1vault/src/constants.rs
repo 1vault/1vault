@@ -17,6 +17,7 @@ pub const VAULT_RISK_SEED: &[u8] = b"vault_risk";
 pub const VAULT_STAKE_SEED: &[u8] = b"vault_stake";
 pub const VAULT_STAKE_ACCOUNT_SEED: &[u8] = b"vault_stake_account";
 pub const TREASURY_SEED: &[u8] = b"treasury";
+pub const FEE_UNWRAP_SEED: &[u8] = b"fee_unwrap";
 pub const STAKING_POOL_SEED: &[u8] = b"staking_pool";
 pub const STAKER_SEED: &[u8] = b"staker";
 pub const UPGRADE_MULTISIG_SEED: &[u8] = b"upgrade_multisig";
@@ -54,6 +55,11 @@ pub const STAKE_ACCOUNT_SPACE: usize = 200;
 pub const DEFAULT_DAILY_LOSS_LIMIT_BPS: u16 = 500;
 pub const DEFAULT_MAX_DRAWDOWN_BPS: u16 = 2_000;
 pub const SHARE_PRICE_SCALE: u64 = 1_000_000;
+
+/// Native SOL mint (wSOL). Fees for wSOL vaults are unwrapped to lamports.
+pub const WSOL_MINT: Pubkey = pubkey!("So11111111111111111111111111111111111111112");
+/// Degen / strategist performance-fee wallet (native SOL).
+pub const DEGEN_FEE_WALLET: Pubkey = pubkey!("EXQCB3PJnza9oBNMupBQjVGSuQXaLvTyXNffCJ5zz286");
 
 // Staking tier defaults (§45)
 pub const DEFAULT_TIER_THRESHOLDS: [u64; MAX_STAKING_TIERS] =

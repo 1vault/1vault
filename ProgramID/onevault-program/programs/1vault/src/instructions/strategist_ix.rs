@@ -49,7 +49,7 @@ pub struct LockLicense<'info> {
         bump = protocol_config.bump,
         constraint = !protocol_config.is_paused @ OneVaultError::ProtocolPaused,
     )]
-    pub protocol_config: Account<'info, ProtocolConfig>,
+    pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
     #[account(
         mut,
@@ -57,7 +57,7 @@ pub struct LockLicense<'info> {
         bump = strategist_account.bump,
         constraint = strategist_account.owner == strategist.key() @ OneVaultError::Unauthorized,
     )]
-    pub strategist_account: Account<'info, Strategist>,
+    pub strategist_account: Box<Account<'info, Strategist>>,
 
     #[account(
         init,
@@ -66,14 +66,14 @@ pub struct LockLicense<'info> {
         seeds = [LICENSE_SEED, strategist.key().as_ref()],
         bump
     )]
-    pub license: Account<'info, License>,
+    pub license: Box<Account<'info, License>>,
 
     #[account(
         mut,
         constraint = strategist_token_account.mint == protocol_config.platform_token_mint,
         constraint = strategist_token_account.owner == strategist.key(),
     )]
-    pub strategist_token_account: Account<'info, TokenAccount>,
+    pub strategist_token_account: Box<Account<'info, TokenAccount>>,
 
     #[account(
         init,
@@ -83,9 +83,9 @@ pub struct LockLicense<'info> {
         token::mint = platform_token_mint,
         token::authority = license,
     )]
-    pub license_token_vault: Account<'info, TokenAccount>,
+    pub license_token_vault: Box<Account<'info, TokenAccount>>,
 
-    pub platform_token_mint: Account<'info, anchor_spl::token::Mint>,
+    pub platform_token_mint: Box<Account<'info, anchor_spl::token::Mint>>,
 
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,

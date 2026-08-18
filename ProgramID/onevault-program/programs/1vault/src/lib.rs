@@ -12,7 +12,7 @@ pub use error::*;
 pub use instructions::*;
 pub use state::*;
 
-declare_id!("J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G");
+declare_id!("2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP");
 
 #[program]
 pub mod onevault {
@@ -91,6 +91,10 @@ pub mod onevault {
 
     pub fn initialize_treasury(ctx: Context<InitializeTreasury>) -> Result<()> {
         instructions::protocol_ix::handle_initialize_treasury(ctx)
+    }
+
+    pub fn sweep_treasury_sol(ctx: Context<SweepTreasurySol>) -> Result<()> {
+        instructions::protocol_ix::handle_sweep_treasury_sol(ctx)
     }
 
     pub fn update_protected_dex(

@@ -1,0 +1,97 @@
+{
+  "cluster": "devnet",
+  "programId": "2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP",
+  "vault": "CxUvVKea9nyv3a6EdHwaHVmjNMRXbA7X3D32LTWDmKLG",
+  "degen": "9WDdee1AwqRCJ2WSr9dDAcaoCXPkfd19vR5RQdc2zcan",
+  "retail": "56edHCK4s11tmrq88cU2hwWwHCKT9tR3b7xWDa6p2u6j",
+  "unitTests": {
+    "passed": 7,
+    "failed": 0
+  },
+  "summary": {
+    "passed": 6,
+    "failed": 3,
+    "blocked": 2,
+    "skipped": 1,
+    "total": 12
+  },
+  "cases": [
+    {
+      "id": "P0",
+      "title": "Degen vault exists on Devnet",
+      "status": "PASS",
+      "detail": "vault=CxUvVKea9nyv3a6EdHwaHVmjNMRXbA7X3D32LTWDmKLG name=Demo Vault status={\"active\":{}} shares=0 assets=0 nextTrade=1"
+    },
+    {
+      "id": "P1",
+      "title": "Fund retail wallet",
+      "status": "PASS",
+      "detail": "retail=56edHCK4s11tmrq88cU2hwWwHCKT9tR3b7xWDa6p2u6j",
+      "tx": "5NnJQVDHskZr6Vtnsye6hVzAMnhBFRvqfpuqdGEVWXzgGv4e4Q2sytZw1mBfBdi5CK4Hkdhw9dY4HspC9msM6Ekq"
+    },
+    {
+      "id": "P2",
+      "title": "Retail wrap SOL to wSOL + create share ATA",
+      "status": "PASS",
+      "detail": "wsolAta=AKbRL94SJEnF8H165pEppAnkezBodTaJJJus1Pjt3ief shareAta=3opoiPw8bxNXF4kVaZvhy5YjvcofkQ7zrZrsrV5gdQc4",
+      "tx": "4gHHgrWnTUAJgKCvJJo9CG2HF8SFr5yTzGBJKLFh6NidUU3TMXURSyVeqcPAPHYzYJ9Y2mr8kVw8fcV9ETFmt5m2"
+    },
+    {
+      "id": "P3",
+      "title": "Retail join vault (deposit)",
+      "status": "FAIL",
+      "detail": "Simulation failed. \nMessage: Transaction simulation failed: Error processing Instruction 0: Program failed to complete. \nLogs: \n[\n  \"Program 2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP invoke [1]\",\n  \"Program log: Instruction: Deposit\",\n  \"Program 2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP consumed 12955 of 200000 compute units\",\n  \"Program 2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP failed: A"
+    },
+    {
+      "id": "P4",
+      "title": "Retail create investor config (auto-follow default ON)",
+      "status": "PASS",
+      "detail": "InvestorVaultConfig PDA created; default auto_follow=true, follow_tp_sl=true",
+      "tx": "3MWKG3aaBMeMuHCC9vPpQkbLh1jLjhJ7LcWpndLaCkbrmCRDXzq5weTvdTt23zvqXgdjHK2P16iEDVyG2MBRiE3T"
+    },
+    {
+      "id": "P5",
+      "title": "Retail follow ON",
+      "status": "PASS",
+      "detail": "auto_follow set true",
+      "tx": "2iP3bZNfNAgXNMmR2T29XVVLbZmmTpr4H7QiK5YziJqgGQHqsBSho2iFES6iaRtNL2awiBMHhAeUXmZzpr4Qdhtf"
+    },
+    {
+      "id": "P6",
+      "title": "Retail set copy size 50% (fix default position_size=0)",
+      "status": "PASS",
+      "detail": "Default Percentage+position_size=0 would allocate 0 and block mirror_position",
+      "tx": "5bUG4CPnLdKza6giDGBzkY9BeZFpvxzehV4jn7D2PrxDQHpAh4beFipA4Ts1YnXYnSbUk4opikT1fUtKpMaSwwL8"
+    },
+    {
+      "id": "P7",
+      "title": "Degen request_trade (buy + TP 30% / SL 10%)",
+      "status": "FAIL",
+      "detail": "Simulation failed. \nMessage: Transaction simulation failed: Error processing Instruction 0: Program failed to complete. \nLogs: \n[\n  \"Program 2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP invoke [1]\",\n  \"Program log: Instruction: RequestTrade\",\n  \"Program 11111111111111111111111111111111 invoke [2]\",\n  \"Program 11111111111111111111111111111111 success\",\n  \"Program 2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKsz"
+    },
+    {
+      "id": "P8",
+      "title": "Degen execute_trade via Jupiter/Pump",
+      "status": "BLOCKED",
+      "detail": "Devnet has no reliable Pump.fun/Jupiter liquidity for a random mint; execute_trade also still has SBF stack overflow in the current binary."
+    },
+    {
+      "id": "P9",
+      "title": "Retail mirror_position after degen open_position",
+      "status": "BLOCKED",
+      "detail": "Requires an Open VaultPosition. Chain stops at execute_trade. Mirror is bookkeeping only (no separate investor token swap)."
+    },
+    {
+      "id": "P10",
+      "title": "Retail TP before degen TP (close_investor_position)",
+      "status": "FAIL",
+      "detail": "Expected without an open InvestorPosition. Reached maximum depth for account resolution. Unresolved accounts: `investorPosition` Code path exists: investor can close mirror while vault position stays open. Does NOT redeem vault shares or sell the meme."
+    },
+    {
+      "id": "P11",
+      "title": "Retail withdraw shares (real money TP / exit vault)",
+      "status": "SKIP",
+      "detail": "No shares minted because deposit failed; withdraw is the actual capital exit independent of degen TP."
+    }
+  ]
+}

@@ -6,7 +6,11 @@
   "main": "index.ts",
   "types": "index.ts",
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "bootstrap:devnet": "tsx bootstrap-devnet.ts",
+    "create-vault:devnet": "tsx create-vault-devnet.ts",
+    "fee-demo:devnet": "tsx fee-demo-devnet.ts",
+    "product-flow:devnet": "tsx product-flow-devnet.ts"
   },
   "peerDependencies": {
     "@coral-xyz/anchor": "^0.30.0 || ^0.31.0 || ^0.32.0",
@@ -14,7 +18,10 @@
   },
   "devDependencies": {
     "@coral-xyz/anchor": "^0.31.1",
+    "@solana/spl-token": "^0.4.13",
     "@solana/web3.js": "^1.98.0",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }
 }

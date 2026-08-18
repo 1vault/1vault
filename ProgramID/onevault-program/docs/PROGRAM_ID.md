@@ -8,7 +8,7 @@ Single source of truth for the **1Vault on-chain program address** and how to bu
 
 | Network | Program ID |
 |---------|------------|
-| **Localnet / Devnet / Mainnet (declared)** | `J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G` |
+| **Localnet / Devnet / Mainnet (declared)** | `2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP` |
 
 Defined in:
 
@@ -96,10 +96,10 @@ cargo test
 ## After Deploy — Verify Program ID
 
 ```powershell
-solana program show J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G --url devnet
+solana program show 2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP --url devnet
 ```
 
-Or in browser: `https://explorer.solana.com/address/J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G?cluster=devnet`
+Or in browser: `https://explorer.solana.com/address/2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP?cluster=devnet`
 
 ---
 
@@ -128,7 +128,7 @@ frontend/src/idl/onevault.json  →  ../../onevault-program/target/idl/onevault.
 
 ```env
 # .env.local (frontend) / .env (backend)
-NEXT_PUBLIC_ONEVAULT_PROGRAM_ID=J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G
+NEXT_PUBLIC_ONEVAULT_PROGRAM_ID=2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP
 NEXT_PUBLIC_SOLANA_RPC=https://api.devnet.solana.com
 NEXT_PUBLIC_SOLANA_CLUSTER=devnet
 ```

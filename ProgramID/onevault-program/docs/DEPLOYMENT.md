@@ -13,7 +13,7 @@ Step-by-step guide to deploy the 1Vault program and initialize all required on-c
 | Anchor CLI | Build, deploy, IDL |
 | Node.js (optional) | Client scripts / tests |
 
-**Program ID:** `J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G`  
+**Program ID:** `2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP`  
 Defined in `programs/1vault/src/lib.rs` and `Anchor.toml`.
 
 ---

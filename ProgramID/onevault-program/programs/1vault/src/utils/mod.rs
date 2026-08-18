@@ -5,6 +5,7 @@ use crate::state::{
     AllocationMode, DcaMode, PositionMode, TpSlTrigger, TradeAction, Vault, VaultPosition,
 };
 use crate::OneVaultError;
+use anchor_spl::token::{self, CloseAccount, InitializeAccount3, Transfer};
 
 pub fn apply_bps(amount: u64, bps: u16) -> Result<u64> {
     (amount as u128)
@@ -143,6 +144,77 @@ pub fn evaluate_tp_sl(position: &VaultPosition, current_value: u64) -> Result<Op
         }
     }
     Ok(None)
+}
+
+pub fn create_wsol_unwrap_account<'info>(
+    payer: AccountInfo<'info>,
+    unwrap_ata: AccountInfo<'info>,
+    mint: AccountInfo<'info>,
+    authority: AccountInfo<'info>,
+    token_program: AccountInfo<'info>,
+    system_program: AccountInfo<'info>,
+    signer_seeds: &[&[&[u8]]],
+) -> Result<()> {
+    let len = anchor_spl::token::TokenAccount::LEN;
+    let lamports = Rent::get()?.minimum_balance(len);
+    anchor_lang::solana_program::program::invoke_signed(
+        &anchor_lang::solana_program::system_instruction::create_account(
+            payer.key,
+            unwrap_ata.key,
+            lamports,
+            len as u64,
+            token_program.key,
+        ),
+        &[payer, unwrap_ata.clone(), system_program],
+        signer_seeds,
+    )?;
+    token::initialize_account3(CpiContext::new(
+        *token_program.key,
+        InitializeAccount3 {
+            account: unwrap_ata,
+            mint,
+            authority,
+        },
+    ))?;
+    Ok(())
+}
+
+/// Move `amount` wSOL from a token account into `destination` as native SOL
+/// by transferring into a vault-owned unwrap ATA then closing it.
+pub fn unwrap_wsol_to_wallet<'info>(
+    token_program: AccountInfo<'info>,
+    from: AccountInfo<'info>,
+    authority: AccountInfo<'info>,
+    unwrap_ata: AccountInfo<'info>,
+    destination: AccountInfo<'info>,
+    amount: u64,
+    signer_seeds: &[&[&[u8]]],
+) -> Result<()> {
+    if amount == 0 {
+        return Ok(());
+    }
+    token::transfer(
+        CpiContext::new_with_signer(
+            *token_program.key,
+            Transfer {
+                from,
+                to: unwrap_ata.clone(),
+                authority: authority.clone(),
+            },
+            signer_seeds,
+        ),
+        amount,
+    )?;
+    token::close_account(CpiContext::new_with_signer(
+        *token_program.key,
+        CloseAccount {
+            account: unwrap_ata,
+            destination,
+            authority,
+        },
+        signer_seeds,
+    ))?;
+    Ok(())
 }
 
 pub fn calc_proportional_value(total_value: u64, reduce_bps: u16) -> Result<u64> {

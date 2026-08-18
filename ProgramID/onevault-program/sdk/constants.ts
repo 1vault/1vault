@@ -7,7 +7,7 @@ import { PublicKey } from "@solana/web3.js";
  * - docs/PROGRAM_ID.md
  */
 export const ONEVAULT_PROGRAM_ID = new PublicKey(
-  "J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G"
+  "2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP"
 );
 
 /** PDA seed strings — must match programs/1vault/src/constants.rs */
@@ -28,6 +28,7 @@ export const SEEDS = {
   vaultStake: "vault_stake",
   vaultStakeAccount: "vault_stake_account",
   treasury: "treasury",
+  feeUnwrap: "fee_unwrap",
   stakingPool: "staking_pool",
   staker: "staker",
   upgradeMultisig: "upgrade_multisig",
@@ -57,6 +58,11 @@ export const PROTOCOL_DEFAULTS = {
   licenseLockAmount: 1_000_000,
   bpsDenominator: 10_000,
   sharePriceScale: 1_000_000,
+} as const;
+
+export const FEE_WALLETS = {
+  platformSol: new PublicKey("9YajdkrkvyzDm57bPSijfy6sFNj9wuqQtYmuYUXZtPDx"),
+  degenSol: new PublicKey("EXQCB3PJnza9oBNMupBQjVGSuQXaLvTyXNffCJ5zz286"),
 } as const;
 
 /** VaultStatus enum (Anchor account) */

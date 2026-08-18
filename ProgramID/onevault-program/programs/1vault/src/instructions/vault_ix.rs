@@ -54,7 +54,7 @@ pub struct CreateVault<'info> {
         bump = protocol_config.bump,
         constraint = !protocol_config.is_paused @ OneVaultError::ProtocolPaused,
     )]
-    pub protocol_config: Account<'info, ProtocolConfig>,
+    pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
     #[account(
         mut,
@@ -62,14 +62,14 @@ pub struct CreateVault<'info> {
         bump = strategist_account.bump,
         constraint = strategist_account.owner == strategist.key() @ OneVaultError::Unauthorized,
     )]
-    pub strategist_account: Account<'info, Strategist>,
+    pub strategist_account: Box<Account<'info, Strategist>>,
 
     #[account(
         seeds = [LICENSE_SEED, strategist.key().as_ref()],
         bump = license.bump,
         constraint = license.is_active @ OneVaultError::LicenseNotActive,
     )]
-    pub license: Account<'info, License>,
+    pub license: Box<Account<'info, License>>,
 
     #[account(
         init,
@@ -78,7 +78,7 @@ pub struct CreateVault<'info> {
         seeds = [VAULT_SEED, strategist.key().as_ref(), &vault_id.to_le_bytes()],
         bump
     )]
-    pub vault: Account<'info, Vault>,
+    pub vault: Box<Account<'info, Vault>>,
 
     #[account(
         init,
@@ -87,7 +87,7 @@ pub struct CreateVault<'info> {
         seeds = [VAULT_FEE_SEED, vault.key().as_ref()],
         bump
     )]
-    pub vault_fee_state: Account<'info, VaultFeeState>,
+    pub vault_fee_state: Box<Account<'info, VaultFeeState>>,
 
     #[account(
         init,
@@ -96,9 +96,9 @@ pub struct CreateVault<'info> {
         seeds = [VAULT_RISK_SEED, vault.key().as_ref()],
         bump
     )]
-    pub vault_risk_state: Account<'info, VaultRiskState>,
+    pub vault_risk_state: Box<Account<'info, VaultRiskState>>,
 
-    pub base_mint: Account<'info, Mint>,
+    pub base_mint: Box<Account<'info, Mint>>,
 
     #[account(
         init,
@@ -108,7 +108,7 @@ pub struct CreateVault<'info> {
         mint::decimals = base_mint.decimals,
         mint::authority = vault,
     )]
-    pub share_mint: Account<'info, Mint>,
+    pub share_mint: Box<Account<'info, Mint>>,
 
     #[account(
         init,
@@ -116,7 +116,7 @@ pub struct CreateVault<'info> {
         token::mint = base_mint,
         token::authority = vault,
     )]
-    pub vault_token_account: Account<'info, TokenAccount>,
+    pub vault_token_account: Box<Account<'info, TokenAccount>>,
 
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
@@ -394,10 +394,10 @@ pub fn handle_close_vault(ctx: Context<CloseVault>) -> Result<()> {
 pub struct UpdateNav<'info> {
     #[account(mut, seeds = [VAULT_SEED, vault.strategist.as_ref(), &vault.vault_id.to_le_bytes()], bump = vault.bump,
         constraint = vault.status != VaultStatus::Closed @ OneVaultError::VaultClosed)]
-    pub vault: Account<'info, Vault>,
+    pub vault: Box<Account<'info, Vault>>,
     #[account(constraint = vault_token_account.key() == vault.vault_token_account,
         constraint = vault_token_account.mint == vault.base_mint)]
-    pub vault_token_account: Account<'info, TokenAccount>,
+    pub vault_token_account: Box<Account<'info, TokenAccount>>,
 }
 
 pub fn handle_update_nav(ctx: Context<UpdateNav>) -> Result<()> {
@@ -417,7 +417,7 @@ pub struct UpdateVaultStakedValue<'info> {
     pub strategist: Signer<'info>,
     #[account(mut, seeds = [VAULT_SEED, strategist.key().as_ref(), &vault.vault_id.to_le_bytes()], bump = vault.bump,
         constraint = vault.strategist == strategist.key() @ OneVaultError::Unauthorized)]
-    pub vault: Account<'info, Vault>,
+    pub vault: Box<Account<'info, Vault>>,
 }
 
 pub fn handle_update_vault_staked_value(ctx: Context<UpdateVaultStakedValue>, staked_value: u64) -> Result<()> {

@@ -6,7 +6,7 @@ Complete developer and operator documentation for the **1Vault** Solana program 
 |------|-------|
 | **Product name** | 1Vault |
 | **Crate / module** | `onevault` |
-| **Program ID** | `J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G` |
+| **Program ID** | `2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP` |
 | **Framework** | Anchor (Rust) |
 | **Source root** | `programs/1vault/src/` |
 | **TypeScript SDK** | `../sdk/` |

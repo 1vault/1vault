@@ -1,6 +1,6 @@
 # 1Vault — Solana Smart Contract (Final On-Chain)
 
-**Branding:** 1Vault | **Code:** `onevault` | **Program ID:** `J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G`
+**Branding:** 1Vault | **Code:** `onevault` | **Program ID:** `2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP`
 
 Non-custodial strategy vault protocol — Phase 1–3 + Staking (on-chain only, no UI/backend).
 

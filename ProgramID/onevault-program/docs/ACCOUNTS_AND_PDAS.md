@@ -181,7 +181,7 @@ Controls auto-follow, allocation mode, per-investor risk caps, DCA/exit preferen
 ```typescript
 import { PublicKey } from "@solana/web3.js";
 
-const PROGRAM_ID = new PublicKey("J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G");
+const PROGRAM_ID = new PublicKey("2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP");
 
 function vaultPda(strategist: PublicKey, vaultId: bigint): [PublicKey, number] {
   const idBuf = Buffer.alloc(8);

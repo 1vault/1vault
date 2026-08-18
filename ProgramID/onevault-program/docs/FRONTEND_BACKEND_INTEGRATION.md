@@ -8,7 +8,7 @@ How to connect web apps, mobile clients, and backend services to the **1Vault** 
 
 | Item | Value |
 |------|-------|
-| **Program ID** | `J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G` |
+| **Program ID** | `2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP` |
 | **IDL** | `target/idl/onevault.json` (after `anchor build`) |
 | **TS SDK** | `onevault-program/sdk/` |
 | **PDA helpers** | `sdk/pda.ts` |
@@ -35,7 +35,7 @@ See [PROGRAM_ID.md](./PROGRAM_ID.md) for build & keypair details.
 ### Frontend (Next.js / Vite)
 
 ```env
-NEXT_PUBLIC_ONEVAULT_PROGRAM_ID=J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G
+NEXT_PUBLIC_ONEVAULT_PROGRAM_ID=2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP
 NEXT_PUBLIC_SOLANA_RPC=https://api.devnet.solana.com
 NEXT_PUBLIC_SOLANA_CLUSTER=devnet
 ```
@@ -43,7 +43,7 @@ NEXT_PUBLIC_SOLANA_CLUSTER=devnet
 ### Backend (Node / indexer / keeper)
 
 ```env
-ONEVAULT_PROGRAM_ID=J1EpKCXNJL6JfePvNEkFLRhRRVTFZN46oeatYViqqk3G
+ONEVAULT_PROGRAM_ID=2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP
 SOLANA_RPC_URL=https://api.devnet.solana.com
 SOLANA_CLUSTER=devnet
 KEEPER_KEYPAIR_PATH=./keeper.json

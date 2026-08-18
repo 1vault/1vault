@@ -21,25 +21,25 @@ pub struct RequestTrade<'info> {
 
     #[account(seeds = [PROTOCOL_SEED], bump = protocol_config.bump,
         constraint = !protocol_config.is_paused @ OneVaultError::ProtocolPaused)]
-    pub protocol_config: Account<'info, ProtocolConfig>,
+    pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
     #[account(mut, seeds = [VAULT_SEED, strategist.key().as_ref(), &vault.vault_id.to_le_bytes()], bump = vault.bump,
         constraint = vault.strategist == strategist.key() @ OneVaultError::Unauthorized,
         constraint = vault.is_operational() @ OneVaultError::VaultPaused)]
-    pub vault: Account<'info, Vault>,
+    pub vault: Box<Account<'info, Vault>>,
 
     #[account(seeds = [LICENSE_SEED, strategist.key().as_ref()], bump = license.bump,
         constraint = license.is_active @ OneVaultError::LicenseNotActive,
         constraint = license.strategist == strategist.key() @ OneVaultError::Unauthorized)]
-    pub license: Account<'info, License>,
+    pub license: Box<Account<'info, License>>,
 
     #[account(seeds = [VAULT_RISK_SEED, vault.key().as_ref()], bump = vault_risk_state.bump,
         constraint = vault_risk_state.vault == vault.key())]
-    pub vault_risk_state: Account<'info, VaultRiskState>,
+    pub vault_risk_state: Box<Account<'info, VaultRiskState>>,
 
     #[account(init, payer = strategist, space = 8 + TradeRequest::INIT_SPACE,
         seeds = [TRADE_SEED, vault.key().as_ref(), &trade_id.to_le_bytes()], bump)]
-    pub trade_request: Account<'info, TradeRequest>,
+    pub trade_request: Box<Account<'info, TradeRequest>>,
 
     pub system_program: Program<'info, System>,
 }
@@ -136,13 +136,13 @@ pub struct CancelTrade<'info> {
     pub strategist: Signer<'info>,
     #[account(mut, seeds = [VAULT_SEED, strategist.key().as_ref(), &vault.vault_id.to_le_bytes()], bump = vault.bump,
         constraint = vault.strategist == strategist.key() @ OneVaultError::Unauthorized)]
-    pub vault: Account<'info, Vault>,
+    pub vault: Box<Account<'info, Vault>>,
     #[account(mut, seeds = [TRADE_SEED, vault.key().as_ref(), &trade_request.trade_id.to_le_bytes()],
         bump = trade_request.bump, constraint = trade_request.vault == vault.key(),
         constraint = trade_request.strategist == strategist.key() @ OneVaultError::Unauthorized,
         constraint = trade_request.status == TradeStatus::Pending @ OneVaultError::TradeNotPending,
         close = strategist)]
-    pub trade_request: Account<'info, TradeRequest>,
+    pub trade_request: Box<Account<'info, TradeRequest>>,
 }
 
 pub fn handle_cancel_trade(ctx: Context<CancelTrade>) -> Result<()> {
@@ -157,21 +157,21 @@ pub struct ExecuteTrade<'info> {
 
     #[account(seeds = [PROTOCOL_SEED], bump = protocol_config.bump,
         constraint = !protocol_config.is_paused @ OneVaultError::ProtocolPaused)]
-    pub protocol_config: Account<'info, ProtocolConfig>,
+    pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
     #[account(mut, seeds = [VAULT_SEED, strategist.key().as_ref(), &vault.vault_id.to_le_bytes()], bump = vault.bump,
         constraint = vault.strategist == strategist.key() @ OneVaultError::Unauthorized,
         constraint = vault.is_operational() @ OneVaultError::VaultPaused)]
-    pub vault: Account<'info, Vault>,
+    pub vault: Box<Account<'info, Vault>>,
 
     #[account(seeds = [LICENSE_SEED, strategist.key().as_ref()], bump = license.bump,
         constraint = license.is_active @ OneVaultError::LicenseNotActive)]
-    pub license: Account<'info, License>,
+    pub license: Box<Account<'info, License>>,
 
     #[account(mut, seeds = [TRADE_SEED, vault.key().as_ref(), &trade_request.trade_id.to_le_bytes()],
         bump = trade_request.bump, constraint = trade_request.vault == vault.key(),
         constraint = trade_request.status == TradeStatus::Pending @ OneVaultError::TradeNotPending)]
-    pub trade_request: Account<'info, TradeRequest>,
+    pub trade_request: Box<Account<'info, TradeRequest>>,
 
     /// CHECK: validated against protocol allowlist
     pub dex_program: UncheckedAccount<'info>,
@@ -179,12 +179,12 @@ pub struct ExecuteTrade<'info> {
     #[account(mut,
         constraint = vault_input_token.mint == trade_request.input_mint,
         constraint = vault_input_token.owner == vault.key() @ OneVaultError::Unauthorized)]
-    pub vault_input_token: Account<'info, TokenAccount>,
+    pub vault_input_token: Box<Account<'info, TokenAccount>>,
 
     #[account(mut,
         constraint = vault_output_token.mint == trade_request.output_mint,
         constraint = vault_output_token.owner == vault.key() @ OneVaultError::Unauthorized)]
-    pub vault_output_token: Account<'info, TokenAccount>,
+    pub vault_output_token: Box<Account<'info, TokenAccount>>,
 
     pub token_program: Program<'info, Token>,
 }
@@ -299,16 +299,16 @@ pub struct OpenPosition<'info> {
     #[account(mut, seeds = [VAULT_SEED, strategist.key().as_ref(), &vault.vault_id.to_le_bytes()], bump = vault.bump,
         constraint = vault.strategist == strategist.key() @ OneVaultError::Unauthorized,
         constraint = vault.is_operational() @ OneVaultError::VaultPaused)]
-    pub vault: Account<'info, Vault>,
+    pub vault: Box<Account<'info, Vault>>,
 
     #[account(seeds = [TRADE_SEED, vault.key().as_ref(), &trade_request.trade_id.to_le_bytes()],
         bump = trade_request.bump, constraint = trade_request.vault == vault.key(),
         constraint = trade_request.status == TradeStatus::Executed @ OneVaultError::InvalidTrade)]
-    pub trade_request: Account<'info, TradeRequest>,
+    pub trade_request: Box<Account<'info, TradeRequest>>,
 
     #[account(init, payer = strategist, space = 8 + VaultPosition::INIT_SPACE,
         seeds = [VAULT_POSITION_SEED, vault.key().as_ref(), &position_id.to_le_bytes()], bump)]
-    pub vault_position: Account<'info, VaultPosition>,
+    pub vault_position: Box<Account<'info, VaultPosition>>,
 
     pub system_program: Program<'info, System>,
 }
@@ -363,9 +363,9 @@ pub struct EnsureVaultTokenAta<'info> {
         seeds = [VAULT_SEED, vault.strategist.as_ref(), &vault.vault_id.to_le_bytes()],
         bump = vault.bump,
     )]
-    pub vault: Account<'info, Vault>,
+    pub vault: Box<Account<'info, Vault>>,
 
-    pub mint: Account<'info, Mint>,
+    pub mint: Box<Account<'info, Mint>>,
 
     #[account(
         init_if_needed,
@@ -373,7 +373,7 @@ pub struct EnsureVaultTokenAta<'info> {
         associated_token::mint = mint,
         associated_token::authority = vault,
     )]
-    pub vault_token_account: Account<'info, TokenAccount>,
+    pub vault_token_account: Box<Account<'info, TokenAccount>>,
 
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
