@@ -68,7 +68,6 @@ pub fn handle_increase_position(ctx: Context<IncreasePosition>, added_value: u64
     pos.entry_value = pos.entry_value.saturating_add(added_value);
     pos.current_value = pos.current_value.saturating_add(added_value);
     pos.output_amount = pos.output_amount.saturating_add(added_output);
-    pos.dca_entries_completed = pos.dca_entries_completed.saturating_add(1);
     ctx.accounts.vault.position_value = ctx.accounts.vault.position_value.saturating_add(added_value);
     Ok(())
 }

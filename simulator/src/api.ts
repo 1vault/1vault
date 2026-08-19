@@ -32,7 +32,14 @@ async function readSse(
 }
 
 export async function fetchProtocol(): Promise<ProtocolInfo> {
-  const res = await fetch("/api/protocol");
+  let res: Response;
+  try {
+    res = await fetch("/api/protocol");
+  } catch {
+    throw new Error(
+      "Cannot reach simulator API on port 8788. Use http://127.0.0.1:5173 and keep `npm run dev` running."
+    );
+  }
   if (!res.ok) throw new Error("protocol fetch failed");
   return res.json();
 }

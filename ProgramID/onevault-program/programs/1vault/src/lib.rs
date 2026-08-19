@@ -24,10 +24,7 @@ pub mod onevault {
         treasury: Pubkey,
         platform_token_mint: Pubkey,
         license_lock_amount: u64,
-        withdrawal_fee_bps: u16,
-        referral_fee_share_bps: u16,
         performance_fee_bps: u16,
-        protocol_fee_share_bps: u16,
         allowed_dex_programs: Vec<Pubkey>,
     ) -> Result<()> {
         instructions::protocol_ix::handle_initialize_protocol(
@@ -35,10 +32,7 @@ pub mod onevault {
             treasury,
             platform_token_mint,
             license_lock_amount,
-            withdrawal_fee_bps,
-            referral_fee_share_bps,
             performance_fee_bps,
-            protocol_fee_share_bps,
             allowed_dex_programs,
         )
     }
@@ -47,32 +41,18 @@ pub mod onevault {
         ctx: Context<UpdateProtocolConfig>,
         treasury: Option<Pubkey>,
         license_lock_amount: Option<u64>,
-        withdrawal_fee_bps: Option<u16>,
-        referral_fee_share_bps: Option<u16>,
         performance_fee_bps: Option<u16>,
-        protocol_fee_share_bps: Option<u16>,
     ) -> Result<()> {
         instructions::protocol_ix::handle_update_protocol_config(
             ctx,
             treasury,
             license_lock_amount,
-            withdrawal_fee_bps,
-            referral_fee_share_bps,
             performance_fee_bps,
-            protocol_fee_share_bps,
         )
     }
 
     pub fn pause_protocol(ctx: Context<PauseProtocol>, paused: bool) -> Result<()> {
         instructions::protocol_ix::handle_pause_protocol(ctx, paused)
-    }
-
-    pub fn update_staking_tiers(
-        ctx: Context<UpdateStakingTiers>,
-        tier_thresholds: [u64; MAX_STAKING_TIERS],
-        tier_discounts_bps: [u16; MAX_STAKING_TIERS],
-    ) -> Result<()> {
-        instructions::protocol_ix::handle_update_staking_tiers(ctx, tier_thresholds, tier_discounts_bps)
     }
 
     pub fn update_allowed_dex(
@@ -95,13 +75,6 @@ pub mod onevault {
 
     pub fn sweep_treasury_sol(ctx: Context<SweepTreasurySol>) -> Result<()> {
         instructions::protocol_ix::handle_sweep_treasury_sol(ctx)
-    }
-
-    pub fn update_protected_dex(
-        ctx: Context<UpdateProtectedDex>,
-        protected_dex_programs: Vec<Pubkey>,
-    ) -> Result<()> {
-        instructions::protocol_ix::handle_update_protected_dex(ctx, protected_dex_programs)
     }
 
     // ── Upgrade Multisig ──
@@ -174,10 +147,6 @@ pub mod onevault {
         instructions::strategist_ix::handle_unlock_license(ctx)
     }
 
-    pub fn register_referral(ctx: Context<RegisterReferral>) -> Result<()> {
-        instructions::strategist_ix::handle_register_referral(ctx)
-    }
-
     // ── Vault ──
     pub fn create_vault(
         ctx: Context<CreateVault>,
@@ -216,13 +185,6 @@ pub mod onevault {
 
     pub fn update_nav(ctx: Context<UpdateNav>) -> Result<()> {
         instructions::vault_ix::handle_update_nav(ctx)
-    }
-
-    pub fn update_vault_staked_value(
-        ctx: Context<UpdateVaultStakedValue>,
-        staked_value: u64,
-    ) -> Result<()> {
-        instructions::vault_ix::handle_update_vault_staked_value(ctx, staked_value)
     }
 
     // ── Investor ──
@@ -264,8 +226,6 @@ pub mod onevault {
         amount: u64,
         max_slippage_bps: u16,
         min_amount_out: u64,
-        dca_enabled: bool,
-        dca_index: u8,
         take_profit_bps: u16,
         stop_loss_bps: u16,
         linked_position_id: u64,
@@ -281,8 +241,6 @@ pub mod onevault {
             amount,
             max_slippage_bps,
             min_amount_out,
-            dca_enabled,
-            dca_index,
             take_profit_bps,
             stop_loss_bps,
             linked_position_id,
@@ -398,25 +356,6 @@ pub mod onevault {
         instructions::follow_ix::handle_sync_investor_tp_sl(ctx)
     }
 
-    pub fn update_follower_stats(
-        ctx: Context<UpdateFollowerStats>,
-        active_followers: u32,
-        estimated_follower_capital: u64,
-    ) -> Result<()> {
-        instructions::follow_ix::handle_update_follower_stats(
-            ctx,
-            active_followers,
-            estimated_follower_capital,
-        )
-    }
-
-    pub fn record_investor_deposit_stats(
-        ctx: Context<RecordInvestorDepositStats>,
-        amount: u64,
-    ) -> Result<()> {
-        instructions::follow_ix::handle_record_investor_deposit_stats(ctx, amount)
-    }
-
     // ── Accounting ──
     pub fn accrue_fees(ctx: Context<AccrueFees>) -> Result<()> {
         instructions::accounting_ix::handle_accrue_fees(ctx)
@@ -426,90 +365,8 @@ pub mod onevault {
         instructions::accounting_ix::handle_claim_fees(ctx)
     }
 
-    pub fn claim_referral_rewards(ctx: Context<ClaimReferralRewards>) -> Result<()> {
-        instructions::accounting_ix::handle_claim_referral_rewards(ctx)
-    }
-
-    // ── Staking ──
-    pub fn initialize_staking(ctx: Context<InitializeStaking>) -> Result<()> {
-        instructions::staking_ix::handle_initialize_staking(ctx)
-    }
-
-    pub fn init_staker(ctx: Context<InitStaker>) -> Result<()> {
-        instructions::staking_ix::handle_init_staker(ctx)
-    }
-
-    pub fn stake_platform(ctx: Context<StakePlatform>, amount: u64, lock_duration_secs: i64) -> Result<()> {
-        instructions::staking_ix::handle_stake_platform(ctx, amount, lock_duration_secs)
-    }
-
-    pub fn unstake_platform(ctx: Context<UnstakePlatform>, amount: u64) -> Result<()> {
-        instructions::staking_ix::handle_unstake_platform(ctx, amount)
-    }
-
-    pub fn claim_staking_reward(ctx: Context<ClaimStakingReward>) -> Result<()> {
-        instructions::staking_ix::handle_claim_staking_reward(ctx)
-    }
-
-    pub fn fund_staking_rewards(ctx: Context<FundStakingRewards>, amount: u64) -> Result<()> {
-        instructions::staking_ix::handle_fund_staking_rewards(ctx, amount)
-    }
-
-    // ── Risk Engine ──
-    pub fn init_vault_risk(ctx: Context<InitVaultRisk>) -> Result<()> {
-        instructions::risk_ix::handle_init_vault_risk(ctx)
-    }
-
-    pub fn update_vault_risk(
-        ctx: Context<UpdateVaultRisk>,
-        daily_loss_limit_bps: Option<u16>,
-        max_drawdown_bps: Option<u16>,
-    ) -> Result<()> {
-        instructions::risk_ix::handle_update_vault_risk(ctx, daily_loss_limit_bps, max_drawdown_bps)
-    }
-
-    pub fn reset_vault_risk(ctx: Context<ResetVaultRisk>) -> Result<()> {
-        instructions::risk_ix::handle_reset_vault_risk(ctx)
-    }
-
-    // ── Vault SOL Staking / Yield ──
-    pub fn init_vault_stake(ctx: Context<InitVaultStake>, validator_vote_account: Pubkey) -> Result<()> {
-        instructions::vault_stake_ix::handle_init_vault_stake(ctx, validator_vote_account)
-    }
-
-    pub fn deposit_vault_sol(ctx: Context<DepositVaultSol>, lamports: u64) -> Result<()> {
-        instructions::vault_stake_ix::handle_deposit_vault_sol(ctx, lamports)
-    }
-
-    pub fn stake_vault_sol(ctx: Context<StakeVaultSol>, lamports: u64) -> Result<()> {
-        instructions::vault_stake_ix::handle_stake_vault_sol(ctx, lamports)
-    }
-
-    pub fn deactivate_vault_stake(ctx: Context<DeactivateVaultStake>) -> Result<()> {
-        instructions::vault_stake_ix::handle_deactivate_vault_stake(ctx)
-    }
-
-    pub fn withdraw_vault_stake(ctx: Context<WithdrawVaultStake>, lamports: u64) -> Result<()> {
-        instructions::vault_stake_ix::handle_withdraw_vault_stake(ctx, lamports)
-    }
-
-    pub fn sync_vault_stake(ctx: Context<SyncVaultStake>) -> Result<()> {
-        instructions::vault_stake_ix::handle_sync_vault_stake(ctx)
-    }
-
-    pub fn set_vault_yield_strategy(
-        ctx: Context<SetVaultYieldStrategy>,
-        strategy: YieldStrategy,
-    ) -> Result<()> {
-        instructions::vault_stake_ix::handle_set_vault_yield_strategy(ctx, strategy)
-    }
-
     // ── Keepers ──
     pub fn keeper_refresh_vault(ctx: Context<KeeperRefreshVault>) -> Result<()> {
         instructions::keeper_ix::handle_keeper_refresh_vault(ctx)
-    }
-
-    pub fn keeper_reset_risk(ctx: Context<KeeperResetRisk>) -> Result<()> {
-        instructions::keeper_ix::handle_keeper_reset_risk(ctx)
     }
 }

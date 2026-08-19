@@ -16,8 +16,6 @@ pub struct TradeRequest {
     pub amount: u64,
     pub max_slippage_bps: u16,
     pub min_amount_out: u64,
-    pub dca_enabled: bool,
-    pub dca_index: u8,
     pub take_profit_bps: u16,
     pub stop_loss_bps: u16,
     pub linked_position_id: u64,

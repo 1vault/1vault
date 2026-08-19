@@ -53,8 +53,6 @@ const DEGEN_FEE_WALLET = CLUSTER_ADDR.degenFeeWallet;
 const PERFORMANCE_FEE_BPS = 2000;
 const TRADE = 30_000_000;
 const PNL = 50_000_000;
-/** Flat $0.50 platform fee — charged only when redeeming to the investor wallet. */
-const WITHDRAW_FLAT_FEE_LAMPORTS = 4_000_000;
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const IDL_CANDIDATES = [
@@ -590,7 +588,7 @@ export async function runLiveFlow(opts: {
     vaultTokenAccount: PublicKey;
     totalShares: { toString(): string };
     totalAssets: { toString(): string };
-    stakedValue: { toString(): string };
+    positionValue?: { toString(): string };
     nextTradeId?: { toString(): string };
     nextPositionId?: { toString(): string };
     name: string;
@@ -647,17 +645,8 @@ export async function runLiveFlow(opts: {
       const vaultToken = Keypair.generate();
       const risk = {
         description: "Live presentation vault (wSOL)",
-        strategyType: { custom: {} },
-        maxPositionBps: 5000,
-        maxExposureBps: 8000,
-        maxOpenPositions: 3,
         maxSlippageBps: 100,
-        mevMode: { standard: {} },
-        dcaEnabled: false,
-        dcaCount: 0,
-        dcaAllocationBps: 0,
         acceptedMints: [NATIVE_MINT],
-        yieldStrategy: { none: {} },
       };
       const tx = await call(degenProg, "create_vault", "createVault")(
         new BN(vaultId),
@@ -672,7 +661,6 @@ export async function runLiveFlow(opts: {
           license,
           vault: vaultPk,
           vaultFeeState: pda([Buffer.from("vault_fee"), vaultPk.toBuffer()]),
-          vaultRiskState: pda([Buffer.from("vault_risk"), vaultPk.toBuffer()]),
           baseMint: NATIVE_MINT,
           shareMint: shareMintFor(vaultPk),
           vaultTokenAccount: vaultToken.publicKey,
@@ -744,9 +732,6 @@ export async function runLiveFlow(opts: {
     maxPositionBps,
     maxExposureBps: 8000,
     maxOpenPositions: 3,
-    followDca: false,
-    dcaMode: { followStrategist: {} },
-    dcaAllocationBps: 0,
     followPartialExit: true,
     followFullExit: true,
     followTpSl,
@@ -912,9 +897,6 @@ export async function runLiveFlow(opts: {
       maxPositionBps,
       maxExposureBps: 8000,
       maxOpenPositions: 3,
-      followDca: false,
-      dcaMode: { followStrategist: {} },
-      dcaAllocationBps: 0,
       followPartialExit: true,
       followFullExit: true,
       followTpSl,
@@ -986,14 +968,14 @@ export async function runLiveFlow(opts: {
     emit({
       id: "deposit",
       status: "skipped",
-      detail: `Redeeming parked funds from vault #${vaultId} to wallet · flat $0.50 platform fee`,
+      detail: `Redeeming parked funds from vault #${vaultId} to wallet · free withdraw`,
       fields: {
         vaultId: String(vaultId),
         vault: vaultPk.toBase58(),
         shares: alreadyParked.toString(),
         vaultAssets: lamportsToSol(vault.totalAssets.toString()),
         depositFee: "$0",
-        walletFee: "$0.50",
+        walletFee: "$0",
       },
     });
   } else if (mode === "open-position" && !needPark) {
@@ -1009,7 +991,7 @@ export async function runLiveFlow(opts: {
         shares: alreadyParked.toString(),
         vaultAssets: lamportsToSol(vault.totalAssets.toString()),
         depositFee: "$0",
-        walletFee: "$0.50 on wallet withdraw",
+        walletFee: "$0 (free withdraw)",
       },
     });
   } else {
@@ -1054,7 +1036,7 @@ export async function runLiveFlow(opts: {
         shares: shares.toString(),
         vaultAssets: lamportsToSol(vault.totalAssets.toString()),
         depositFee: "$0",
-        walletFee: "$0.50 on wallet withdraw",
+        walletFee: "$0 (free withdraw)",
       },
     });
   } catch (e) {
@@ -1301,7 +1283,7 @@ export async function runLiveFlow(opts: {
     emit({
       id: "toWallet",
       status: "running",
-      detail: "Redeeming locked vault SOL to the retail wallet · flat $0.50 platform fee",
+      detail: "Redeeming locked vault SOL to the retail wallet · free withdraw",
     });
     try {
       if (shareAmtNow <= 0n) {
@@ -1348,11 +1330,6 @@ export async function runLiveFlow(opts: {
         shareAmtNow > 0n && totalShares > 0
           ? Math.floor((Number(shareAmtNow) * nav) / totalShares)
           : 0;
-      if (grossEst <= WITHDRAW_FLAT_FEE_LAMPORTS) {
-        throw new Error(
-          "Parked value is too small to cover the flat $0.50 platform fee on wallet withdraw"
-        );
-      }
       const maxByLiq =
         nav > 0 && totalShares > 0
           ? BigInt(Math.floor((vaultAtaNow * totalShares) / nav))
@@ -1361,12 +1338,6 @@ export async function runLiveFlow(opts: {
       if (sharesToBurn <= 0n) {
         throw new Error("Vault has no liquid wSOL to send to the wallet");
       }
-      const unwrapPlatform = pda([
-        Buffer.from("fee_unwrap"),
-        vaultPk.toBuffer(),
-        PLATFORM_WALLET.toBuffer(),
-      ]);
-      const treasuryAta = pda([Buffer.from("treasury"), NATIVE_MINT.toBuffer()]);
       const setup = new Transaction().add(
         createAssociatedTokenAccountIdempotentInstruction(
           retail.publicKey,
@@ -1385,49 +1356,28 @@ export async function runLiveFlow(opts: {
           investorTokenAccount: retailWsol,
           vaultTokenAccount: vault.vaultTokenAccount,
           shareMint,
-          treasuryTokenAccount: treasuryAta,
-          platformWallet: PLATFORM_WALLET,
-          unwrapPlatform,
-          nativeMint: NATIVE_MINT,
           tokenProgram: TOKEN_PROGRAM_ID,
-          systemProgram: SystemProgram.programId,
-          rent: SYSVAR_RENT_PUBKEY,
-          staker: null,
-          referralAccount: null,
         })
         .transaction();
       const sig = await sendAndPoll(rpc, tx, [retail]);
       // Program pays the redeem into the retail wSOL ATA (So1111…11112).
       // Close that ATA so it becomes native SOL (11111…11111), not leftover wSOL.
       const unwrapped = await unwrapWsolToNative(rpc, retail, retailWsol);
-      const afterPlatform = await safeBal(PLATFORM_WALLET);
       const afterRetail = await safeBal(retail.publicKey);
       emit({
         id: "toWallet",
         status: "success",
-        detail: `Unwrapped to native SOL · flat $0.50 platform fee`,
+        detail: `Unwrapped to native SOL · free withdraw`,
         tx: unwrapped.sig ?? sig,
         fields: {
           explorer: explorerTx(unwrapped.sig ?? sig),
           withdrawTx: explorerTx(sig),
           gross: lamportsToSol(grossEst),
-          platformFee: "$0.50",
+          platformFee: "0",
           netReceived: lamportsToSol(unwrapped.unwrapped),
           unwrapped: `${lamportsToSol(unwrapped.unwrapped)} native SOL`,
           mint: "11111111111111111111111111111111",
-          exitFee: "flat $0.50",
-        },
-      });
-      emit({
-        id: "platform",
-        status: "success",
-        detail: "Platform received the flat $0.50 withdraw fee",
-        fields: {
-          wallet: PLATFORM_WALLET.toBase58(),
-          before: lamportsToSol(beforePlatform),
-          after: lamportsToSol(afterPlatform),
-          delta: lamportsToSol(afterPlatform - beforePlatform),
-          explorer: explorerAddr(PLATFORM_WALLET.toBase58()),
+          exitFee: "free",
         },
       });
       emit({
@@ -1496,14 +1446,12 @@ export async function runLiveFlow(opts: {
       `Vault has ${lamportsToSol(vaultAssets)} SOL — run Create vault to park funds, then Open position`
     );
   }
-  const maxPosBps = Number((vault as { maxPositionBps?: number }).maxPositionBps ?? 5000);
-  const maxPos = Math.floor((vaultAssets * maxPosBps) / 10_000);
+  const maxPos = Math.floor((vaultAssets * 5000) / 10_000);
   const tradeLamports = Math.min(TRADE, Math.max(1_000_000, maxPos || TRADE));
   // Live program adds received token units onto vault.position_value (lamports).
   const demoAmount = BigInt(tradeLamports);
   const tradeId = bnNum(vault.nextTradeId, 1);
   const positionId = bnNum(vault.nextPositionId, 1);
-  const vaultRisk = pda([Buffer.from("vault_risk"), vaultPk.toBuffer()]);
   const tradePk = pda([Buffer.from("trade"), vaultPk.toBuffer(), u64Le(tradeId)]);
   const positionPk = pda([Buffer.from("vault_position"), vaultPk.toBuffer(), u64Le(positionId)]);
   const investorPositionPk = pda([
@@ -1531,8 +1479,6 @@ export async function runLiveFlow(opts: {
       new BN(tradeLamports),
       100,
       new BN(0),
-      false,
-      0,
       takeProfitBps,
       stopLossBps,
       new BN(0),
@@ -1543,7 +1489,6 @@ export async function runLiveFlow(opts: {
         protocolConfig: PROTOCOL_CONFIG,
         vault: vaultPk,
         license,
-        vaultRiskState: vaultRisk,
         tradeRequest: tradePk,
         systemProgram: SystemProgram.programId,
         strategistShareAccount: degenShares,
@@ -1810,11 +1755,14 @@ export async function runLiveFlow(opts: {
   // Accrue while marked PnL is still in position_value. Live update_nav ratchets HWM
   // without taking fees, so accruing after that NAV sync yields NothingToClaim.
   let degenFeeLamports = 0;
-  let protocolFeeLamports = 0;
   let accrueSig = "";
   try {
     const accrueTx = await call(degenProg, "accrue_fees", "accrueFees")()
-      .accounts({ protocolConfig: PROTOCOL_CONFIG, vault: vaultPk, staker: null })
+      .accounts({
+        protocolConfig: PROTOCOL_CONFIG,
+        vault: vaultPk,
+        vaultFeeState: pda([Buffer.from("vault_fee"), vaultPk.toBuffer()]),
+      })
       .transaction();
     accrueSig = await sendAndPoll(rpc, accrueTx, [degen]);
     const feeState: any = await (degenProg.account as any).vaultFeeState.fetch(
@@ -1822,10 +1770,7 @@ export async function runLiveFlow(opts: {
     );
     const accruedDegen = Number(feeState.accruedPerformanceFees?.toString?.() ?? 0);
     const claimedDegen = Number(feeState.claimedPerformanceFees?.toString?.() ?? 0);
-    const accruedProto = Number(feeState.accruedProtocolFees?.toString?.() ?? 0);
-    const claimedProto = Number(feeState.claimedProtocolFees?.toString?.() ?? 0);
     degenFeeLamports = Math.max(0, accruedDegen - claimedDegen);
-    protocolFeeLamports = Math.max(0, accruedProto - claimedProto);
   } catch (e) {
     emit({ id: "accrue", status: "error", detail: String(e).slice(0, 400) });
     throw e;
@@ -1932,11 +1877,6 @@ export async function runLiveFlow(opts: {
     throw e;
   }
 
-  const unwrapPlatform = pda([
-    Buffer.from("fee_unwrap"),
-    vaultPk.toBuffer(),
-    PLATFORM_WALLET.toBuffer(),
-  ]);
   const unwrapDegen = pda([
     Buffer.from("fee_unwrap"),
     vaultPk.toBuffer(),
@@ -1946,28 +1886,27 @@ export async function runLiveFlow(opts: {
   emit({
     id: "accrue",
     status: "running",
-    detail: "Cutting degen + platform fees from vault SOL at market exit",
+    detail: "Cutting degen performance fee from vault SOL at market exit",
   });
   emit({
     id: "accrue",
     status: "success",
-    detail: `From vault · degen pool ${lamportsToSol(degenFeeLamports)} · platform ${lamportsToSol(protocolFeeLamports)}`,
+    detail: `From vault · degen pool ${lamportsToSol(degenFeeLamports)}`,
     tx: accrueSig,
     fields: {
       explorer: explorerTx(accrueSig),
       degenAccrued: lamportsToSol(degenFeeLamports),
-      protocolAccrued: lamportsToSol(protocolFeeLamports),
     },
   });
 
   emit({
     id: "claim",
     status: "running",
-    detail: "Paying EXQCB3… degen pool and platform wallet directly from the vault",
+    detail: "Paying EXQCB3… degen pool directly from the vault",
   });
   let claimSig = "";
   try {
-    if (degenFeeLamports <= 0 && protocolFeeLamports <= 0) {
+    if (degenFeeLamports <= 0) {
       emit({
         id: "claim",
         status: "skipped",
@@ -1980,10 +1919,9 @@ export async function runLiveFlow(opts: {
           strategist: degen.publicKey,
           protocolConfig: PROTOCOL_CONFIG,
           vault: vaultPk,
+          vaultFeeState: pda([Buffer.from("vault_fee"), vaultPk.toBuffer()]),
           vaultTokenAccount: vault.vaultTokenAccount,
-          platformWallet: PLATFORM_WALLET,
           degenWallet: DEGEN_FEE_WALLET,
-          unwrapPlatform,
           unwrapDegen,
           nativeMint: NATIVE_MINT,
           tokenProgram: TOKEN_PROGRAM_ID,
@@ -1992,31 +1930,16 @@ export async function runLiveFlow(opts: {
         })
         .transaction();
       claimSig = await sendAndPoll(rpc, claimTx, [degen]);
-      const afterPlatform = await safeBal(PLATFORM_WALLET);
       const afterDegenFee = await safeBal(DEGEN_FEE_WALLET);
       emit({
         id: "claim",
         status: "success",
-        detail: "Vault SOL sent to degen pool + platform wallets",
+        detail: "Vault SOL sent to degen pool wallet",
         tx: claimSig,
         fields: {
           explorer: explorerTx(claimSig),
-          platformDelta: lamportsToSol(afterPlatform - beforePlatform),
           degenFeeDelta: lamportsToSol(afterDegenFee - beforeDegenFee),
           degenWallet: DEGEN_FEE_WALLET.toBase58(),
-          platformWallet: PLATFORM_WALLET.toBase58(),
-        },
-      });
-      emit({
-        id: "platform",
-        status: "success",
-        detail: "Platform fee cut from vault at market exit",
-        fields: {
-          wallet: PLATFORM_WALLET.toBase58(),
-          before: lamportsToSol(beforePlatform),
-          after: lamportsToSol(afterPlatform),
-          delta: lamportsToSol(afterPlatform - beforePlatform),
-          explorer: explorerAddr(PLATFORM_WALLET.toBase58()),
         },
       });
       emit({
@@ -2043,13 +1966,6 @@ export async function runLiveFlow(opts: {
     detail: "Fees already paid — remaining retail AUM stays locked in the vault",
   });
   try {
-    const clearTx = await call(degenProg, "update_vault_staked_value", "updateVaultStakedValue")(
-      new BN(0)
-    )
-      .accounts({ strategist: degen.publicKey, vault: vaultPk })
-      .transaction();
-    await sendAndPoll(rpc, clearTx, [degen]);
-    vault = await (degenProg.account as any).vault.fetch(vaultPk);
     const navTx = await call(degenProg, "update_nav", "updateNav")()
       .accounts({ vault: vaultPk, vaultTokenAccount: vault.vaultTokenAccount })
       .transaction();
@@ -2068,20 +1984,20 @@ export async function runLiveFlow(opts: {
     emit({
       id: "withdraw",
       status: "success",
-      detail: `Locked in vault after fees · ${lamportsToSol(lockedLamports)} SOL. $0.50 only if you withdraw to wallet.`,
+      detail: `Locked in vault after fees · ${lamportsToSol(lockedLamports)} SOL. Withdraw to wallet is free.`,
       tx: lockNavSig,
       fields: {
         explorer: explorerTx(lockNavSig),
         shares: sharesHeld.toString(),
         parked: `${lamportsToSol(lockedLamports)} SOL`,
         vaultAssets: lamportsToSol(vault.totalAssets.toString()),
-        platformFee: "already paid at exit",
+        exitFee: "free",
       },
     });
     emit({
       id: "toWallet",
       status: "skipped",
-      detail: "Not sending to wallet. Use Withdraw to wallet for a flat $0.50 platform fee.",
+      detail: "Not sending to wallet. Use Withdraw to wallet for a free redeem.",
     });
     emit({
       id: "degen",

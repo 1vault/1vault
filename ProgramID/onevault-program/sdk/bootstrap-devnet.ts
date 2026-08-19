@@ -1,5 +1,5 @@
 /**
- * Devnet bootstrap: test 1VAULT mint + initialize_protocol + treasuries + staking.
+ * Devnet bootstrap: test 1VAULT mint + initialize_protocol + treasuries.
  * Run from sdk/: npm run bootstrap:devnet
  */
 import fs from "node:fs";
@@ -138,10 +138,7 @@ async function main() {
       payer.publicKey,
       mintPk,
       LICENSE_LOCK_AMOUNT,
-      50,
       2000,
-      2000,
-      500,
       [JUPITER_V6, RAYDIUM_AMM_V4, ORCA_WHIRLPOOL]
     )
       .accounts({
@@ -182,41 +179,17 @@ async function main() {
     console.log(`initialize_treasury ${name}:`, sig);
   }
 
-  const [stakingPool] = PublicKey.findProgramAddressSync(
-    [Buffer.from("staking_pool")],
-    PROGRAM_ID
-  );
-  const stakingInfo = await connection.getAccountInfo(stakingPool);
-  if (!stakingInfo) {
-    const sig = await method(
-      program,
-      "initialize_staking",
-      "initializeStaking"
-    )()
-      .accounts({
-        authority: payer.publicKey,
-        protocolConfig,
-        platformTokenMint: mintPk,
-      })
-      .rpc();
-    console.log("initialize_staking:", sig);
-  } else {
-    console.log("initialize_staking: already exists, skip");
-  }
-
   const out = {
     cluster: "devnet",
     programId: PROGRAM_ID.toBase58(),
     authority: payer.publicKey.toBase58(),
     treasury: payer.publicKey.toBase58(),
     protocolConfig: protocolConfig.toBase58(),
-    stakingPool: stakingPool.toBase58(),
     onevaultMint: mintPk.toBase58(),
     onevaultAta: ata.address.toBase58(),
     usdcMint: USDC_DEVNET.toBase58(),
     wsolMint: WSOL.toBase58(),
     licenseLockAmount: LICENSE_LOCK_AMOUNT.toString(),
-    withdrawalFeeBps: 50,
     explorer: `https://explorer.solana.com/address/${PROGRAM_ID.toBase58()}?cluster=devnet`,
   };
   fs.writeFileSync(OUT_PATH, JSON.stringify(out, null, 2) + "\n");

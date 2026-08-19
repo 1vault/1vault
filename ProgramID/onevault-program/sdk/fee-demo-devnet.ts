@@ -189,24 +189,15 @@ async function main() {
   }
 
   const vaultAfterDep: any = await (program.account as any).vault.fetch(vaultPk);
-  const newStaked = new BN(vaultAfterDep.stakedValue.toString()).add(new BN(pnlLamports));
-  const stakeTx = await call(
-    program,
-    "update_vault_staked_value",
-    "updateVaultStakedValue"
-  )(newStaked)
-    .accounts({
-      strategist: payer.publicKey,
-      vault: vaultPk,
-    })
-    .transaction();
-  console.log("staked_value", newStaked.toString(), await sendAndPoll(connection, stakeTx, [payer]));
 
   const accrueTx = await call(program, "accrue_fees", "accrueFees")()
     .accounts({
       protocolConfig,
       vault: vaultPk,
-      staker: null,
+      vaultFeeState: PublicKey.findProgramAddressSync(
+        [Buffer.from("vault_fee"), vaultPk.toBuffer()],
+        program.programId
+      )[0],
     })
     .transaction();
   console.log("accrue_fees", await sendAndPoll(connection, accrueTx, [payer]));
@@ -221,19 +212,9 @@ async function main() {
     "accrued degen",
     lamportsToSol(feeState.accruedPerformanceFees.toString())
   );
-  console.log(
-    "accrued protocol",
-    lamportsToSol(feeState.accruedProtocolFees.toString())
-  );
 
-  const claimable =
-    BigInt(feeState.accruedPerformanceFees.toString()) +
-    BigInt(feeState.accruedProtocolFees.toString());
+  const claimable = BigInt(feeState.accruedPerformanceFees.toString());
   if (claimable > 0n) {
-    const unwrapPlatform = PublicKey.findProgramAddressSync(
-      [Buffer.from(SEEDS.feeUnwrap), vaultPk.toBuffer(), FEE_WALLETS.platformSol.toBuffer()],
-      program.programId
-    )[0];
     const unwrapDegen = PublicKey.findProgramAddressSync(
       [Buffer.from(SEEDS.feeUnwrap), vaultPk.toBuffer(), FEE_WALLETS.degenSol.toBuffer()],
       program.programId
@@ -244,9 +225,7 @@ async function main() {
         protocolConfig,
         vault: vaultPk,
         vaultTokenAccount: vault.vaultTokenAccount,
-        platformWallet: FEE_WALLETS.platformSol,
         degenWallet: FEE_WALLETS.degenSol,
-        unwrapPlatform,
         unwrapDegen,
         nativeMint: NATIVE_MINT,
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -277,18 +256,7 @@ async function main() {
       investorTokenAccount: investorWsol,
       vaultTokenAccount: vault.vaultTokenAccount,
       shareMint,
-      treasuryTokenAccount: treasuryAta,
-      platformWallet: FEE_WALLETS.platformSol,
-      unwrapPlatform: PublicKey.findProgramAddressSync(
-        [Buffer.from(SEEDS.feeUnwrap), vaultPk.toBuffer(), FEE_WALLETS.platformSol.toBuffer()],
-        program.programId
-      )[0],
-      nativeMint: NATIVE_MINT,
       tokenProgram: TOKEN_PROGRAM_ID,
-      systemProgram: SystemProgram.programId,
-      rent: SYSVAR_RENT_PUBKEY,
-      staker: null,
-      referralAccount: null,
     })
     .transaction();
   console.log("withdraw", await sendAndPoll(connection, wdTx, [payer]));

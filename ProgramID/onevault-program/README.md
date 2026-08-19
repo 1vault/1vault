@@ -1,127 +1,113 @@
-# 1Vault — Solana Smart Contract (Final On-Chain)
+# 1Vault — Solana Smart Contract (MVP)
 
 **Branding:** 1Vault | **Code:** `onevault` | **Program ID:** `2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP`
 
-Non-custodial strategy vault protocol — Phase 1–3 + Staking (on-chain only, no UI/backend).
+Non-custodial pooled vault protocol — **MVP scope** after stripping referral, risk, staking, DCA, on-chain MEV, and related metadata.
 
 ## Documentation
 
-**Full documentation:** [`docs/README.md`](./docs/README.md)
+**Full documentation:** [`docs/README.md`](./docs/README.md) *(some deep-dive docs still describe pre-strip features; trust this README + IDL for MVP)*
 
 | Guide | Description |
 |-------|-------------|
-| [Program ID & Build](./docs/PROGRAM_ID.md) | **Program ID, anchor build, IDL sync** |
-| [Frontend & Backend](./docs/FRONTEND_BACKEND_INTEGRATION.md) | **Integration guide for apps** |
-| [TypeScript SDK](./sdk/README.md) | PDA helpers + client examples |
-| [Architecture](./docs/ARCHITECTURE.md) | System design and modules |
-| [Admin Configuration](./docs/ADMIN_CONFIGURATION.md) | **Update fees, license lock, DEX, tiers** |
-| [Token, License & Staking](./docs/TOKEN_LICENSE_AND_STAKING.md) | 1VAULT CA setup |
-| [Vault Lifecycle](./docs/VAULT_LIFECYCLE.md) | Close flow + retail fund return |
-| [Instructions Reference](./docs/INSTRUCTIONS_REFERENCE.md) | All 69 instructions |
+| [Program ID & Build](./docs/PROGRAM_ID.md) | Program ID, `anchor build`, IDL sync |
+| [Frontend & Backend](./docs/FRONTEND_BACKEND_INTEGRATION.md) | Integration guide for apps |
+| [TypeScript SDK](./sdk/README.md) | PDA helpers, bootstrap, Devnet scripts |
 | [Deployment](./docs/DEPLOYMENT.md) | Build, deploy, bootstrap |
 
-## Instruction Index
+## MVP scope
+
+| In contract | Out (stripped) |
+|-------------|----------------|
+| `lock_license` + per-vault 1VL escrow | Referral, platform staking |
+| Park / deposit / **free** withdraw | Flat withdraw fee, staker discount |
+| Trade, TP/SL, launchpad + DEX allowlist | On-chain MEV mode, `protected_dex` |
+| Follow / copy (`mirror_position`, sync ix) | DCA flags, follower stats ix |
+| `accrue_fees` / `claim_fees` → degen wallet | Protocol 5% performance split |
+| Keeper `keeper_refresh_vault` | Risk engine, vault SOL stake |
+| Upgrade multisig | Vault `max_position` / exposure caps |
+
+## Instruction index (~47)
 
 ### Protocol
 | Instruction | Description |
 |-------------|-------------|
-| `initialize_protocol` | Init config, fees, DEX allowlist, staking tiers |
-| `update_protocol_config` | Admin update |
+| `initialize_protocol` | Treasury, 1VL mint, license lock amount, performance fee cap, DEX allowlist |
+| `update_protocol_config` | Update treasury, license lock, performance fee |
 | `pause_protocol` | Emergency pause |
-| `update_staking_tiers` | Configure fee discount tiers |
-| `update_allowed_dex` | Update Jupiter/DEX allowlist |
+| `update_allowed_dex` | DEX allowlist (Jupiter, Raydium, …) |
+| `update_allowed_launchpads` | Launchpad allowlist (Pump.fun, …) |
+| `initialize_treasury` | Per-mint treasury ATA |
+| `sweep_treasury_sol` | Unwrap treasury wSOL to native SOL |
+
+### Upgrade multisig
+`initialize_upgrade_multisig`, `update_upgrade_multisig`, `create_upgrade_proposal`, `approve_upgrade_proposal`, `cancel_upgrade_proposal`, `mark_upgrade_executed`
 
 ### Strategist
 | Instruction | Description |
 |-------------|-------------|
 | `register_strategist` | Create strategist PDA |
-| `lock_license` / `unlock_license` | 1VAULT license lock |
-| `register_referral` | On-chain referral binding |
+| `lock_license` / `unlock_license` | Activate license record (1VL locked on `create_vault`) |
 
 ### Vault
 | Instruction | Description |
 |-------------|-------------|
-| `create_vault` | Vault + share mint + fee state + risk params |
-| `update_vault` | Update name, fees, risk |
+| `create_vault` | Vault + share mint + fee state + 1VL lock |
+| `update_vault` | Name, performance fee, slippage, accepted mints |
 | `pause_vault` / `resume_vault` | Vault pause |
-| `initiate_vault_close` | Strategist starts closure; retail withdraws shares |
-| `close_vault` | Finalize after all shares redeemed |
-| `update_nav` | Sync NAV from token balance |
-| `update_vault_staked_value` | SOL staking NAV component |
+| `initiate_vault_close` / `close_vault` | Closure + pro-rata share payouts |
+| `update_nav` | Sync `total_assets` from vault ATA |
 
 ### Investor
 | Instruction | Description |
 |-------------|-------------|
-| `deposit` / `withdraw` | Share mint/burn + withdrawal fee + staking discount + referral |
-| `create_investor_config` / `update_investor_config` | Follow & risk settings |
-| `follow_on` / `follow_off` | Auto follow toggle |
+| `deposit` / `withdraw` | Share mint/burn — **no withdraw fee** |
+| `create_investor_config` / `update_investor_config` | Follow settings + **investor** risk limits |
+| `follow_on` / `follow_off` | Auto-follow toggle |
 
-### Trading (Phase 2)
+### Trading & positions
+`request_trade`, `execute_trade`, `cancel_trade`, `ensure_vault_token_ata`, `open_position`, `increase_position`, `reduce_position`, `close_position`, `update_position_value`, `trigger_tp_sl_close`
+
+`request_trade` no longer takes `dca_enabled` / `dca_index`. `increase_position` remains a one-off scale-in.
+
+### Follow / copy
+`mirror_position`, `auto_mirror_position`, `close_investor_position`, `sync_investor_position_reduce`, `sync_investor_position_close`, `sync_investor_tp_sl`
+
+### Accounting & keeper
 | Instruction | Description |
 |-------------|-------------|
-| `request_trade` | Create trade request with risk validation |
-| `execute_trade` | CPI to allowlisted DEX (Jupiter) via remaining accounts |
-| `cancel_trade` | Cancel pending trade |
-| `open_position` | Open vault position after trade |
+| `accrue_fees` | Vault-wide HWM performance fee |
+| `claim_fees` | Pay accrued performance fee to degen wallet (wSOL unwrap) |
+| `keeper_refresh_vault` | Sync vault ATA balance → `total_assets` |
 
-### Position (Phase 2)
-| Instruction | Description |
-|-------------|-------------|
-| `increase_position` | DCA / scale in |
-| `reduce_position` | Partial close |
-| `close_position` | Full close |
-| `update_position_value` | Mark-to-market |
-
-### Copy / Follow (Phase 3)
-| Instruction | Description |
-|-------------|-------------|
-| `mirror_position` | Investor mirrors strategist position |
-| `close_investor_position` | Investor exit with preference checks |
-| `update_follower_stats` | Aggregate follower capital estimate |
-| `record_investor_deposit_stats` | Track follower TVL |
-
-### Accounting
-| Instruction | Description |
-|-------------|-------------|
-| `accrue_fees` | Performance fee + high water mark |
-| `claim_fees` | Strategist + protocol claim |
-| `claim_referral_rewards` | Referrer claim |
-
-### Staking (Phase 5)
-| Instruction | Description |
-|-------------|-------------|
-| `initialize_staking` | Staking pool + vault |
-| `init_staker` | Create staker account |
-| `stake_platform` / `unstake_platform` | Lock 1VAULT for fee discounts |
-| `claim_staking_reward` | Claim rewards |
-| `fund_staking_rewards` | Admin fund rewards |
-
-## PDA Seeds
+## PDA seeds (MVP)
 
 ```
 ["protocol"]
 ["strategist", strategist]
 ["license", strategist]
+["license_vault", strategist]
 ["vault", strategist, vault_id]
+["vault_license", vault]
 ["share_mint", vault]
+["vault_fee", vault]
 ["investor_config", vault, investor]
 ["trade", vault, trade_id]
 ["vault_position", vault, position_id]
 ["investor_position", vault, investor, position_id]
-["vault_fee", vault]
-["referral", user]
-["staking_pool"]
-["staker", user]
+["treasury"] / ["treasury", mint]
+["fee_unwrap", ...]
+["upgrade_multisig"] / ["upgrade_proposal", multisig, proposal_id]
 ```
 
-## NAV Formula
+## NAV formula
 
 ```
-NAV = total_assets + position_value + staked_value
-Share Price = NAV / total_shares
+NAV = total_assets + position_value
+Share price = NAV / total_shares  (scaled by SHARE_PRICE_SCALE)
 ```
 
-## Build & Deploy
+## Build & deploy
 
 ```powershell
 cd onevault-program
@@ -129,8 +115,15 @@ anchor build
 anchor deploy --provider.cluster devnet
 ```
 
+Bootstrap Devnet (new `ProtocolConfig` after upgrade):
+
+```powershell
+cd sdk
+npm run bootstrap:devnet
+```
+
 ## Notes
 
-- **execute_trade**: Pass Jupiter swap accounts as `remaining_accounts` + `swap_data`. DEX program must be in allowlist.
-- **Vault SOL staking**: Use `update_vault_staked_value` + external stake program CPI from keeper.
-- **Phase 4** (indexer, DB, leaderboard) is off-chain — not in this program.
+- **execute_trade:** Pass swap accounts as `remaining_accounts` + `swap_data`. Venue must be on the DEX or launchpad allowlist. Anti-MEV routing (Jito, etc.) is **off-chain** when building the swap tx.
+- **Breaking layout:** Existing Devnet `ProtocolConfig` PDAs are incompatible after MVP upgrade — re-run bootstrap.
+- **Phase 4** indexer lives in `../onevault-indexer/`.

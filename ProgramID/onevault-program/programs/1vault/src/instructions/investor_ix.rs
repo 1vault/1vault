@@ -3,11 +3,7 @@ use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer}
 
 use crate::constants::*;
 use crate::error::OneVaultError;
-use crate::state::{
-    AllocationMode, DcaMode, InvestorVaultConfig, ProtocolConfig, ReferralAccount, StakerAccount,
-    Vault,
-};
-use crate::utils::{apply_bps, apply_discount_bps};
+use crate::state::{AllocationMode, InvestorVaultConfig, ProtocolConfig, Vault};
 
 #[derive(Accounts)]
 pub struct CreateInvestorConfig<'info> {
@@ -53,9 +49,6 @@ pub fn handle_create_investor_config(ctx: Context<CreateInvestorConfig>) -> Resu
     config.max_position_bps = defaults.max_position_bps;
     config.max_exposure_bps = defaults.max_exposure_bps;
     config.max_open_positions = defaults.max_open_positions;
-    config.follow_dca = defaults.follow_dca;
-    config.dca_mode = defaults.dca_mode;
-    config.dca_allocation_bps = defaults.dca_allocation_bps;
     config.open_positions_count = defaults.open_positions_count;
     config.total_exposure_value = defaults.total_exposure_value;
     config.follow_partial_exit = defaults.follow_partial_exit;
@@ -97,9 +90,6 @@ pub struct InvestorConfigParams {
     pub max_position_bps: Option<u16>,
     pub max_exposure_bps: Option<u16>,
     pub max_open_positions: Option<u8>,
-    pub follow_dca: Option<bool>,
-    pub dca_mode: Option<DcaMode>,
-    pub dca_allocation_bps: Option<u16>,
     pub follow_partial_exit: Option<bool>,
     pub follow_full_exit: Option<bool>,
     pub follow_tp_sl: Option<bool>,
@@ -133,15 +123,6 @@ pub fn handle_update_investor_config(
     }
     if let Some(v) = params.max_open_positions {
         config.max_open_positions = v;
-    }
-    if let Some(v) = params.follow_dca {
-        config.follow_dca = v;
-    }
-    if let Some(v) = params.dca_mode {
-        config.dca_mode = v;
-    }
-    if let Some(v) = params.dca_allocation_bps {
-        config.dca_allocation_bps = v;
     }
     if let Some(v) = params.follow_partial_exit {
         config.follow_partial_exit = v;
@@ -256,7 +237,6 @@ pub struct Deposit<'info> {
 
 pub fn handle_deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
     require!(amount > 0, OneVaultError::ZeroDeposit);
-    // Parking funds in the vault has no platform fee.
 
     let total_shares = ctx.accounts.vault.total_shares;
     let nav = ctx.accounts.vault.nav()?;
@@ -382,49 +362,7 @@ pub struct Withdraw<'info> {
     )]
     pub share_mint: Box<Account<'info, Mint>>,
 
-    #[account(
-        mut,
-        seeds = [TREASURY_SEED, vault.base_mint.as_ref()],
-        bump,
-        token::mint = vault.base_mint,
-    )]
-    pub treasury_token_account: Box<Account<'info, TokenAccount>>,
-
-    /// CHECK: treasury authority PDA
-    #[account(seeds = [TREASURY_SEED], bump)]
-    pub treasury_authority: UncheckedAccount<'info>,
-
-    /// CHECK: platform native-SOL recipient (ProtocolConfig.treasury).
-    #[account(mut, constraint = platform_wallet.key() == protocol_config.treasury @ OneVaultError::Unauthorized)]
-    pub platform_wallet: UncheckedAccount<'info>,
-
-    #[account(
-        mut,
-        seeds = [FEE_UNWRAP_SEED, vault.key().as_ref(), platform_wallet.key().as_ref()],
-        bump
-    )]
-    /// CHECK: temporary wSOL ATA, created and closed when withdrawal fee is unwrapped.
-    pub unwrap_platform: UncheckedAccount<'info>,
-
-    #[account(address = WSOL_MINT)]
-    pub native_mint: Box<Account<'info, Mint>>,
-
-    #[account(
-        seeds = [STAKER_SEED, investor.key().as_ref()],
-        bump = staker.bump,
-    )]
-    pub staker: Option<Account<'info, StakerAccount>>,
-
-    #[account(
-        mut,
-        seeds = [REFERRAL_SEED, investor.key().as_ref()],
-        bump = referral_account.bump,
-    )]
-    pub referral_account: Option<Account<'info, ReferralAccount>>,
-
     pub token_program: Program<'info, Token>,
-    pub system_program: Program<'info, System>,
-    pub rent: Sysvar<'info, Rent>,
 }
 
 pub fn handle_withdraw(ctx: Context<Withdraw>, shares: u64) -> Result<()> {
@@ -449,22 +387,8 @@ pub fn handle_withdraw(ctx: Context<Withdraw>, shares: u64) -> Result<()> {
         OneVaultError::InsufficientLiquidity
     );
 
-    // Deposit is free. Wallet redeem always pays a flat platform fee ($0.50).
-    let mut fee_amount = WITHDRAWAL_FLAT_FEE_LAMPORTS;
-
-    if let Some(staker) = &ctx.accounts.staker {
-        fee_amount = apply_discount_bps(fee_amount, staker.fee_discount_bps)?;
-    }
-    require!(gross_amount > fee_amount, OneVaultError::InvalidAmount);
-
-    let referral_share = if ctx.accounts.referral_account.is_some() {
-        apply_bps(fee_amount, ctx.accounts.protocol_config.referral_fee_share_bps)?
-    } else {
-        0
-    };
-    let _treasury_fee = fee_amount.saturating_sub(referral_share);
-
-    let net_amount = gross_amount.saturating_sub(fee_amount);
+    let fee_amount = 0u64;
+    let net_amount = gross_amount;
 
     let strategist_key = ctx.accounts.vault.strategist;
     let vault_id_bytes = ctx.accounts.vault.vault_id.to_le_bytes();
@@ -500,59 +424,6 @@ pub fn handle_withdraw(ctx: Context<Withdraw>, shares: u64) -> Result<()> {
         ),
         net_amount,
     )?;
-
-    if fee_amount > 0 {
-        if ctx.accounts.vault.base_mint == WSOL_MINT {
-            let vault_key = ctx.accounts.vault.key();
-            let platform_key = ctx.accounts.platform_wallet.key();
-            let unwrap_bump = [ctx.bumps.unwrap_platform];
-            let unwrap_seeds = [
-                FEE_UNWRAP_SEED,
-                vault_key.as_ref(),
-                platform_key.as_ref(),
-                unwrap_bump.as_ref(),
-            ];
-            crate::utils::create_wsol_unwrap_account(
-                ctx.accounts.investor.to_account_info(),
-                ctx.accounts.unwrap_platform.to_account_info(),
-                ctx.accounts.native_mint.to_account_info(),
-                ctx.accounts.vault.to_account_info(),
-                ctx.accounts.token_program.to_account_info(),
-                ctx.accounts.system_program.to_account_info(),
-                &[&unwrap_seeds],
-            )?;
-            crate::utils::unwrap_wsol_to_wallet(
-                ctx.accounts.token_program.to_account_info(),
-                ctx.accounts.vault_token_account.to_account_info(),
-                ctx.accounts.vault.to_account_info(),
-                ctx.accounts.unwrap_platform.to_account_info(),
-                ctx.accounts.platform_wallet.to_account_info(),
-                fee_amount,
-                signer,
-            )?;
-        } else {
-            let transfer_fee = Transfer {
-                from: ctx.accounts.vault_token_account.to_account_info(),
-                to: ctx.accounts.treasury_token_account.to_account_info(),
-                authority: ctx.accounts.vault.to_account_info(),
-            };
-            token::transfer(
-                CpiContext::new_with_signer(
-                    ctx.accounts.token_program.key(),
-                    transfer_fee,
-                    signer,
-                ),
-                fee_amount,
-            )?;
-        }
-    }
-
-    if referral_share > 0 {
-        if let Some(referral) = &mut ctx.accounts.referral_account {
-            referral.claimable_rewards = referral.claimable_rewards.saturating_add(referral_share);
-            referral.total_earned = referral.total_earned.saturating_add(referral_share);
-        }
-    }
 
     let vault = &mut ctx.accounts.vault;
     vault.total_assets = vault

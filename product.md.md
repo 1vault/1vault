@@ -11,12 +11,15 @@
 > **Read this first.** Section **0. Locked Current Product** is what is shipping.  
 > Sections 1--56 and Early Exit are the longer vision. Where they conflict, **Section 0 wins**.
 
+**MVP program (Aug 2026):** referral, risk engine, platform staking, vault SOL stake, flat withdraw fee, DCA flags, on-chain MEV mode, protocol performance split, and related PDAs are **stripped from the on-chain build**. Park and redeem are **free**. Performance fee on eligible profit goes **100% to the degen fee wallet**.
+
 ------------------------------------------------------------------------
 
 # 0. Locked Current Product (shipping)
 
 This is the product implemented on Devnet. Do not design FE/BE against
-isolated copy-trading, per-investor DCA, or a 0.5% withdrawal fee.
+isolated copy-trading, per-investor DCA, flat withdraw fees, referral PDAs,
+or platform staking discounts.
 
 ## 0.1 One-liner
 
@@ -44,8 +47,8 @@ On UI say **degen**, not strategist. Do not say safe, guaranteed, passive income
 4. **Degen must park shares before `request_trade`** (`StrategistMustPark`). No park, no trade.
 5. **Closing the vault position closes all retail books with it.**
 6. **Close vault is not 50/50.** Example: degen 2 + retail 8, leftover 9 → ~1.8 / ~7.2.
-7. **Park (deposit) is free.** Redeem to wallet always pays a **flat ~$0.50** platform fee (`4_000_000` lamports), optionally discounted by 1VL staking. This **replaces** the 0.5% withdrawal fee in §43.
-8. **Retail controls:** park amount + TP/SL only. Auto Follow / allocation modes / per-investor DCA in later sections are **not** current UX.
+7. **Park (deposit) and redeem to wallet are free.** No flat platform fee and no staking discount on withdraw. The legacy 0.5% model (§43) and flat ~$0.50 model are **not** current on-chain behavior.
+8. **Retail controls:** park amount + TP/SL only. Auto Follow / allocation modes / per-investor DCA in later sections are **not** current UX (some follow ix remain in-program for future surfaces).
 9. **Launchpad trading** is in scope: Pump.fun + PumpSwap. Vault pays the swap.
 10. **UI is English.** Brand `#093C5D`.
 
@@ -67,16 +70,25 @@ last holder receives leftover dust
 
 Not an equal split. Not 50/50 with the degen.
 
-## 0.6 Current fees
+## 0.6 NAV (current on-chain)
+
+```text
+NAV = total_assets + position_value
+```
+
+Vault-wide high-water mark drives performance fees. **No** `staked_value` or validator-stake component in the MVP build.
+
+## 0.7 Current fees
 
 | Event | Fee |
 |-------|-----|
 | Park / deposit | 0 |
-| Redeem shares to wallet | Flat 4_000_000 lamports (~$0.50), staking discount optional |
-| Eligible profit | Performance fee (default 20% / 2000 bps) to degen wallet; protocol share default 5% / 500 bps |
-| Referral | Configurable share of eligible protocol fee (default 20% of that fee) |
+| Redeem shares to wallet | 0 (free withdraw) |
+| Eligible profit | Performance fee (default 20% / 2000 bps) → **100% to degen fee wallet** |
+| Referral / protocol performance split | **Not in MVP program** |
+| Platform trade fee (0.1%) | **Future** — not in current contract |
 
-## 0.7 License token
+## 0.8 License token
 
 | Item | Value |
 |------|-------|
@@ -88,12 +100,12 @@ Not an equal split. Not 50/50 with the degen.
 
 Do not call this **1VAULT** in current product copy. Older sections still say 1VAULT --- treat that as legacy naming.
 
-## 0.8 Devnet (public)
+## 0.9 Devnet (public)
 
 | Item | Address |
 |------|---------|
 | Program | `2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP` |
-| Protocol config | `2WXErzw6DEZsVQ2QD3oTcwumCknpzhLf99akKu7qweQR` |
+| Protocol config | `2WXErzw6DEZsVQ2QD3oTcwumCknpzhLf99akKu7qweQR` *(re-bootstrap after MVP upgrade)* |
 | 1VL mint | `4R9AHfF2wE8X8252Swra3ncvKVDe3m73k8EfP99zz6YK` |
 | Platform fee wallet | `9YajdkrkvyzDm57bPSijfy6sFNj9wuqQtYmuYUXZtPDx` |
 | Degen fee wallet | `EXQCB3PJnza9oBNMupBQjVGSuQXaLvTyXNffCJ5zz286` |
@@ -101,7 +113,7 @@ Do not call this **1VAULT** in current product copy. Older sections still say 1V
 | Pump.fun | `6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P` |
 | PumpSwap | `pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA` |
 
-## 0.9 Repo map
+## 0.10 Repo map
 
 | Path | What |
 |------|------|
@@ -109,14 +121,21 @@ Do not call this **1VAULT** in current product copy. Older sections still say 1V
 | `ProgramID/onevault-indexer/` | Postgres indexer, deposit ledger, REST |
 | `simulator/` | Devnet workflow UI (reference, not production) |
 
-## 0.10 Spec status (this file)
+## 0.11 Spec status (this file)
 
 | Status | Sections |
 |--------|----------|
-| **CURRENT --- shipping** | §0, tagline Capital in Motion, non-custodial, one program, vault shares, NAV, HWM, performance fee, close by share weight, 1VL license, indexer as cache only |
-| **IN PROGRAM, not current UX** | Auto Follow, investor allocation modes, investor DCA, staking discounts, referral PDAs, MEV modes, vault SOL staking |
-| **SUPERSEDED by §0** | Isolated copy-trading model in §1 / §9--14 / §18; 0.5% withdrawal fee in §43; "1VAULT" token name; close-as-equal-split |
-| **FUTURE / not launch** | Early Exit Fee at the end of this file; management fee; guaranteed same-price copy |
+| **CURRENT --- shipping** | §0, tagline Capital in Motion, non-custodial, one program, vault shares, NAV (`total_assets + position_value`), vault HWM performance fee → degen wallet, **free** park/withdraw, close by share weight, 1VL license, indexer as cache only |
+| **IN PROGRAM, not current UX** | Auto Follow, investor allocation modes, investor DCA, mirror/copy ix, launchpad + DEX allowlist |
+| **STRIPPED from MVP program** | Referral PDAs, risk engine (`VaultRiskState`), platform staking, vault SOL validator stake, flat withdraw fee, DCA flags, on-chain MEV mode, `StrategyType`, protocol 5% performance split, follower stats ix, vault-wide position caps |
+| **SUPERSEDED by §0** | Isolated copy-trading model in §1 / §9--14 / §18; 0.5% withdrawal fee in §43; flat ~$0.50 redeem fee; staking fee discounts; "1VAULT" token name; close-as-equal-split; NAV staked component |
+| **FUTURE / not launch** | Early Exit Fee at the end of this file; management fee; platform 0.1% trade fee; per-investor HWM; guaranteed same-price copy |
+
+## 0.12 MVP on-chain (instruction summary)
+
+**In contract (~47 ix):** `lock_license`, park/deposit, **free** withdraw, trade + TP/SL + launchpad allowlist, follow/copy, `accrue_fees` / `claim_fees` (degen wallet), `keeper_refresh_vault`, upgrade multisig.
+
+**Breaking:** `ProtocolConfig` and `Vault` layouts changed — re-run `npm run bootstrap:devnet` and create **new vaults** after program upgrade.
 
 ------------------------------------------------------------------------
 
@@ -146,7 +165,7 @@ Retail can:
 
 -   Park SOL into a vault and receive vault shares.
 -   Set take-profit / stop-loss only.
--   Redeem shares to wallet (flat ~$0.50 platform fee) or receive
+-   Redeem shares to wallet (**free**) or receive
     leftover SOL on close **by share weight**.
 
 Funds remain controlled by on-chain smart contracts rather than by the
@@ -916,7 +935,10 @@ public.
 
 # 20. NAV
 
-Core formula:
+> **Current (shipping):** `NAV = total_assets + position_value`. No staked-value
+> component in the MVP program. See §0.6.
+
+Core formula (full vision):
 
 ``` text
 NAV =
@@ -1018,10 +1040,11 @@ the high-water mark.
 
 # 24. Fee Structure
 
-> **Current (shipping):** park is free. Wallet redeem pays a flat ~$0.50
-> (`4_000_000` lamports). Performance fee on eligible profit (default 20%).
-> Protocol share of that fee default 5%. See §0.6. Management fee is future.
-> The 0.5% withdrawal model in §43 is superseded.
+> **Current (shipping):** park and redeem are **free**. Performance fee on
+> eligible profit (default 20%) goes **100% to the degen fee wallet**. No
+> protocol performance split or referral fee path in the MVP program. See §0.7.
+> Management fee is future. The 0.5% and flat ~$0.50 withdrawal models in
+> §43 and §45 are superseded.
 
 Potential fees:
 
@@ -1124,6 +1147,9 @@ Strategist Wallet
 
 # 27. Staking Module
 
+> **Not in MVP program.** Vault SOL validator stake and platform staking modules
+> are stripped from the current on-chain build. Legacy vision below.
+
 Staking can be integrated as a module of the same 1Vault core program.
 
 The protocol should not recreate Solana's native staking mechanism.
@@ -1155,6 +1181,9 @@ vault.
 ------------------------------------------------------------------------
 
 # 28. On-Chain Architecture
+
+> **MVP note:** `Staking State`, `Risk Configuration`, and referral PDAs are
+> **not** in the current program. Diagram below is the full vision.
 
 ``` text
 1Vault Core Program
@@ -1759,8 +1788,8 @@ One program can support many strategists and many vaults.
 ## Phase 1 --- Core
 
 Shipping lock for this phase (see §0): pooled book, 1VL vault license,
-StrategistMustPark, Postgres-first deposit, share-weight close, flat
-redeem fee, Pump.fun / PumpSwap, English UI.
+StrategistMustPark, Postgres-first deposit, share-weight close, **free**
+park/withdraw, Pump.fun / PumpSwap, English UI, performance fee → degen wallet.
 
 Also in this phase:
 
@@ -1903,7 +1932,7 @@ The **shipping** platform is designed around:
 -   1VL license lock on `create_vault` until Close vault.
 -   Degen must park before trading (`StrategistMustPark`).
 -   Postgres-first deposit; chain is source of truth after confirm.
--   Flat ~$0.50 redeem fee; park is free.
+-   **Free** park and redeem (no flat platform fee on-chain).
 
 The longer vision (later in this file) also includes:
 
@@ -1930,10 +1959,9 @@ performance.
 
 # 43. Withdrawal Fee
 
-> **Superseded for current product.** Shipping fee is a **flat ~$0.50** on
-> wallet redeem (`WITHDRAWAL_FLAT_FEE_LAMPORTS = 4_000_000`). Park / deposit
-> is free. Staking can discount that flat fee. The 0.5% model below is
-> legacy / optional future, not Devnet behavior.
+> **Superseded for current product.** MVP on-chain behavior: **park and redeem
+> are free** (`fee_amount = 0` on `withdraw`). No flat ~$0.50 fee, no staking
+> discount, no 0.5% model. Sections below are legacy / optional future only.
 
 When a retail investor withdraws funds from a vault to their personal wallet, 1Vault charges a **0.5% withdrawal fee**.
 
@@ -1983,6 +2011,9 @@ It should **not** be charged merely because:
 ---
 
 # 44. Referral System
+
+> **Not in MVP program.** Stripped from the current on-chain build. Legacy
+> vision below — do not implement against current Devnet program.
 
 1Vault includes a referral system designed to reward users who bring new users into the protocol.
 
@@ -2046,6 +2077,9 @@ Claimed Rewards
 ---
 
 # 45. Staking for Fee Discounts
+
+> **Not in MVP program.** Platform staking and withdraw-fee discounts are
+> stripped from the current on-chain build. Legacy vision below.
 
 1Vault staking should provide a utility beyond rewards: **staking can reduce protocol fees for the staker**.
 
@@ -2139,6 +2173,9 @@ Pending Rewards
 ---
 
 # 46. MEV Protection / MEV Preference
+
+> **Not in MVP program.** On-chain `mev_mode` / protected routing is stripped.
+> Execution uses DEX allowlist only. Legacy vision below.
 
 Strategists should have an explicit setting to choose whether their trades use the available MEV-aware execution route.
 

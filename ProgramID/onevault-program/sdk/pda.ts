@@ -89,16 +89,6 @@ export function vaultFeePda(
   );
 }
 
-export function vaultRiskPda(
-  vault: PublicKey,
-  programId: PublicKey = ONEVAULT_PROGRAM_ID
-): PdaResult {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from(SEEDS.vaultRisk), vault.toBuffer()],
-    programId
-  );
-}
-
 export function investorConfigPda(
   vault: PublicKey,
   investor: PublicKey,
@@ -153,16 +143,6 @@ export function investorPositionPda(
   );
 }
 
-export function referralPda(
-  user: PublicKey,
-  programId: PublicKey = ONEVAULT_PROGRAM_ID
-): PdaResult {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from(SEEDS.referral), user.toBuffer()],
-    programId
-  );
-}
-
 export function treasuryAuthorityPda(
   programId: PublicKey = ONEVAULT_PROGRAM_ID
 ): PdaResult {
@@ -178,34 +158,6 @@ export function treasuryTokenPda(
 ): PdaResult {
   return PublicKey.findProgramAddressSync(
     [Buffer.from(SEEDS.treasury), mint.toBuffer()],
-    programId
-  );
-}
-
-export function stakingPoolPda(
-  programId: PublicKey = ONEVAULT_PROGRAM_ID
-): PdaResult {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from(SEEDS.stakingPool)],
-    programId
-  );
-}
-
-export function stakingVaultPda(
-  programId: PublicKey = ONEVAULT_PROGRAM_ID
-): PdaResult {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from(SEEDS.stakingPool), Buffer.from("vault")],
-    programId
-  );
-}
-
-export function stakerPda(
-  owner: PublicKey,
-  programId: PublicKey = ONEVAULT_PROGRAM_ID
-): PdaResult {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from(SEEDS.staker), owner.toBuffer()],
     programId
   );
 }
@@ -238,13 +190,8 @@ export function upgradeProposalPda(
 export function calculateNav(vault: {
   totalAssets: bigint | number;
   positionValue: bigint | number;
-  stakedValue: bigint | number;
 }): bigint {
-  return (
-    BigInt(vault.totalAssets) +
-    BigInt(vault.positionValue) +
-    BigInt(vault.stakedValue)
-  );
+  return BigInt(vault.totalAssets) + BigInt(vault.positionValue);
 }
 
 export function calculateSharePrice(

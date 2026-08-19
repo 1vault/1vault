@@ -94,7 +94,7 @@ export default function SettingsNode() {
           <button
             type="button"
             className="btn btn-sm"
-            title="Redeem vault SOL to the first retail wallet as native SOL — flat $0.50"
+            title="Redeem vault SOL to the first retail wallet as native SOL — free withdraw"
             disabled={ctx.running || !ctx.degen.pubkey || !retailReady || !ctx.activeVault}
             onClick={() => ctx.start("withdraw-wallet")}
           >

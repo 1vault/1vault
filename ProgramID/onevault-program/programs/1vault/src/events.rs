@@ -133,16 +133,7 @@ pub struct TpSlTriggered {
 pub struct FeeAccrued {
     pub vault: Pubkey,
     pub performance_fee: u64,
-    pub protocol_fee: u64,
     pub share_price: u64,
-    pub timestamp: i64,
-}
-
-#[event]
-pub struct ReferralRewardAccrued {
-    pub user: Pubkey,
-    pub referrer: Pubkey,
-    pub amount: u64,
     pub timestamp: i64,
 }
 
@@ -153,45 +144,6 @@ pub struct InvestorMirrored {
     pub position_id: u64,
     pub allocation: u64,
     pub auto_by_keeper: bool,
-    pub timestamp: i64,
-}
-
-#[event]
-pub struct PlatformStaked {
-    pub owner: Pubkey,
-    pub amount: u64,
-    pub total_staked: u64,
-    pub tier: u8,
-    pub timestamp: i64,
-}
-
-#[event]
-pub struct PlatformUnstaked {
-    pub owner: Pubkey,
-    pub amount: u64,
-    pub timestamp: i64,
-}
-
-#[event]
-pub struct VaultSolStaked {
-    pub vault: Pubkey,
-    pub lamports: u64,
-    pub validator: Pubkey,
-    pub timestamp: i64,
-}
-
-#[event]
-pub struct VaultSolUnstaked {
-    pub vault: Pubkey,
-    pub lamports: u64,
-    pub timestamp: i64,
-}
-
-#[event]
-pub struct RiskCircuitBreakerTripped {
-    pub vault: Pubkey,
-    pub reason: u8,
-    pub drawdown_bps: u16,
     pub timestamp: i64,
 }
 

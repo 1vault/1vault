@@ -1,7 +1,10 @@
 import { AnchorProvider, BN, Idl, Program, Wallet } from "@coral-xyz/anchor";
 import { Connection, PublicKey } from "@solana/web3.js";
+import type { Onevault } from "../target/types/onevault";
 import { ONEVAULT_PROGRAM_ID, TradeVenue } from "./constants";
 import * as pdas from "./pda";
+
+export type OneVaultProgram = Program<Onevault>;
 
 /** Create Anchor Program instance. Pass IDL from `target/idl/onevault.json` after `anchor build`. */
 export function createOneVaultProgram(
@@ -9,25 +12,25 @@ export function createOneVaultProgram(
   wallet: Wallet,
   idl: Idl,
   programId: PublicKey = ONEVAULT_PROGRAM_ID
-): Program {
+): OneVaultProgram {
   const provider = new AnchorProvider(connection, wallet, {
     commitment: "confirmed",
     preflightCommitment: "confirmed",
   });
-  return new Program(idl, provider);
+  return new Program(idl as Onevault, provider);
 }
 
 export { ONEVAULT_PROGRAM_ID, pdas, TradeVenue };
 
 /** Fetch global protocol config */
-export async function fetchProtocolConfig(program: Program) {
+export async function fetchProtocolConfig(program: OneVaultProgram) {
   const [protocolConfig] = pdas.protocolConfigPda(program.programId);
   return program.account.protocolConfig.fetch(protocolConfig);
 }
 
 /** Fetch vault by strategist + vaultId */
 export async function fetchVault(
-  program: Program,
+  program: OneVaultProgram,
   strategist: PublicKey,
   vaultId: number
 ) {
@@ -37,7 +40,7 @@ export async function fetchVault(
 
 /** Build deposit instruction (retail) */
 export function buildDepositIx(
-  program: Program,
+  program: OneVaultProgram,
   params: {
     investor: PublicKey;
     vault: PublicKey;
@@ -64,7 +67,7 @@ export function buildDepositIx(
 
 /** Build launchpad buy trade request (step 1 of 2) */
 export function buildLaunchpadBuyRequestIx(
-  program: Program,
+  program: OneVaultProgram,
   params: {
     strategist: PublicKey;
     vault: PublicKey;
@@ -78,7 +81,6 @@ export function buildLaunchpadBuyRequestIx(
 ) {
   const [protocolConfig] = pdas.protocolConfigPda(program.programId);
   const [license] = pdas.licensePda(params.strategist, program.programId);
-  const [vaultRisk] = pdas.vaultRiskPda(params.vault, program.programId);
   const [tradeRequest] = pdas.tradeRequestPda(
     params.vault,
     params.tradeId,
@@ -96,8 +98,6 @@ export function buildLaunchpadBuyRequestIx(
       params.amount,
       params.maxSlippageBps ?? 100,
       params.minAmountOut,
-      false,
-      0,
       0,
       0,
       0,
@@ -108,14 +108,13 @@ export function buildLaunchpadBuyRequestIx(
       protocolConfig,
       vault: params.vault,
       license,
-      vaultRiskState: vaultRisk,
       tradeRequest,
     });
 }
 
 /** Listen for vault entering closure (notify retail to withdraw) */
 export function onVaultClosingInitiated(
-  program: Program,
+  program: OneVaultProgram,
   handler: (event: {
     vault: PublicKey;
     strategist: PublicKey;

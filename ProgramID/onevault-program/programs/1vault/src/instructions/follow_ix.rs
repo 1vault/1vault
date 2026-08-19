@@ -10,23 +10,15 @@ use crate::utils::calc_investor_allocation;
 fn apply_mirror_allocation(
     config: &InvestorVaultConfig,
     vault: &Vault,
-    vault_position: &VaultPosition,
     investor_capital: u64,
     strategist_entry_value: u64,
 ) -> Result<u64> {
-    if vault_position.dca_entries_completed > 1 && !config.follow_dca {
-        return Ok(0);
-    }
-
     let allocation = calc_investor_allocation(
         config.allocation_mode,
         config.position_size,
         investor_capital,
         strategist_entry_value,
         vault,
-        config.dca_mode,
-        config.dca_allocation_bps,
-        vault_position.dca_entries_total,
     )?;
 
     if allocation == 0 {
@@ -62,19 +54,19 @@ pub struct MirrorPosition<'info> {
 
     #[account(seeds = [PROTOCOL_SEED], bump = protocol_config.bump,
         constraint = !protocol_config.is_paused @ OneVaultError::ProtocolPaused)]
-    pub protocol_config: Account<'info, ProtocolConfig>,
+    pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
-    pub vault: Account<'info, Vault>,
+    pub vault: Box<Account<'info, Vault>>,
 
     #[account(mut, seeds = [INVESTOR_CONFIG_SEED, vault.key().as_ref(), investor.key().as_ref()],
         bump = investor_config.bump, constraint = investor_config.investor == investor.key(),
         constraint = investor_config.auto_follow @ OneVaultError::AutoFollowDisabled)]
-    pub investor_config: Account<'info, InvestorVaultConfig>,
+    pub investor_config: Box<Account<'info, InvestorVaultConfig>>,
 
     #[account(seeds = [VAULT_POSITION_SEED, vault.key().as_ref(), &vault_position.position_id.to_le_bytes()],
         bump = vault_position.bump, constraint = vault_position.vault == vault.key(),
         constraint = vault_position.status == PositionStatus::Open @ OneVaultError::PositionNotOpen)]
-    pub vault_position: Account<'info, VaultPosition>,
+    pub vault_position: Box<Account<'info, VaultPosition>>,
 
     #[account(init, payer = investor, space = 8 + InvestorPosition::INIT_SPACE,
         seeds = [INVESTOR_POSITION_SEED, vault.key().as_ref(), investor.key().as_ref(), &position_id.to_le_bytes()],
@@ -97,7 +89,6 @@ pub fn handle_mirror_position(
     let allocation = apply_mirror_allocation(
         config,
         vault,
-        vault_position,
         investor_capital,
         strategist_entry_value,
     )?;
@@ -111,11 +102,6 @@ pub fn handle_mirror_position(
     pos.entry_value = allocation;
     pos.current_value = allocation;
     pos.output_amount = 0;
-    pos.dca_entries_followed = if config.follow_dca {
-        vault_position.dca_entries_completed
-    } else {
-        1
-    };
     pos.status = PositionStatus::Open;
     pos.bump = ctx.bumps.investor_position;
 
@@ -182,7 +168,6 @@ pub fn handle_auto_mirror_position(
     let allocation = apply_mirror_allocation(
         config,
         vault,
-        vault_position,
         investor_capital,
         strategist_entry_value,
     )?;
@@ -198,11 +183,6 @@ pub fn handle_auto_mirror_position(
     pos.entry_value = allocation;
     pos.current_value = allocation;
     pos.output_amount = 0;
-    pos.dca_entries_followed = if config.follow_dca {
-        vault_position.dca_entries_completed
-    } else {
-        1
-    };
     pos.status = PositionStatus::Open;
     pos.bump = ctx.bumps.investor_position;
 
@@ -366,40 +346,5 @@ pub fn handle_sync_investor_tp_sl(ctx: Context<SyncInvestorTpSl>) -> Result<()> 
     config.open_positions_count = config.open_positions_count.saturating_sub(1);
     config.total_exposure_value = config.total_exposure_value.saturating_sub(exposure);
 
-    Ok(())
-}
-
-#[derive(Accounts)]
-pub struct UpdateFollowerStats<'info> {
-    pub strategist: Signer<'info>,
-
-    #[account(mut, seeds = [VAULT_SEED, strategist.key().as_ref(), &vault.vault_id.to_le_bytes()], bump = vault.bump,
-        constraint = vault.strategist == strategist.key() @ OneVaultError::Unauthorized)]
-    pub vault: Account<'info, Vault>,
-}
-
-pub fn handle_update_follower_stats(
-    ctx: Context<UpdateFollowerStats>,
-    active_followers: u32,
-    estimated_follower_capital: u64,
-) -> Result<()> {
-    ctx.accounts.vault.active_followers = active_followers;
-    ctx.accounts.vault.estimated_follower_capital = estimated_follower_capital;
-    Ok(())
-}
-
-#[derive(Accounts)]
-pub struct RecordInvestorDepositStats<'info> {
-    #[account(mut)]
-    pub vault: Account<'info, Vault>,
-}
-
-pub fn handle_record_investor_deposit_stats(ctx: Context<RecordInvestorDepositStats>, amount: u64) -> Result<()> {
-    ctx.accounts.vault.estimated_follower_capital = ctx
-        .accounts
-        .vault
-        .estimated_follower_capital
-        .saturating_add(amount);
-    ctx.accounts.vault.active_followers = ctx.accounts.vault.active_followers.saturating_add(1);
     Ok(())
 }

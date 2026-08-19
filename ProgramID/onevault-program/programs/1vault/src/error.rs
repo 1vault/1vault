@@ -50,10 +50,6 @@ pub enum OneVaultError {
     InsufficientLiquidity,
     #[msg("Math overflow")]
     MathOverflow,
-    #[msg("Self-referral is not allowed")]
-    SelfReferral,
-    #[msg("Referral already registered")]
-    ReferralAlreadyRegistered,
     #[msg("Invalid mint")]
     InvalidMint,
     #[msg("Invalid trade request")]
@@ -64,12 +60,6 @@ pub enum OneVaultError {
     PositionNotOpen,
     #[msg("Position not found")]
     PositionNotFound,
-    #[msg("Max open positions reached")]
-    MaxOpenPositions,
-    #[msg("Max exposure exceeded")]
-    MaxExposureExceeded,
-    #[msg("Max position size exceeded")]
-    MaxPositionExceeded,
     #[msg("Slippage exceeded")]
     SlippageExceeded,
     #[msg("DEX program not allowed")]
@@ -80,8 +70,6 @@ pub enum OneVaultError {
     InvestorRiskExceeded,
     #[msg("Nothing to claim")]
     NothingToClaim,
-    #[msg("Stake lock not expired")]
-    StakeLocked,
     #[msg("Invalid amount")]
     InvalidAmount,
     #[msg("Swap output below minimum")]
@@ -90,26 +78,12 @@ pub enum OneVaultError {
     AssetNotAccepted,
     #[msg("Invalid trade mint for action")]
     InvalidTradeMint,
-    #[msg("MEV protected route required")]
-    MevProtectedRouteRequired,
-    #[msg("Standard route required for this vault MEV mode")]
-    StandardRouteRequired,
     #[msg("Take profit or stop loss not triggered")]
     TpSlNotTriggered,
     #[msg("Investor max open positions reached")]
     InvestorMaxOpenPositions,
     #[msg("Investor max exposure exceeded")]
     InvestorMaxExposureExceeded,
-    #[msg("Risk circuit breaker active")]
-    CircuitBreakerActive,
-    #[msg("Invalid validator vote account")]
-    InvalidValidator,
-    #[msg("Vault stake not initialized")]
-    VaultStakeNotInitialized,
-    #[msg("Stake account mismatch")]
-    StakeAccountMismatch,
-    #[msg("Insufficient vault SOL balance")]
-    InsufficientVaultSol,
     #[msg("Multisig not enabled")]
     MultisigNotEnabled,
     #[msg("Invalid multisig configuration")]

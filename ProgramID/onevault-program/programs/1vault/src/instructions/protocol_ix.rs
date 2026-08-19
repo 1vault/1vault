@@ -27,26 +27,11 @@ pub fn handle_initialize_protocol(
     treasury: Pubkey,
     platform_token_mint: Pubkey,
     license_lock_amount: u64,
-    withdrawal_fee_bps: u16,
-    referral_fee_share_bps: u16,
     performance_fee_bps: u16,
-    protocol_fee_share_bps: u16,
     allowed_dex_programs: Vec<Pubkey>,
 ) -> Result<()> {
     require!(
-        withdrawal_fee_bps <= BPS_DENOMINATOR as u16,
-        OneVaultError::InvalidFeeConfig
-    );
-    require!(
-        referral_fee_share_bps <= BPS_DENOMINATOR as u16,
-        OneVaultError::InvalidFeeConfig
-    );
-    require!(
         performance_fee_bps <= BPS_DENOMINATOR as u16,
-        OneVaultError::InvalidFeeConfig
-    );
-    require!(
-        protocol_fee_share_bps <= BPS_DENOMINATOR as u16,
         OneVaultError::InvalidFeeConfig
     );
     require!(
@@ -59,26 +44,19 @@ pub fn handle_initialize_protocol(
     config.treasury = treasury;
     config.platform_token_mint = platform_token_mint;
     config.license_lock_amount = license_lock_amount;
-    config.withdrawal_fee_bps = withdrawal_fee_bps;
-    config.referral_fee_share_bps = referral_fee_share_bps;
     config.performance_fee_bps = performance_fee_bps;
-    config.protocol_fee_share_bps = protocol_fee_share_bps;
     config.is_paused = false;
     config.allowed_dex_count = allowed_dex_programs.len() as u8;
     config.allowed_dex_programs = [Pubkey::default(); MAX_ALLOWED_DEX];
     for (i, dex) in allowed_dex_programs.iter().enumerate() {
         config.allowed_dex_programs[i] = *dex;
     }
-    config.protected_dex_count = 0;
-    config.protected_dex_programs = [Pubkey::default(); MAX_ALLOWED_DEX];
     let launchpad_defaults = DEFAULT_LAUNCHPAD_PROGRAMS;
     config.launchpad_program_count = launchpad_defaults.len() as u8;
     config.launchpad_programs = [Pubkey::default(); MAX_ALLOWED_DEX];
     for (i, lp) in launchpad_defaults.iter().enumerate() {
         config.launchpad_programs[i] = *lp;
     }
-    config.tier_thresholds = DEFAULT_TIER_THRESHOLDS;
-    config.tier_discounts_bps = DEFAULT_TIER_DISCOUNTS_BPS;
     config.upgrade_multisig = Pubkey::default();
     config.multisig_enabled = false;
     config.bump = ctx.bumps.protocol_config;
@@ -103,10 +81,7 @@ pub fn handle_update_protocol_config(
     ctx: Context<UpdateProtocolConfig>,
     treasury: Option<Pubkey>,
     license_lock_amount: Option<u64>,
-    withdrawal_fee_bps: Option<u16>,
-    referral_fee_share_bps: Option<u16>,
     performance_fee_bps: Option<u16>,
-    protocol_fee_share_bps: Option<u16>,
 ) -> Result<()> {
     let config = &mut ctx.accounts.protocol_config;
 
@@ -116,21 +91,9 @@ pub fn handle_update_protocol_config(
     if let Some(amount) = license_lock_amount {
         config.license_lock_amount = amount;
     }
-    if let Some(fee) = withdrawal_fee_bps {
-        require!(fee <= BPS_DENOMINATOR as u16, OneVaultError::InvalidFeeConfig);
-        config.withdrawal_fee_bps = fee;
-    }
-    if let Some(fee) = referral_fee_share_bps {
-        require!(fee <= BPS_DENOMINATOR as u16, OneVaultError::InvalidFeeConfig);
-        config.referral_fee_share_bps = fee;
-    }
     if let Some(fee) = performance_fee_bps {
         require!(fee <= BPS_DENOMINATOR as u16, OneVaultError::InvalidFeeConfig);
         config.performance_fee_bps = fee;
-    }
-    if let Some(fee) = protocol_fee_share_bps {
-        require!(fee <= BPS_DENOMINATOR as u16, OneVaultError::InvalidFeeConfig);
-        config.protocol_fee_share_bps = fee;
     }
 
     Ok(())
@@ -151,33 +114,6 @@ pub struct PauseProtocol<'info> {
 
 pub fn handle_pause_protocol(ctx: Context<PauseProtocol>, paused: bool) -> Result<()> {
     ctx.accounts.protocol_config.is_paused = paused;
-    Ok(())
-}
-
-#[derive(Accounts)]
-pub struct UpdateStakingTiers<'info> {
-    pub authority: Signer<'info>,
-
-    #[account(
-        mut,
-        seeds = [PROTOCOL_SEED],
-        bump = protocol_config.bump,
-        has_one = authority @ OneVaultError::Unauthorized,
-    )]
-    pub protocol_config: Account<'info, ProtocolConfig>,
-}
-
-pub fn handle_update_staking_tiers(
-    ctx: Context<UpdateStakingTiers>,
-    tier_thresholds: [u64; MAX_STAKING_TIERS],
-    tier_discounts_bps: [u16; MAX_STAKING_TIERS],
-) -> Result<()> {
-    for discount in tier_discounts_bps {
-        require!(discount <= BPS_DENOMINATOR as u16, OneVaultError::InvalidFeeConfig);
-    }
-    let config = &mut ctx.accounts.protocol_config;
-    config.tier_thresholds = tier_thresholds;
-    config.tier_discounts_bps = tier_discounts_bps;
     Ok(())
 }
 
@@ -354,35 +290,5 @@ pub fn handle_sweep_treasury_sol(ctx: Context<SweepTreasurySol>) -> Result<()> {
         amount,
         signer,
     )?;
-    Ok(())
-}
-
-#[derive(Accounts)]
-pub struct UpdateProtectedDex<'info> {
-    pub authority: Signer<'info>,
-
-    #[account(
-        mut,
-        seeds = [PROTOCOL_SEED],
-        bump = protocol_config.bump,
-        has_one = authority @ OneVaultError::Unauthorized,
-    )]
-    pub protocol_config: Account<'info, ProtocolConfig>,
-}
-
-pub fn handle_update_protected_dex(
-    ctx: Context<UpdateProtectedDex>,
-    protected_dex_programs: Vec<Pubkey>,
-) -> Result<()> {
-    require!(
-        protected_dex_programs.len() <= MAX_ALLOWED_DEX,
-        OneVaultError::InvalidAmount
-    );
-    let config = &mut ctx.accounts.protocol_config;
-    config.protected_dex_count = protected_dex_programs.len() as u8;
-    config.protected_dex_programs = [Pubkey::default(); MAX_ALLOWED_DEX];
-    for (i, dex) in protected_dex_programs.iter().enumerate() {
-        config.protected_dex_programs[i] = *dex;
-    }
     Ok(())
 }

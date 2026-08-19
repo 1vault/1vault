@@ -275,17 +275,6 @@ app.get("/api/vaults/:pubkey/follows", asyncRoute(async (req, res) => {
   res.json(rows);
 }));
 
-app.get("/api/vaults/:pubkey/stakes", asyncRoute(async (req, res) => {
-  const [current, events] = await Promise.all([
-    pool.query(`SELECT * FROM vault_sol_stakes WHERE vault = $1`, [req.params.pubkey]),
-    pool.query(
-      `SELECT * FROM vault_sol_stake_events WHERE vault = $1 ORDER BY created_at DESC LIMIT 50`,
-      [req.params.pubkey]
-    ),
-  ]);
-  res.json({ current: current.rows[0] ?? null, events: events.rows });
-}));
-
 app.listen(config.apiPort, () => {
   console.log(`[1vault-api] listening on http://localhost:${config.apiPort}`);
 });

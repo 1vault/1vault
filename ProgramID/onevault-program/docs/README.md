@@ -1,6 +1,6 @@
 # 1Vault On-Chain Documentation
 
-Complete developer and operator documentation for the **1Vault** Solana program (`onevault`).
+Developer and operator documentation for the **1Vault** Solana program (`onevault`).
 
 | Item | Value |
 |------|-------|
@@ -12,48 +12,51 @@ Complete developer and operator documentation for the **1Vault** Solana program 
 | **TypeScript SDK** | `../sdk/` |
 | **IDL (after build)** | `../target/idl/onevault.json` |
 
+> **MVP note:** Several docs below were written for the pre-strip program (referral, staking, risk, DCA, MEV). For the current instruction set and account layouts, prefer **[../README.md](../README.md)**, the IDL, and `programs/1vault/src/`.
+
 ---
 
-## Documentation Index
+## Documentation index
 
 | Document | Description |
 |----------|-------------|
-| [PROGRAM_ID.md](./PROGRAM_ID.md) | **Program ID, build, IDL sync, keypair** |
-| [FRONTEND_BACKEND_INTEGRATION.md](./FRONTEND_BACKEND_INTEGRATION.md) | **Frontend & backend integration** |
-| [../sdk/README.md](../sdk/README.md) | TypeScript SDK (PDAs, constants, client) |
-| [ARCHITECTURE.md](./ARCHITECTURE.md) | System overview, modules, user flows, design principles |
-| [SOURCE_MAP.md](./SOURCE_MAP.md) | Every source file and what it contains |
-| [ACCOUNTS_AND_PDAS.md](./ACCOUNTS_AND_PDAS.md) | On-chain accounts, PDA seeds, state enums |
-| [INSTRUCTIONS_REFERENCE.md](./INSTRUCTIONS_REFERENCE.md) | Full catalog of all program instructions |
-| [ADMIN_CONFIGURATION.md](./ADMIN_CONFIGURATION.md) | **How to update fees, license lock, DEX lists, tiers, treasury, etc.** |
-| [TOKEN_LICENSE_AND_STAKING.md](./TOKEN_LICENSE_AND_STAKING.md) | 1VAULT token CA, license lock, platform staking |
-| [VAULT_LIFECYCLE.md](./VAULT_LIFECYCLE.md) | Create → trade → close flow; retail fund return |
-| [NAV_FEES_AND_ACCOUNTING.md](./NAV_FEES_AND_ACCOUNTING.md) | NAV math, fee formulas, high-water mark |
-| [EVENTS_AND_ERRORS.md](./EVENTS_AND_ERRORS.md) | Anchor events and error codes for indexers |
-| [DEPLOYMENT.md](./DEPLOYMENT.md) | Build, deploy, bootstrap sequence |
-| [LAUNCHPAD_TRADING.md](./LAUNCHPAD_TRADING.md) | Pump.fun pre-bond & any-mint trading |
-| [UPGRADE_MULTISIG.md](./UPGRADE_MULTISIG.md) | Program upgrade multisig (Squads integration) |
+| [PROGRAM_ID.md](./PROGRAM_ID.md) | Program ID, build, IDL sync, keypair |
+| [FRONTEND_BACKEND_INTEGRATION.md](./FRONTEND_BACKEND_INTEGRATION.md) | Frontend & backend integration |
+| [../sdk/README.md](../sdk/README.md) | TypeScript SDK |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | System overview *(may reference removed modules)* |
+| [ACCOUNTS_AND_PDAS.md](./ACCOUNTS_AND_PDAS.md) | Accounts & PDAs *(verify against IDL)* |
+| [INSTRUCTIONS_REFERENCE.md](./INSTRUCTIONS_REFERENCE.md) | Full ix catalog *(pre-strip; ~69 → ~47 MVP)* |
+| [ADMIN_CONFIGURATION.md](./ADMIN_CONFIGURATION.md) | Admin params *(tiers/referral fees removed)* |
+| [VAULT_LIFECYCLE.md](./VAULT_LIFECYCLE.md) | Create → trade → close |
+| [NAV_FEES_AND_ACCOUNTING.md](./NAV_FEES_AND_ACCOUNTING.md) | NAV & fees *(no `staked_value` in NAV)* |
+| [EVENTS_AND_ERRORS.md](./EVENTS_AND_ERRORS.md) | Events & errors for indexers |
+| [DEPLOYMENT.md](./DEPLOYMENT.md) | Build, deploy, bootstrap |
+| [LAUNCHPAD_TRADING.md](./LAUNCHPAD_TRADING.md) | Launchpad trading |
+| [UPGRADE_MULTISIG.md](./UPGRADE_MULTISIG.md) | Upgrade multisig |
 
 ---
 
-## Quick Start (Operator)
+## Quick start (operator, MVP)
 
 After deploying the program:
 
-1. Launch the **1VAULT SPL token** and note its mint address (CA).
-2. Call `initialize_protocol` with the CA as `platform_token_mint`.
-3. Call `initialize_treasury` for each base mint used by vaults (e.g. USDC).
-4. Call `initialize_staking` with the same 1VAULT CA.
-5. Strategists: `register_strategist` → `lock_license` → `create_vault`.
+1. Launch the **1VAULT SPL token** and note its mint (CA).
+2. Call `initialize_protocol` with treasury, CA, `license_lock_amount`, `performance_fee_bps`, and DEX allowlist.
+3. Call `initialize_treasury` for each base mint (e.g. wSOL).
+4. Strategists: `register_strategist` → `lock_license` → `create_vault` (locks 1M 1VL into `vault_license`).
 
-See [ADMIN_CONFIGURATION.md](./ADMIN_CONFIGURATION.md) for every updatable parameter and [DEPLOYMENT.md](./DEPLOYMENT.md) for the full bootstrap checklist.
+Or use `sdk/bootstrap-devnet.ts` on Devnet.
+
+**No longer required:** `initialize_staking`, `init_vault_risk`, referral registration.
+
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for the full checklist.
 
 ---
 
-## Related Repositories
+## Related paths
 
 | Path | Role |
 |------|------|
-| `onevault-program/` | This Anchor program (on-chain) |
-| `onevault-indexer/` | PostgreSQL indexer + REST API (off-chain Phase 4) |
-| `product 1vault.md` | Product specification (source of truth for business rules) |
+| `onevault-program/` | Anchor program (on-chain MVP) |
+| `onevault-indexer/` | PostgreSQL indexer + REST API |
+| `simulator/` | Devnet workflow UI |

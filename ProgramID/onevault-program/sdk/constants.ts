@@ -20,18 +20,12 @@ export const SEEDS = {
   shareMint: "share_mint",
   licenseVault: "license_vault",
   vaultLicense: "vault_license",
-  referral: "referral",
   trade: "trade",
   vaultPosition: "vault_position",
   investorPosition: "investor_position",
   vaultFee: "vault_fee",
-  vaultRisk: "vault_risk",
-  vaultStake: "vault_stake",
-  vaultStakeAccount: "vault_stake_account",
   treasury: "treasury",
   feeUnwrap: "fee_unwrap",
-  stakingPool: "staking_pool",
-  staker: "staker",
   upgradeMultisig: "upgrade_multisig",
   upgradeProposal: "upgrade_proposal",
 } as const;
@@ -52,10 +46,7 @@ export const EXTERNAL_PROGRAMS = {
 
 /** Protocol defaults (match on-chain constants.rs) */
 export const PROTOCOL_DEFAULTS = {
-  withdrawalFeeBps: 50,
-  referralFeeShareBps: 2000,
   performanceFeeBps: 2000,
-  protocolFeeShareBps: 500,
   licenseLockAmount: 1_000_000,
   bpsDenominator: 10_000,
   sharePriceScale: 1_000_000,

@@ -61,17 +61,17 @@ const META: Record<string, { kicker: string; title: string; idle: string }> = {
   toWallet: {
     kicker: "wallet out",
     title: "Withdraw to wallet",
-    idle: "Native SOL out · flat $0.50 fee",
+    idle: "Native SOL out · free withdraw",
   },
   accrue: {
     kicker: "fee",
     title: "Cut vault fees",
-    idle: "Take degen + platform fee from vault SOL",
+    idle: "Take degen performance fee from vault SOL",
   },
   claim: {
     kicker: "payout",
     title: "Pay fee wallets",
-    idle: "Pay degen pool and platform wallet",
+    idle: "Pay degen pool wallet",
   },
 };
 
@@ -86,10 +86,10 @@ const KEYS: Record<string, string[]> = {
   mirror: ["followers", "tp", "sl", "auto"],
   mark: ["entry", "mark", "unrealized"],
   closePos: ["proceeds", "vaultAssets"],
-  withdraw: ["shares", "parked", "vaultAssets", "platformFee"],
-  toWallet: ["gross", "platformFee", "netReceived", "unwrapped", "mint", "exitFee"],
-  accrue: ["degenAccrued", "protocolAccrued"],
-  claim: ["platformDelta", "degenFeeDelta", "degenWallet", "platformWallet"],
+  withdraw: ["shares", "parked", "vaultAssets", "exitFee"],
+  toWallet: ["gross", "netReceived", "unwrapped", "mint", "exitFee"],
+  accrue: ["degenAccrued"],
+  claim: ["degenFeeDelta", "degenWallet"],
 };
 
 export default function ProcessNode({

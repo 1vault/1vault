@@ -1,19 +1,17 @@
 # 1Vault TypeScript SDK
 
-Lightweight helpers for **frontend** and **backend** — program ID, PDA derivation, NAV math, and Anchor client examples.
+Lightweight helpers for **frontend**, **simulator**, and **Devnet scripts** — program ID, PDA derivation, NAV math, and Anchor client examples.
 
-> Run `anchor build` first so `target/idl/onevault.json` exists.
+> Run `anchor build` first so `target/idl/onevault.json` exists. Copy IDL to `sdk/idl/` and `simulator/idl/` after program changes.
 
-## Install (in your app)
-
-Copy this folder into your monorepo, or reference relatively:
+## Install
 
 ```bash
-# From frontend/
-npm install @coral-xyz/anchor @solana/web3.js @solana/spl-token
+cd ProgramID/onevault-program/sdk
+npm install
 ```
 
-Link SDK:
+In another app, link relatively:
 
 ```json
 {
@@ -23,24 +21,31 @@ Link SDK:
 }
 ```
 
-Or copy `constants.ts`, `pda.ts` directly into your app.
+Or copy `constants.ts`, `pda.ts` directly.
+
+## Devnet scripts
+
+| Script | Command | Purpose |
+|--------|---------|---------|
+| Bootstrap | `npm run bootstrap:devnet` | 1VL mint, `initialize_protocol`, treasuries |
+| Create vault | `npm run create-vault:devnet` | Strategist vault on Devnet |
+| Product flow | `npm run product-flow:devnet` | End-to-end deposit / follow / trade |
+| Fee demo | `npm run fee-demo:devnet` | Accrue + claim performance fee |
+
+`initialize_protocol` args (MVP): `treasury`, `platform_token_mint`, `license_lock_amount`, `performance_fee_bps`, `allowed_dex_programs` — no withdrawal/referral/protocol-share/staking tier args.
 
 ## Program ID
 
 ```typescript
-import { ONEVAULT_PROGRAM_ID } from "@1vault/sdk";
-
-console.log(ONEVAULT_PROGRAM_ID.toBase58());
+import { ONEVAULT_PROGRAM_ID } from "./constants";
 // 2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP
 ```
-
-See [docs/PROGRAM_ID.md](../docs/PROGRAM_ID.md) for build & keypair sync.
 
 ## PDA examples
 
 ```typescript
 import { PublicKey } from "@solana/web3.js";
-import { vaultPda, protocolConfigPda, investorConfigPda } from "@1vault/sdk";
+import { vaultPda, protocolConfigPda, investorConfigPda } from "./pda";
 
 const strategist = new PublicKey("...");
 const [vault] = vaultPda(strategist, 1);
@@ -48,42 +53,41 @@ const [protocol] = protocolConfigPda();
 const [config] = investorConfigPda(vault, investor);
 ```
 
+Removed PDAs (pre-strip): `vaultRiskPda`, `referralPda`, `stakingPoolPda`, `stakerPda`.
+
 ## Anchor client
 
 ```typescript
 import { Connection, Keypair } from "@solana/web3.js";
 import { AnchorWallet } from "@coral-xyz/anchor";
-import { createOneVaultProgram, fetchVault } from "@1vault/sdk";
+import { createOneVaultProgram, fetchVault } from "./client";
 
-const connection = new Connection(process.env.RPC_URL!);
-const wallet = new AnchorWallet(Keypair.generate()); // or Phantom adapter
-
-const program = createOneVaultProgram(connection, wallet);
+const program = createOneVaultProgram(connection, wallet, idl);
 const vault = await fetchVault(program, strategist, 1);
 ```
+
+`withdraw` accounts (MVP): `investor`, `protocolConfig`, `vault`, share + token ATAs, `shareMint`, `tokenProgram` — no treasury, platform wallet, staker, or referral.
+
+`request_trade` (MVP): no `dcaEnabled` / `dcaIndex`; no `vaultRiskState` account.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `constants.ts` | Program ID, seeds, enums, external program IDs |
-| `pda.ts` | All PDA derivations + NAV math |
-| `client.ts` | Anchor Program factory + example tx builders |
-| `index.ts` | Re-exports |
+| `constants.ts` | Program ID, seeds, enums, fee wallets |
+| `pda.ts` | PDA derivations + NAV math |
+| `client.ts` | Anchor Program factory + tx builders |
+| `bootstrap-devnet.ts` | Protocol + treasury bootstrap |
+| `idl/onevault.json` | IDL copy (sync from `anchor build`) |
 
 ## IDL sync
 
-After program changes:
-
 ```powershell
-cd onevault-program
+cd ProgramID/onevault-program
 anchor build
+copy target\idl\onevault.json sdk\idl\
+copy target\idl\onevault.json ..\..\simulator\idl\
 ```
-
-Copy:
-
-- `target/idl/onevault.json` → your frontend/backend
-- `target/types/onevault.ts` → optional typed accounts
 
 ## Full integration guide
 

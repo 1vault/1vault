@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 
 use crate::constants::BPS_DENOMINATOR;
 use crate::state::{
-    AllocationMode, DcaMode, PositionMode, TpSlTrigger, TradeAction, Vault, VaultPosition,
+    AllocationMode, PositionMode, TpSlTrigger, TradeAction, Vault, VaultPosition,
 };
 use crate::OneVaultError;
 use anchor_spl::token::{self, CloseAccount, InitializeAccount3, Transfer};
@@ -12,13 +12,6 @@ pub fn apply_bps(amount: u64, bps: u16) -> Result<u64> {
         .checked_mul(bps as u128)
         .and_then(|v| v.checked_div(BPS_DENOMINATOR as u128))
         .map(|v| v as u64)
-        .ok_or(OneVaultError::MathOverflow.into())
-}
-
-pub fn apply_discount_bps(amount: u64, discount_bps: u16) -> Result<u64> {
-    let discount = apply_bps(amount, discount_bps)?;
-    amount
-        .checked_sub(discount)
         .ok_or(OneVaultError::MathOverflow.into())
 }
 
@@ -45,24 +38,12 @@ pub fn validate_trade_mints(
     match action {
         TradeAction::Buy => {
             require!(input_mint == vault.base_mint, OneVaultError::InvalidTradeMint);
-            // Any SPL mint may be bought (launchpad pre-bond, new pairs, etc.).
         }
         TradeAction::Sell => {
             require!(output_mint == vault.base_mint, OneVaultError::InvalidTradeMint);
-            // Any non-base mint may be sold back to base.
             require!(input_mint != vault.base_mint, OneVaultError::InvalidTradeMint);
         }
     }
-    Ok(())
-}
-
-pub fn validate_max_position(vault: &Vault, trade_amount: u64) -> Result<()> {
-    let nav = vault.nav()?;
-    if nav == 0 {
-        return Ok(());
-    }
-    let max_position = apply_bps(nav, vault.max_position_bps)?;
-    require!(trade_amount <= max_position, OneVaultError::MaxPositionExceeded);
     Ok(())
 }
 
@@ -72,11 +53,8 @@ pub fn calc_investor_allocation(
     investor_capital: u64,
     strategist_amount: u64,
     vault: &Vault,
-    dca_mode: DcaMode,
-    dca_allocation_bps: u16,
-    dca_entries_total: u8,
 ) -> Result<u64> {
-    let base = match mode {
+    match mode {
         AllocationMode::Fixed => Ok(position_size.min(investor_capital)),
         AllocationMode::Percentage => apply_bps(investor_capital, position_size as u16),
         AllocationMode::Proportional => {
@@ -90,14 +68,7 @@ pub fn calc_investor_allocation(
                 .map(|v| v as u64)
                 .ok_or(OneVaultError::MathOverflow.into())
         }
-    }?;
-
-    if dca_mode == DcaMode::Custom && dca_allocation_bps > 0 && dca_entries_total > 0 {
-        let per_entry = apply_bps(base, dca_allocation_bps)?;
-        return Ok(per_entry);
     }
-
-    Ok(base)
 }
 
 pub fn validate_slippage(expected: u64, actual: u64, max_slippage_bps: u16) -> Result<()> {
@@ -179,8 +150,6 @@ pub fn create_wsol_unwrap_account<'info>(
     Ok(())
 }
 
-/// Move `amount` wSOL from a token account into `destination` as native SOL
-/// by transferring into a vault-owned unwrap ATA then closing it.
 pub fn unwrap_wsol_to_wallet<'info>(
     token_program: AccountInfo<'info>,
     from: AccountInfo<'info>,

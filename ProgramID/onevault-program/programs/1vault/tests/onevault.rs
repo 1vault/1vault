@@ -2,9 +2,37 @@
 
 use anchor_lang::prelude::Pubkey;
 
+fn sample_vault(base_mint: Pubkey) -> onevault::state::Vault {
+    use onevault::state::{Vault, VaultStatus};
+
+    Vault {
+        strategist: Pubkey::default(),
+        vault_id: 1,
+        name: "t".into(),
+        description: String::new(),
+        base_mint,
+        accepted_mint_count: 1,
+        accepted_mints: [base_mint; onevault::MAX_ACCEPTED_MINTS],
+        share_mint: Pubkey::default(),
+        vault_token_account: Pubkey::default(),
+        total_shares: 1_000,
+        total_assets: 600,
+        position_value: 400,
+        high_water_mark: onevault::SHARE_PRICE_SCALE,
+        performance_fee_bps: 2_000,
+        status: VaultStatus::Active,
+        max_slippage_bps: 100,
+        open_positions_count: 0,
+        pending_trades_count: 0,
+        next_trade_id: 1,
+        next_position_id: 1,
+        bump: 0,
+        share_mint_bump: 0,
+    }
+}
+
 #[test]
 fn protocol_constants_match_spec() {
-    assert_eq!(onevault::DEFAULT_WITHDRAWAL_FEE_BPS, 50);
     assert_eq!(onevault::DEFAULT_LICENSE_LOCK_AMOUNT, 1_000_000_000_000);
     assert_eq!(onevault::BPS_DENOMINATOR, 10_000);
 }
@@ -17,44 +45,7 @@ fn program_id_is_set() {
 
 #[test]
 fn deposit_and_withdraw_use_same_nav_basis() {
-    use onevault::state::{MevMode, StrategyType, Vault, VaultStatus};
-
-    let vault = Vault {
-        strategist: Pubkey::default(),
-        vault_id: 1,
-        name: "t".into(),
-        description: String::new(),
-        strategy_type: StrategyType::Custom,
-        yield_strategy: onevault::YieldStrategy::None,
-        base_mint: Pubkey::default(),
-        accepted_mint_count: 1,
-        accepted_mints: [Pubkey::default(); onevault::MAX_ACCEPTED_MINTS],
-        share_mint: Pubkey::default(),
-        vault_token_account: Pubkey::default(),
-        total_shares: 1_000,
-        total_assets: 600,
-        position_value: 400,
-        staked_value: 0,
-        high_water_mark: onevault::SHARE_PRICE_SCALE,
-        performance_fee_bps: 2_000,
-        status: VaultStatus::Active,
-        mev_mode: MevMode::Standard,
-        max_position_bps: 5_000,
-        max_exposure_bps: 8_000,
-        max_open_positions: 3,
-        max_slippage_bps: 100,
-        dca_enabled: false,
-        dca_count: 0,
-        dca_allocation_bps: 0,
-        open_positions_count: 0,
-        pending_trades_count: 0,
-        active_followers: 0,
-        estimated_follower_capital: 0,
-        next_trade_id: 1,
-        next_position_id: 1,
-        bump: 0,
-        share_mint_bump: 0,
-    };
+    let vault = sample_vault(Pubkey::default());
 
     let nav = vault.nav().unwrap();
     assert_eq!(nav, 1_000);
@@ -92,44 +83,12 @@ fn close_payout_is_pro_rata_and_last_holder_gets_dust() {
 
 #[test]
 fn vault_closing_allows_retail_withdraw() {
-    use onevault::state::{MevMode, StrategyType, Vault, VaultStatus};
+    use onevault::state::VaultStatus;
 
-    let mut vault = Vault {
-        strategist: Pubkey::default(),
-        vault_id: 1,
-        name: "t".into(),
-        description: String::new(),
-        strategy_type: StrategyType::Custom,
-        yield_strategy: onevault::YieldStrategy::None,
-        base_mint: Pubkey::default(),
-        accepted_mint_count: 1,
-        accepted_mints: [Pubkey::default(); onevault::MAX_ACCEPTED_MINTS],
-        share_mint: Pubkey::default(),
-        vault_token_account: Pubkey::default(),
-        total_shares: 500,
-        total_assets: 500,
-        position_value: 0,
-        staked_value: 0,
-        high_water_mark: onevault::SHARE_PRICE_SCALE,
-        performance_fee_bps: 2_000,
-        status: VaultStatus::Active,
-        mev_mode: MevMode::Standard,
-        max_position_bps: 5_000,
-        max_exposure_bps: 8_000,
-        max_open_positions: 3,
-        max_slippage_bps: 100,
-        dca_enabled: false,
-        dca_count: 0,
-        dca_allocation_bps: 0,
-        open_positions_count: 0,
-        pending_trades_count: 0,
-        active_followers: 0,
-        estimated_follower_capital: 0,
-        next_trade_id: 1,
-        next_position_id: 1,
-        bump: 0,
-        share_mint_bump: 0,
-    };
+    let mut vault = sample_vault(Pubkey::default());
+    vault.total_shares = 500;
+    vault.total_assets = 500;
+    vault.position_value = 0;
 
     assert!(vault.is_liquid_for_close());
     assert!(vault.accepts_deposits());
@@ -158,8 +117,6 @@ fn tp_sl_triggers_at_threshold() {
         output_amount: 0,
         take_profit_bps: 3_000,
         stop_loss_bps: 1_000,
-        dca_entries_completed: 1,
-        dca_entries_total: 1,
         status: PositionStatus::Open,
         opened_at: 0,
         bump: 0,
@@ -183,47 +140,17 @@ fn investor_defaults_include_tp_sl_mandate() {
 
 #[test]
 fn trade_mints_allow_any_launchpad_token() {
-    use onevault::state::{MevMode, StrategyType, TradeAction, Vault, VaultStatus, YieldStrategy};
+    use onevault::state::TradeAction;
     use onevault::utils::validate_trade_mints;
 
     let base = Pubkey::new_unique();
     let meme = Pubkey::new_unique();
-    let vault = Vault {
-        strategist: Pubkey::default(),
-        vault_id: 1,
-        name: "t".into(),
-        description: String::new(),
-        strategy_type: StrategyType::Custom,
-        yield_strategy: YieldStrategy::None,
-        base_mint: base,
-        accepted_mint_count: 1,
-        accepted_mints: [base; onevault::MAX_ACCEPTED_MINTS],
-        share_mint: Pubkey::default(),
-        vault_token_account: Pubkey::default(),
-        total_shares: 0,
-        total_assets: 0,
-        position_value: 0,
-        staked_value: 0,
-        high_water_mark: onevault::SHARE_PRICE_SCALE,
-        performance_fee_bps: 0,
-        status: VaultStatus::Active,
-        mev_mode: MevMode::Standard,
-        max_position_bps: 5_000,
-        max_exposure_bps: 8_000,
-        max_open_positions: 3,
-        max_slippage_bps: 100,
-        dca_enabled: false,
-        dca_count: 0,
-        dca_allocation_bps: 0,
-        open_positions_count: 0,
-        pending_trades_count: 0,
-        active_followers: 0,
-        estimated_follower_capital: 0,
-        next_trade_id: 1,
-        next_position_id: 1,
-        bump: 0,
-        share_mint_bump: 0,
-    };
+    let vault = sample_vault(base);
+    let mut vault = vault;
+    vault.total_shares = 0;
+    vault.total_assets = 0;
+    vault.position_value = 0;
+    vault.performance_fee_bps = 0;
 
     assert!(validate_trade_mints(&vault, TradeAction::Buy, base, meme).is_ok());
     assert!(validate_trade_mints(&vault, TradeAction::Sell, meme, base).is_ok());

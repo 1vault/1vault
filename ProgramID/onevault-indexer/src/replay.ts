@@ -13,12 +13,8 @@ const REPLAY_INSTRUCTIONS = [
   "TpSlTriggered",
   "VaultClosePayout",
   "VaultClosed",
+  "VaultClosingInitiated",
   "ProtocolInitialized",
-  "VaultSolStaked",
-  "VaultSolUnstaked",
-  "PlatformStaked",
-  "PlatformUnstaked",
-  "RiskCircuitBreakerTripped",
 ];
 
 async function sleep(ms: number): Promise<void> {

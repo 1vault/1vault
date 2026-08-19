@@ -8,10 +8,9 @@ use crate::constants::*;
 use crate::error::OneVaultError;
 use crate::state::{
     License, PositionMode, PositionStatus, ProtocolConfig, TradeAction, TradeRequest, TradeStatus,
-    TradeVenue, Vault, VaultPosition, VaultRiskState,
+    TradeVenue, Vault, VaultPosition,
 };
-use crate::instructions::risk_ix::assert_vault_risk_allows_trade;
-use crate::utils::{resolve_trade_amount, validate_max_position, validate_slippage, validate_trade_mints};
+use crate::utils::{resolve_trade_amount, validate_slippage, validate_trade_mints};
 
 #[derive(Accounts)]
 #[instruction(trade_id: u64)]
@@ -33,17 +32,12 @@ pub struct RequestTrade<'info> {
         constraint = license.strategist == strategist.key() @ OneVaultError::Unauthorized)]
     pub license: Box<Account<'info, License>>,
 
-    #[account(seeds = [VAULT_RISK_SEED, vault.key().as_ref()], bump = vault_risk_state.bump,
-        constraint = vault_risk_state.vault == vault.key())]
-    pub vault_risk_state: Box<Account<'info, VaultRiskState>>,
-
     #[account(init, payer = strategist, space = 8 + TradeRequest::INIT_SPACE,
         seeds = [TRADE_SEED, vault.key().as_ref(), &trade_id.to_le_bytes()], bump)]
     pub trade_request: Box<Account<'info, TradeRequest>>,
 
     pub system_program: Program<'info, System>,
 
-    /// Strategist must hold vault shares (same pool as retail).
     #[account(
         constraint = strategist_share_account.mint == vault.share_mint @ OneVaultError::InvalidMint,
         constraint = strategist_share_account.owner == strategist.key() @ OneVaultError::Unauthorized,
@@ -62,8 +56,6 @@ pub fn handle_request_trade(
     amount: u64,
     max_slippage_bps: u16,
     min_amount_out: u64,
-    dca_enabled: bool,
-    dca_index: u8,
     take_profit_bps: u16,
     stop_loss_bps: u16,
     linked_position_id: u64,
@@ -72,27 +64,11 @@ pub fn handle_request_trade(
     require!(amount > 0, OneVaultError::InvalidAmount);
     let vault = &ctx.accounts.vault;
     require!(trade_id == vault.next_trade_id, OneVaultError::InvalidTrade);
-    assert_vault_risk_allows_trade(&ctx.accounts.vault_risk_state)?;
-
-    if trade_venue == TradeVenue::Launchpad {
-        require!(
-            vault.mev_mode == crate::state::MevMode::Standard,
-            OneVaultError::MevProtectedRouteRequired
-        );
-    }
 
     validate_trade_mints(vault, action, input_mint, output_mint)?;
 
     let trade_amount = resolve_trade_amount(vault, position_mode, amount)?;
     require!(trade_amount > 0, OneVaultError::InvalidAmount);
-    validate_max_position(vault, trade_amount)?;
-
-    if linked_position_id == 0 && action == TradeAction::Buy {
-        require!(
-            vault.open_positions_count < vault.max_open_positions,
-            OneVaultError::MaxOpenPositions
-        );
-    }
 
     let slippage = if max_slippage_bps == 0 {
         vault.max_slippage_bps
@@ -112,8 +88,6 @@ pub fn handle_request_trade(
     trade.amount = trade_amount;
     trade.max_slippage_bps = slippage;
     trade.min_amount_out = min_amount_out;
-    trade.dca_enabled = dca_enabled;
-    trade.dca_index = dca_index;
     trade.take_profit_bps = take_profit_bps;
     trade.stop_loss_bps = stop_loss_bps;
     trade.linked_position_id = linked_position_id;
@@ -198,39 +172,20 @@ pub struct ExecuteTrade<'info> {
 }
 
 pub fn handle_execute_trade(ctx: Context<ExecuteTrade>, swap_data: Vec<u8>) -> Result<()> {
-    let vault = &ctx.accounts.vault;
     let dex = ctx.accounts.dex_program.key();
     let trade = &ctx.accounts.trade_request;
 
     require!(
         ctx.accounts
             .protocol_config
-            .is_trade_program_allowed(&dex, vault.mev_mode, trade.trade_venue),
+            .is_trade_program_allowed(&dex, trade.trade_venue),
         OneVaultError::DexNotAllowed
     );
-
-    if trade.trade_venue == TradeVenue::Dex {
-        match vault.mev_mode {
-            crate::state::MevMode::Protected => {
-                require!(
-                    ctx.accounts.protocol_config.is_protected_dex(&dex),
-                    OneVaultError::MevProtectedRouteRequired
-                );
-            }
-            crate::state::MevMode::Standard => {
-                require!(
-                    ctx.accounts.protocol_config.is_dex_allowed(&dex),
-                    OneVaultError::StandardRouteRequired
-                );
-            }
-        }
-    }
 
     let output_before = ctx.accounts.vault_output_token.amount;
     let input_before = ctx.accounts.vault_input_token.amount;
 
     if !swap_data.is_empty() && !ctx.remaining_accounts.is_empty() {
-        let _vault_key = ctx.accounts.vault.key();
         let strategist_key = ctx.accounts.vault.strategist;
         let vault_id_bytes = ctx.accounts.vault.vault_id.to_le_bytes();
         let vault_bump = ctx.accounts.vault.bump;
@@ -281,9 +236,6 @@ pub fn handle_execute_trade(ctx: Context<ExecuteTrade>, swap_data: Vec<u8>) -> R
         }
     }
 
-    let exposure = vault.current_exposure_bps()?;
-    require!(exposure <= vault.max_exposure_bps, OneVaultError::MaxExposureExceeded);
-
     let trade_id = trade.trade_id;
     let received_amount = received;
     ctx.accounts.trade_request.status = TradeStatus::Executed;
@@ -325,10 +277,6 @@ pub struct OpenPosition<'info> {
 pub fn handle_open_position(ctx: Context<OpenPosition>, position_id: u64, entry_value: u64, output_amount: u64) -> Result<()> {
     let vault = &ctx.accounts.vault;
     require!(position_id == vault.next_position_id, OneVaultError::InvalidTrade);
-    require!(
-        vault.open_positions_count < vault.max_open_positions,
-        OneVaultError::MaxOpenPositions
-    );
 
     let trade = &ctx.accounts.trade_request;
     let position = &mut ctx.accounts.vault_position;
@@ -341,8 +289,6 @@ pub fn handle_open_position(ctx: Context<OpenPosition>, position_id: u64, entry_
     position.output_amount = output_amount;
     position.take_profit_bps = trade.take_profit_bps;
     position.stop_loss_bps = trade.stop_loss_bps;
-    position.dca_entries_completed = if trade.dca_enabled { trade.dca_index.saturating_add(1) } else { 1 };
-    position.dca_entries_total = if trade.dca_enabled { ctx.accounts.vault.dca_count.max(1) } else { 1 };
     position.status = PositionStatus::Open;
     position.opened_at = Clock::get()?.unix_timestamp;
     position.bump = ctx.bumps.vault_position;

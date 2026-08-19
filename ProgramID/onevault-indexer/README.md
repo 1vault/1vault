@@ -1,8 +1,8 @@
 # 1Vault Indexer (Phase 4)
 
-Off-chain indexing service for the 1Vault protocol. Parses Anchor events from Solana transactions and stores analytics in PostgreSQL.
+Off-chain indexing for the **MVP** 1Vault program. Parses Anchor events from Solana transactions and stores analytics in PostgreSQL.
 
-> **Principle:** Blockchain is the source of truth. PostgreSQL is index/cache/analytics only.
+> **Principle:** Blockchain is source of truth. PostgreSQL is index/cache/analytics only.
 
 ## Architecture
 
@@ -13,58 +13,73 @@ Solana RPC / WebSocket
         ↓
    PostgreSQL
         ↓
-   REST API (leaderboard, trades, performance)
+   REST API (leaderboard, ledger, ingest)
 ```
 
 ## Setup
 
 ```bash
-cd onevault-indexer
+cd ProgramID/onevault-indexer
 cp .env.example .env
-# Edit DATABASE_URL and RPC_URL (Helius recommended for production)
+# DATABASE_URL + RPC_URL (Helius recommended for production)
 
 npm install
-npm run dev        # start indexer
-npm run api        # start REST API on port 3001
+npm run migrate    # apply schema/*.sql
+npm run api        # REST on port 3001
+npm run dev        # poll new program txs
 ```
 
-## PostgreSQL / Supabase
+Demo scripts in `onevault-program/sdk` POST each confirmed signature to `http://127.0.0.1:3001/api/ingest` for immediate rows.
 
-Indexer reads `DATABASE_URL` from `.env` (not `.env.example`). Schema is applied automatically on start:
+After **MVP program upgrade**, old indexed rows for stripped events remain in legacy tables; new txs only emit MVP events.
 
-```bash
-cd onevault-indexer
-cp .env.example .env
-# set DATABASE_URL to the Supabase URI (URL-encode special chars in the password)
-npm install
-npm run migrate    # push schema/001_init.sql
-npm run backfill   # index existing Devnet program txs
-npm run api        # REST + POST /api/ingest  (port 3001)
-npm run dev        # poll new program txs into the same DB
-```
-
-Demo scripts (`fee-demo:devnet`, `product-flow:devnet`) POST each confirmed signature to `http://127.0.0.1:3001/api/ingest` so rows land immediately.
-
-## API Endpoints
+## API endpoints
 
 | Endpoint | Description |
 |----------|-------------|
 | `GET /health` | Health check |
-| `GET /api/leaderboard` | Vault leaderboard by return % |
+| `GET /api/stats` | Row counts per table |
+| `GET /api/protocol-state` | Latest `ProtocolInitialized` snapshot |
+| `GET /api/leaderboard` | Vaults by return % |
 | `GET /api/vaults` | All indexed vaults |
-| `GET /api/vaults/:pubkey` | Vault detail + PnL + trades |
+| `GET /api/vaults/:pubkey` | Vault + PnL snapshots + trades |
+| `GET /api/vaults/:pubkey/holdings` | Park book per investor |
+| `GET /api/vaults/:pubkey/positions` | Vault + investor positions |
+| `GET /api/vaults/:pubkey/fees` | Performance fee accruals |
+| `GET /api/vaults/:pubkey/follows` | Follow / mirror events |
+| `GET /api/vaults/:pubkey/payouts` | Close-vault pro-rata payouts |
 | `GET /api/trades?vault=` | Trade history |
 | `GET /api/analytics/vault/:pubkey` | Deposit/withdraw/position stats |
 | `GET /api/performance/:pubkey` | Share price history |
+| `POST /api/ingest` | Index one signature immediately |
+| `POST /api/ledger/deposits` | Create deposit intent (Postgres-first) |
+| `POST /api/ledger/deposits/:id/submit` | Attach on-chain signature |
+| `GET /api/ledger/deposits` | List deposit intents |
+| `POST /api/ledger/mandates` | Upsert investor mandate |
+| `GET /api/ledger/mandates` | List mandates |
 
-## Indexed Events
+Removed: `GET /api/vaults/:pubkey/stakes` (vault SOL staking stripped from program).
 
-- VaultCreated, InvestorDeposit, InvestorWithdraw
-- TradeRequested, TradeExecuted
-- PositionOpened, PositionClosed, TpSlTriggered
-- FeeAccrued, ReferralRewardAccrued
-- PlatformStaked, PlatformUnstaked
-- RiskCircuitBreakerTripped
+## Indexed events (MVP)
+
+- **Vault:** `VaultCreated`, `VaultClosingInitiated`, `VaultClosed`, `VaultClosePayout`
+- **Investor:** `InvestorDeposit`, `InvestorWithdraw` (`fee_amount` is 0 on-chain)
+- **Trade:** `TradeRequested`, `TradeExecuted`
+- **Position:** `PositionOpened`, `PositionUpdated`, `PositionClosed`, `PositionFollowersClosed`, `TpSlTriggered`
+- **Fees:** `FeeAccrued` (performance only; `protocol_fee` column stored as `0`)
+- **Follow:** `InvestorMirrored`
+- **Protocol:** `ProtocolInitialized`, `UpgradeProposal*`
+
+**Legacy (no longer emitted):** `ReferralRewardAccrued`, `PlatformStaked` / `Unstaked`, `VaultSolStaked` / `Unstaked`, `RiskCircuitBreakerTripped`. Tables remain for historical rows.
+
+## Utilities
+
+```bash
+npm run backfill   # index historical program signatures
+npm run replay     # re-parse selected event types from transactions table
+npm run ingest -- <signature>
+npm run status
+```
 
 ## Program ID
 

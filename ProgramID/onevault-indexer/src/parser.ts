@@ -296,13 +296,12 @@ export async function handleProgramLog(
     case "FeeAccrued": {
       const vault = pk(readPubkey(buf, offset)); offset += 32;
       const performanceFee = readU64(buf, offset); offset += 8;
-      const protocolFee = readU64(buf, offset); offset += 8;
       const sharePrice = readU64(buf, offset); offset += 8;
       await pool.query(
         `INSERT INTO fee_accruals (vault, performance_fee, protocol_fee, share_price, signature, block_time)
-         SELECT $1,$2,$3,$4,$5,$6
-         WHERE NOT EXISTS (SELECT 1 FROM fee_accruals WHERE signature = $5)`,
-        [vault, performanceFee.toString(), protocolFee.toString(), sharePrice.toString(), signature, ts]
+         SELECT $1,$2,0,$3,$4,$5
+         WHERE NOT EXISTS (SELECT 1 FROM fee_accruals WHERE signature = $4)`,
+        [vault, performanceFee.toString(), sharePrice.toString(), signature, ts]
       );
       await pool.query(
         `INSERT INTO pnl_snapshots (vault, share_price, nav, total_shares, snapshot_at, signature)
@@ -311,64 +310,6 @@ export async function handleProgramLog(
            AND NOT EXISTS (SELECT 1 FROM pnl_snapshots WHERE signature = $4)`,
         [vault, sharePrice.toString(), ts ?? new Date(), signature]
       );
-      break;
-    }
-    case "ReferralRewardAccrued": {
-      const user = pk(readPubkey(buf, offset)); offset += 32;
-      const referrer = pk(readPubkey(buf, offset)); offset += 32;
-      const amount = readU64(buf, offset); offset += 8;
-      await pool.query(
-        `INSERT INTO referral_rewards (user_pubkey, referrer, amount, signature, block_time)
-         SELECT $1,$2,$3,$4,$5
-         WHERE NOT EXISTS (SELECT 1 FROM referral_rewards WHERE signature = $4)`,
-        [user, referrer, amount.toString(), signature, ts]
-      );
-      break;
-    }
-    case "PlatformStaked": {
-      const owner = pk(readPubkey(buf, offset)); offset += 32;
-      const amount = readU64(buf, offset); offset += 8;
-      const totalStaked = readU64(buf, offset); offset += 8;
-      const tier = buf.readUInt8(offset);
-      await pool.query(
-        `INSERT INTO staking_events (owner, event_type, amount, tier, signature, block_time)
-         SELECT $1,'stake',$2,$3,$4,$5
-         WHERE NOT EXISTS (
-           SELECT 1 FROM staking_events WHERE signature = $4 AND event_type = 'stake'
-         )`,
-        [owner, amount.toString(), tier, signature, ts]
-      );
-      await pool.query(
-        `INSERT INTO platform_stakers (owner, total_staked, tier, updated_at)
-         VALUES ($1,$2,$3,NOW())
-         ON CONFLICT (owner) DO UPDATE SET
-           total_staked = EXCLUDED.total_staked,
-           tier = EXCLUDED.tier,
-           updated_at = NOW()`,
-        [owner, totalStaked.toString(), tier]
-      );
-      break;
-    }
-    case "PlatformUnstaked": {
-      const owner = pk(readPubkey(buf, offset)); offset += 32;
-      const amount = readU64(buf, offset); offset += 8;
-      const unstaked = await pool.query(
-        `INSERT INTO staking_events (owner, event_type, amount, signature, block_time)
-         SELECT $1,'unstake',$2,$3,$4
-         WHERE NOT EXISTS (
-           SELECT 1 FROM staking_events WHERE signature = $3 AND event_type = 'unstake'
-         )
-         RETURNING id`,
-        [owner, amount.toString(), signature, ts]
-      );
-      if ((unstaked.rowCount ?? 0) > 0) {
-        await pool.query(
-          `UPDATE platform_stakers
-           SET total_staked = GREATEST(total_staked - $1, 0), updated_at = NOW()
-           WHERE owner = $2`,
-          [amount.toString(), owner]
-        );
-      }
       break;
     }
     case "InvestorMirrored": {
@@ -453,54 +394,6 @@ export async function handleProgramLog(
       }
       break;
     }
-    case "VaultSolStaked": {
-      const vault = pk(readPubkey(buf, offset)); offset += 32;
-      const lamports = readU64(buf, offset); offset += 8;
-      const validator = pk(readPubkey(buf, offset)); offset += 32;
-      const staked = await pool.query(
-        `INSERT INTO vault_sol_stake_events (vault, event_type, lamports, validator, signature, block_time)
-         SELECT $1,'stake',$2,$3,$4,$5
-         WHERE NOT EXISTS (
-           SELECT 1 FROM vault_sol_stake_events WHERE signature = $4 AND event_type = 'stake'
-         )
-         RETURNING id`,
-        [vault, lamports.toString(), validator, signature, ts]
-      );
-      if ((staked.rowCount ?? 0) > 0) {
-        await pool.query(
-          `INSERT INTO vault_sol_stakes (vault, lamports, validator, updated_at)
-           VALUES ($1,$2,$3,NOW())
-           ON CONFLICT (vault) DO UPDATE SET
-             lamports = vault_sol_stakes.lamports + EXCLUDED.lamports,
-             validator = EXCLUDED.validator,
-             updated_at = NOW()`,
-          [vault, lamports.toString(), validator]
-        );
-      }
-      break;
-    }
-    case "VaultSolUnstaked": {
-      const vault = pk(readPubkey(buf, offset)); offset += 32;
-      const lamports = readU64(buf, offset); offset += 8;
-      const unstaked = await pool.query(
-        `INSERT INTO vault_sol_stake_events (vault, event_type, lamports, signature, block_time)
-         SELECT $1,'unstake',$2,$3,$4
-         WHERE NOT EXISTS (
-           SELECT 1 FROM vault_sol_stake_events WHERE signature = $3 AND event_type = 'unstake'
-         )
-         RETURNING id`,
-        [vault, lamports.toString(), signature, ts]
-      );
-      if ((unstaked.rowCount ?? 0) > 0) {
-        await pool.query(
-          `UPDATE vault_sol_stakes
-           SET lamports = GREATEST(lamports - $1, 0), updated_at = NOW()
-           WHERE vault = $2`,
-          [lamports.toString(), vault]
-        );
-      }
-      break;
-    }
     case "ProtocolInitialized": {
       const authority = pk(readPubkey(buf, offset)); offset += 32;
       const treasury = pk(readPubkey(buf, offset)); offset += 32;
@@ -515,22 +408,6 @@ export async function handleProgramLog(
            initialized_at = COALESCE(protocol_state.initialized_at, EXCLUDED.initialized_at),
            updated_at = NOW()`,
         [authority, treasury, mint, ts]
-      );
-      break;
-    }
-    case "RiskCircuitBreakerTripped": {
-      const vault = pk(readPubkey(buf, offset)); offset += 32;
-      const reason = buf.readUInt8(offset); offset += 1;
-      const drawdownBps = buf.readUInt16LE(offset);
-      await pool.query(
-        `INSERT INTO circuit_breaker_events (vault, reason, drawdown_bps, signature, block_time)
-         SELECT $1,$2,$3,$4,$5
-         WHERE NOT EXISTS (SELECT 1 FROM circuit_breaker_events WHERE signature = $4)`,
-        [vault, reason, drawdownBps, signature, ts]
-      );
-      await pool.query(
-        `UPDATE vaults SET circuit_breaker_active = TRUE, updated_at = NOW() WHERE pubkey = $1`,
-        [vault]
       );
       break;
     }

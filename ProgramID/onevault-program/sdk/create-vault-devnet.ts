@@ -114,17 +114,8 @@ async function main() {
     const vaultToken = Keypair.generate();
     const risk = {
       description: "Devnet demo vault (wSOL base)",
-      strategyType: { custom: {} },
-      maxPositionBps: 5000,
-      maxExposureBps: 8000,
-      maxOpenPositions: 3,
       maxSlippageBps: 100,
-      mevMode: { standard: {} },
-      dcaEnabled: false,
-      dcaCount: 0,
-      dcaAllocationBps: 0,
       acceptedMints: [WSOL],
-      yieldStrategy: { none: {} },
     };
 
     const sig = await call(program, "create_vault", "createVault")(
@@ -139,6 +130,7 @@ async function main() {
         strategistAccount,
         license,
         vault,
+        vaultFeeState: pda([Buffer.from("vault_fee"), vault.toBuffer()]),
         baseMint: WSOL,
         vaultTokenAccount: vaultToken.publicKey,
         strategistLicenseTokens: strategistAta,

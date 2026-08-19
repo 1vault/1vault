@@ -14,8 +14,6 @@ pub struct VaultPosition {
     pub output_amount: u64,
     pub take_profit_bps: u16,
     pub stop_loss_bps: u16,
-    pub dca_entries_completed: u8,
-    pub dca_entries_total: u8,
     pub status: PositionStatus,
     pub opened_at: i64,
     pub bump: u8,
@@ -31,7 +29,6 @@ pub struct InvestorPosition {
     pub entry_value: u64,
     pub current_value: u64,
     pub output_amount: u64,
-    pub dca_entries_followed: u8,
     pub status: PositionStatus,
     pub bump: u8,
 }

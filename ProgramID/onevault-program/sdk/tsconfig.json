@@ -9,5 +9,5 @@
     "esModuleInterop": true,
     "noEmit": true
   },
-  "include": ["*.ts", "../target/idl/*.json"]
+  "include": ["*.ts", "../target/idl/*.json", "../target/types/*.ts"]
 }
