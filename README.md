@@ -11,7 +11,6 @@ Pooled Solana trading vaults. A **degen** and **retail** park SOL into the **sam
 | [`ProgramID/onevault-program/`](./ProgramID/onevault-program/) | Anchor program + TypeScript SDK / Devnet scripts |
 | [`ProgramID/onevault-indexer/`](./ProgramID/onevault-indexer/) | Postgres indexer, deposit ledger, REST API |
 | [`simulator/`](./simulator/) | Devnet workflow UI (reference, not production app) |
-| [`docs-fe-be/`](./docs-fe-be/) | **Master prompt + FE/BE specs** for the production app |
 
 ## Locked product (current)
 
@@ -32,15 +31,6 @@ Pooled Solana trading vaults. A **degen** and **retail** park SOL into the **sam
 | Platform fee wallet | `9YajdkrkvyzDm57bPSijfy6sFNj9wuqQtYmuYUXZtPDx` |
 | Degen fee wallet | `EXQCB3PJnza9oBNMupBQjVGSuQXaLvTyXNffCJ5zz286` |
 | Base mint | wSOL `So11111111111111111111111111111111111111112` |
-
-## Frontend / backend handoff
-
-Paste [`docs-fe-be/MASTER_PROMPT.md`](./docs-fe-be/MASTER_PROMPT.md) into a new agent or ticket, then follow:
-
-- [Product model](./docs-fe-be/01-PRODUCT.md)
-- [Frontend spec](./docs-fe-be/02-FRONTEND.md)
-- [Backend spec](./docs-fe-be/03-BACKEND.md)
-- [Contract + API](./docs-fe-be/04-CONTRACT-AND-API.md)
 
 ## Quick start (Devnet)
 
