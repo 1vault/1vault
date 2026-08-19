@@ -10,6 +10,7 @@ Pooled Solana trading vaults. A **degen** and **retail** park SOL into the **sam
 |------|------|
 | [`ProgramID/onevault-program/`](./ProgramID/onevault-program/) | Anchor program + TypeScript SDK / Devnet scripts |
 | [`ProgramID/onevault-indexer/`](./ProgramID/onevault-indexer/) | Postgres indexer, deposit ledger, REST API |
+| [`frontend/`](./frontend/) | Production Next.js web app |
 | [`simulator/`](./simulator/) | Devnet workflow UI (reference, not production app) |
 
 ## Locked product (current)
@@ -39,6 +40,10 @@ Pooled Solana trading vaults. A **degen** and **retail** park SOL into the **sam
 cd ProgramID/onevault-indexer
 cp .env.example .env   # set RPC_URL + DATABASE_URL, never commit .env
 npm install && npm run migrate && npm run api
+
+# Frontend (Next.js)
+cd frontend
+npm install && npm run dev
 
 # Simulator UI
 cd simulator

@@ -19,6 +19,9 @@ test-ledger/
 # TypeScript build
 dist/
 
+# Next.js
+.next/
+
 # OS / editor
 .DS_Store
 Thumbs.db
