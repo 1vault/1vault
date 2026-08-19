@@ -12,6 +12,7 @@ export default function SinkNode({ data }: { data: { kind: "platform" | "degenFe
     <div className={`nv nv-sink status-${view.status}`}>
       <Handle type="target" position={Position.Left} id="in" />
       {data.kind === "degenFee" ? <Handle type="source" position={Position.Right} id="out" /> : null}
+      <div className="nv-card">
       <div className="nv-stripe" />
       <div className="nv-head">
         <div className="nv-id">
@@ -23,7 +24,8 @@ export default function SinkNode({ data }: { data: { kind: "platform" | "degenFe
         </div>
         <span className={`pill pill-${view.status}`}>{statusLabel(view.status)}</span>
       </div>
-      <p className="nv-hint">{view.detail || "Fees land after retail exit"}</p>
+      <div className="nv-body">
+      <p className="nv-hint">{view.detail || "Paid at market exit"}</p>
       {view.fields ? (
         <div className="nv-data">
           <div className="nv-row">
@@ -49,6 +51,8 @@ export default function SinkNode({ data }: { data: { kind: "platform" | "degenFe
           explorer
         </a>
       ) : null}
+      </div>
+      </div>
     </div>
   );
 }

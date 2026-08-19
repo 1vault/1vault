@@ -57,6 +57,7 @@ export async function runWorkflow(
     retailSecret?: string;
     degenUseCli?: boolean;
     retailUseCli?: boolean;
+    extraRetails?: Array<{ secret?: string; useCli?: boolean }>;
     settings?: RetailSettings;
     mode: SimMode;
     vaultId?: number;
@@ -89,8 +90,12 @@ export const TRADE_NODES: WorkflowNodeId[] = [
   "mark",
   "closePos",
   "withdraw",
+  "toWallet",
   "accrue",
   "claim",
   "platform",
   "degenFee",
 ];
+export const WALLET_OUT_NODES: WorkflowNodeId[] = ["toWallet", "platform"];
+export const CLOSE_NODES: WorkflowNodeId[] = ["license", "vault", "deposit"];
+export const DEPOSIT_NODES: WorkflowNodeId[] = ["settings", "deposit"];

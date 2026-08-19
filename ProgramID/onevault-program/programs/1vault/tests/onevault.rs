@@ -5,7 +5,7 @@ use anchor_lang::prelude::Pubkey;
 #[test]
 fn protocol_constants_match_spec() {
     assert_eq!(onevault::DEFAULT_WITHDRAWAL_FEE_BPS, 50);
-    assert_eq!(onevault::DEFAULT_LICENSE_LOCK_AMOUNT, 1_000_000);
+    assert_eq!(onevault::DEFAULT_LICENSE_LOCK_AMOUNT, 1_000_000_000_000);
     assert_eq!(onevault::BPS_DENOMINATOR, 10_000);
 }
 

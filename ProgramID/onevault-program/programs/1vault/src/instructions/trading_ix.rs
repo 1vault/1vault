@@ -262,8 +262,9 @@ pub fn handle_execute_trade(ctx: Context<ExecuteTrade>, swap_data: Vec<u8>) -> R
 
     match trade.action {
         TradeAction::Buy => {
+            let spent = input_before.saturating_sub(ctx.accounts.vault_input_token.amount);
             vault.total_assets = ctx.accounts.vault_input_token.amount;
-            vault.position_value = vault.position_value.saturating_add(received);
+            vault.position_value = vault.position_value.saturating_add(spent);
         }
         TradeAction::Sell => {
             vault.total_assets = ctx.accounts.vault_output_token.amount;

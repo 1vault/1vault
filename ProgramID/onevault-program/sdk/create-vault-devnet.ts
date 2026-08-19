@@ -140,6 +140,9 @@ async function main() {
         vault,
         baseMint: WSOL,
         vaultTokenAccount: vaultToken.publicKey,
+        strategistLicenseTokens: strategistAta,
+        platformTokenMint: platformMint,
+        vaultLicenseVault: pda([Buffer.from("vault_license"), vault.toBuffer()]),
       })
       .signers([vaultToken])
       .rpc();

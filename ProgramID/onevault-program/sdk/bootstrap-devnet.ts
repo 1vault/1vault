@@ -45,7 +45,7 @@ const ORCA_WHIRLPOOL = new PublicKey(
 );
 
 const DECIMALS = 6;
-const LICENSE_LOCK_AMOUNT = new BN(1_000_000);
+const LICENSE_LOCK_AMOUNT = new BN("1000000000000"); // 1M 1vault Licence (6 decimals)
 const TEST_MINT_AMOUNT = 10_000_000n * 1_000_000n; // 10M tokens
 
 function loadKeypair(): Keypair {

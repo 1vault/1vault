@@ -48,6 +48,16 @@ export function licenseVaultPda(
   );
 }
 
+export function vaultLicensePda(
+  vault: PublicKey,
+  programId: PublicKey = ONEVAULT_PROGRAM_ID
+): PdaResult {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from(SEEDS.vaultLicense), vault.toBuffer()],
+    programId
+  );
+}
+
 export function vaultPda(
   strategist: PublicKey,
   vaultId: bigint | number,

@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { NodeStatus, ProtocolInfo, RetailSettings, WorkflowNodeId } from "../../shared/events";
+import type { NodeStatus, ProtocolInfo, RetailSettings, SimMode, WorkflowNodeId } from "../../shared/events";
 import type { NodeView, WalletSlot } from "./graph";
 
 export type WorkflowCtx = {
@@ -7,14 +7,20 @@ export type WorkflowCtx = {
   protocol?: ProtocolInfo;
   degen: WalletSlot;
   retail: WalletSlot;
+  retails: WalletSlot[];
   settings: RetailSettings;
   activeVault?: { vaultId: number; vault: string };
   running: boolean;
+  runningMode?: SimMode;
+  start: (mode: SimMode) => void;
   setDegen: (patch: Partial<WalletSlot>) => void;
   setRetail: (patch: Partial<WalletSlot>) => void;
+  setRetailAt: (index: number, patch: Partial<WalletSlot>) => void;
+  addRetail: () => void;
+  removeRetail: (index: number) => void;
   setSettings: (patch: Partial<RetailSettings>) => void;
   importDegen: (mode: "secret" | "cli") => Promise<void>;
-  importRetail: (mode: "secret" | "cli") => Promise<void>;
+  importRetail: (mode: "secret" | "cli", index?: number) => Promise<void>;
 };
 
 export const WorkflowContext = createContext<WorkflowCtx | null>(null);

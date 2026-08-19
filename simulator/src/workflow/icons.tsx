@@ -11,7 +11,7 @@ function Svg({ children, className }: { children: ReactNode; className?: string 
       height="16"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.8"
+      strokeWidth="1.6"
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden
@@ -107,6 +107,12 @@ export const ICONS: Record<string, (p: IconProps) => React.ReactNode> = {
     </Svg>
   ),
   withdraw: () => (
+    <Svg>
+      <rect x="4" y="7" width="16" height="12" rx="2" />
+      <path d="M12 4v8M9 9l3 3 3-3" />
+    </Svg>
+  ),
+  toWallet: () => (
     <Svg>
       <path d="M12 4v10M8 10l4 4 4-4" />
       <path d="M5 18h14" />

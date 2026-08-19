@@ -268,6 +268,9 @@ async function main() {
           vault: vaultPk,
           baseMint: NATIVE_MINT,
           vaultTokenAccount: vaultToken.publicKey,
+          strategistLicenseTokens: strategistAta,
+          platformTokenMint: platformMint,
+          vaultLicenseVault: pda([Buffer.from("vault_license"), vaultPk.toBuffer()]),
         })
         .signers([vaultToken])
         .transaction();

@@ -1,6 +1,6 @@
 export type NodeStatus = "idle" | "ready" | "running" | "success" | "error" | "skipped";
 
-export type SimMode = "create-vault" | "open-position";
+export type SimMode = "create-vault" | "open-position" | "withdraw-wallet" | "close-vault" | "deposit";
 
 export type WorkflowNodeId =
   | "degen"
@@ -20,6 +20,7 @@ export type WorkflowNodeId =
   | "accrue"
   | "claim"
   | "withdraw"
+  | "toWallet"
   | "platform"
   | "degenFee";
 
@@ -29,6 +30,7 @@ export type RetailSettings = {
   maxPositionBps: number;
   followTpSl: boolean;
   parkSol: number;
+  degenParkSol: number;
 };
 
 export type NodeUpdate = {
@@ -46,6 +48,9 @@ export type ProtocolInfo = {
   platformWallet: string;
   degenFeeWallet: string;
   explorerProgram: string;
+  licenseMint: string;
+  licenseName: string;
+  licenseLockTokens: string;
 };
 
 export type WalletPreview = {

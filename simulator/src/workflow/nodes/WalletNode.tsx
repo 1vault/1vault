@@ -1,23 +1,42 @@
 import { Handle, Position } from "@xyflow/react";
 import { shortAddr, statusLabel, useWorkflow } from "../context";
+import { MAX_RETAILS } from "../graph";
 import { NodeIcon } from "../icons";
 
-export default function WalletNode({ data }: { data: { role: "degen" | "retail" } }) {
+export default function WalletNode({
+  data,
+}: {
+  data: { role: "degen" | "retail"; index?: number };
+}) {
   const ctx = useWorkflow();
-  const slot = data.role === "degen" ? ctx.degen : ctx.retail;
-  const view = ctx.views[data.role];
-  const set = data.role === "degen" ? ctx.setDegen : ctx.setRetail;
-  const importer = data.role === "degen" ? ctx.importDegen : ctx.importRetail;
+  const index = data.role === "retail" ? data.index ?? 0 : 0;
+  const slot = data.role === "degen" ? ctx.degen : ctx.retails[index] ?? ctx.retail;
   const loaded = Boolean(slot.pubkey);
-  const title = data.role === "degen" ? "Degen wallet" : "Retail wallet";
+  const view =
+    data.role === "degen"
+      ? ctx.views.degen
+      : index === 0
+        ? ctx.views.retail
+        : { status: loaded ? ("success" as const) : ("idle" as const), detail: loaded ? "Investor wallet loaded" : undefined };
+  const set =
+    data.role === "degen"
+      ? ctx.setDegen
+      : (patch: Parameters<typeof ctx.setRetailAt>[1]) => ctx.setRetailAt(index, patch);
+  const importer = data.role === "degen" ? ctx.importDegen : (mode: "secret" | "cli") => ctx.importRetail(mode, index);
+  const title =
+    data.role === "degen" ? "Degen wallet" : ctx.retails.length > 1 ? `Retail ${index + 1}` : "Retail wallet";
   const hint =
     data.role === "degen"
-      ? "Strategist — paste your Devnet private key on this node"
-      : "Investor — paste your key, follow settings, then join the vault";
+      ? "Strategist key · park SOL into the vault"
+      : "Investor key · parks into the same vault";
+  const pillStatus = loaded && view.status === "idle" ? "ready" : loaded ? view.status : "idle";
+  const canAdd = data.role === "retail" && index === 0 && ctx.retails.length < MAX_RETAILS && !ctx.running;
+  const canRemove = data.role === "retail" && index > 0 && !ctx.running;
 
   return (
     <div className={`nv nv-wallet status-${view.status} ${loaded ? "is-ready" : ""}`}>
       <Handle type="source" position={Position.Right} id="out" />
+      <div className="nv-card">
       <div className="nv-stripe" />
       <div className="nv-head">
         <div className="nv-id">
@@ -27,22 +46,69 @@ export default function WalletNode({ data }: { data: { role: "degen" | "retail" 
             <div className="nv-title">{title}</div>
           </div>
         </div>
-        <span className={`pill pill-${loaded && view.status === "idle" ? "ready" : view.status}`}>
-          {statusLabel(loaded && view.status === "idle" ? "ready" : loaded ? view.status : "idle")}
-        </span>
+        <div className="nv-head-right">
+          {canAdd ? (
+            <button
+              type="button"
+              className="btn btn-icon nopan nodrag"
+              title="Add another retail wallet"
+              onClick={ctx.addRetail}
+            >
+              +
+            </button>
+          ) : null}
+          {canRemove ? (
+            <button
+              type="button"
+              className="btn btn-icon nopan nodrag"
+              title="Remove this retail wallet"
+              onClick={() => ctx.removeRetail(index)}
+            >
+              −
+            </button>
+          ) : null}
+          <span className={`pill pill-${pillStatus}`}>{statusLabel(pillStatus)}</span>
+        </div>
       </div>
-      <p className="nv-hint">{hint}</p>
-      {!loaded ? (
-        <div className="nv-form nopan nodrag nowheel">
-          <label className="nv-label">Paste private key</label>
-          <textarea
-            className="nv-secret"
-            placeholder="[12,34,…] JSON  ·  or base58 secret"
-            value={slot.secret}
-            disabled={ctx.running}
-            onChange={(e) => set({ secret: e.target.value, useCli: false, error: undefined })}
-            onKeyDown={(e) => e.stopPropagation()}
-          />
+      <div className="nv-body">
+        <p className="nv-hint">{hint}</p>
+        {!loaded ? (
+          <div className="nv-form nopan nodrag nowheel">
+            <label className="nv-label">Paste private key</label>
+            <textarea
+              className="nv-secret"
+              placeholder="[12,34,…] JSON  ·  or base58 secret"
+              value={slot.secret}
+              disabled={ctx.running}
+              onChange={(e) => set({ secret: e.target.value, useCli: false, error: undefined })}
+              onKeyDown={(e) => e.stopPropagation()}
+            />
+          </div>
+        ) : (
+          <div className="nv-data">
+            <Row label="pubkey" value={shortAddr(slot.pubkey)} copy={slot.pubkey} />
+            <Row label="wallet" value={`${slot.sol ?? "—"} SOL`} />
+            {data.role === "degen" ? (
+              <label className="nv-field nopan nodrag nowheel">
+                Trade SOL
+                <input
+                  type="number"
+                  min={0}
+                  max={5}
+                  step={0.01}
+                  value={ctx.settings.degenParkSol}
+                  disabled={ctx.running}
+                  onChange={(e) => ctx.setSettings({ degenParkSol: Number(e.target.value) || 0 })}
+                />
+              </label>
+            ) : null}
+            {view.detail ? <p className="nv-detail">{view.detail}</p> : null}
+          </div>
+        )}
+        {slot.error ? <p className="nv-error">{slot.error}</p> : null}
+      </div>
+      <div className="nv-foot nopan nodrag">
+        {!loaded ? (
           <div className="nv-actions">
             <button
               type="button"
@@ -50,7 +116,7 @@ export default function WalletNode({ data }: { data: { role: "degen" | "retail" 
               disabled={ctx.running || !slot.secret.trim()}
               onClick={() => void importer("secret")}
             >
-              Import key
+              Import
             </button>
             <button
               type="button"
@@ -58,15 +124,10 @@ export default function WalletNode({ data }: { data: { role: "degen" | "retail" 
               disabled={ctx.running}
               onClick={() => void importer("cli")}
             >
-              Use CLI key
+              CLI
             </button>
           </div>
-        </div>
-      ) : (
-        <div className="nv-data">
-          <Row label="pubkey" value={shortAddr(slot.pubkey)} copy={slot.pubkey} />
-          <Row label="SOL" value={slot.sol ?? "—"} />
-          {view.detail ? <p className="nv-detail">{view.detail}</p> : null}
+        ) : (
           <button
             type="button"
             className="btn btn-sm btn-ghost"
@@ -77,9 +138,9 @@ export default function WalletNode({ data }: { data: { role: "degen" | "retail" 
           >
             Clear
           </button>
-        </div>
-      )}
-      {slot.error ? <p className="nv-error">{slot.error}</p> : null}
+        )}
+      </div>
+      </div>
     </div>
   );
 }

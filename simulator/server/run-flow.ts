@@ -17,6 +17,7 @@ import {
   TOKEN_PROGRAM_ID,
   MINT_SIZE,
   createAssociatedTokenAccountIdempotentInstruction,
+  createCloseAccountInstruction,
   createInitializeMint2Instruction,
   createMintToInstruction,
   createSyncNativeInstruction,
@@ -26,6 +27,13 @@ import {
 } from "@solana/spl-token";
 import type { NodeUpdate, RetailSettings, SimMode } from "../shared/events";
 import { INDEXER_API } from "./env";
+import {
+  LICENSE_DECIMALS,
+  LICENSE_LOCK_RAW,
+  LICENSE_NAME,
+  ensureLicenseTokens,
+  formatLicenseAmount,
+} from "./license-token";
 import { RpcPool, sleep } from "./rpc";
 
 const PROGRAM_ID = new PublicKey("2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP");
@@ -37,7 +45,8 @@ const DEGEN_FEE_WALLET = new PublicKey("EXQCB3PJnza9oBNMupBQjVGSuQXaLvTyXNffCJ5z
 const PERFORMANCE_FEE_BPS = 2000;
 const TRADE = 30_000_000;
 const PNL = 50_000_000;
-const DEMO_TOKENS = 1_000_000_000n;
+/** Flat $0.50 platform fee — charged only when redeeming to the investor wallet. */
+const WITHDRAW_FLAT_FEE_LAMPORTS = 4_000_000;
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const IDL_CANDIDATES = [
@@ -159,6 +168,24 @@ async function ingest(signature: string): Promise<void> {
   }
 }
 
+async function unwrapWsolToNative(
+  rpc: RpcPool,
+  owner: Keypair,
+  wsolAta: PublicKey
+): Promise<{ sig?: string; unwrapped: bigint }> {
+  let unwrapped = 0n;
+  try {
+    unwrapped = (await rpc.retry((c) => getAccount(c, wsolAta))).amount;
+  } catch {
+    return { unwrapped: 0n };
+  }
+  const tx = new Transaction().add(
+    createCloseAccountInstruction(wsolAta, owner.publicKey, owner.publicKey)
+  );
+  const sig = await sendAndPoll(rpc, tx, [owner]);
+  return { sig, unwrapped };
+}
+
 async function tokenAmt(rpc: RpcPool, ata: PublicKey): Promise<bigint> {
   try {
     return (await rpc.retry((c) => getAccount(c, ata))).amount;
@@ -180,7 +207,16 @@ export type Emit = (update: NodeUpdate) => void;
 export type FlowResult = {
   vaultId: number;
   vault: string;
+  closed?: boolean;
 };
+
+function statusKey(status: unknown): string {
+  if (status && typeof status === "object") {
+    const key = Object.keys(status as object)[0];
+    if (key) return key;
+  }
+  return "unknown";
+}
 
 function vaultPda(strategist: PublicKey, vaultId: number): PublicKey {
   return pda([Buffer.from("vault"), strategist.toBuffer(), u64Le(vaultId)]);
@@ -229,8 +265,17 @@ export async function runLiveFlow(opts: {
   settings?: Partial<RetailSettings>;
   mode?: SimMode;
   vaultId?: number;
+  extraRetails?: Keypair[];
 }): Promise<FlowResult> {
   const { degen, retail, emit } = opts;
+  const extraRetails = [];
+  const seen = new Set([retail.publicKey.toBase58(), degen.publicKey.toBase58()]);
+  for (const k of opts.extraRetails ?? []) {
+    const id = k.publicKey.toBase58();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    extraRetails.push(k);
+  }
   const mode: SimMode = opts.mode ?? "open-position";
   const autoFollow = opts.settings?.autoFollow ?? true;
   const copyBps = opts.settings?.copyBps ?? 5000;
@@ -238,6 +283,8 @@ export async function runLiveFlow(opts: {
   const followTpSl = opts.settings?.followTpSl ?? true;
   const parkSol = Math.max(0.05, Number(opts.settings?.parkSol ?? 0.1));
   const DEPOSIT = Math.round(parkSol * LAMPORTS_PER_SOL);
+  const degenParkSol = Math.max(0, Number(opts.settings?.degenParkSol ?? 0));
+  const DEGEN_DEPOSIT = Math.round(degenParkSol * LAMPORTS_PER_SOL);
   const rpc = new RpcPool(opts.rpcUrl);
   const idl = loadIdl();
   const degenProg = makeProgram(rpc, degen, idl);
@@ -293,20 +340,63 @@ export async function runLiveFlow(opts: {
   if (degenSol < minDegen * LAMPORTS_PER_SOL) {
     throw new Error(`Degen wallet needs at least ${minDegen} SOL on Devnet`);
   }
-  if (mode === "create-vault" && retailSol < DEPOSIT + 0.02 * LAMPORTS_PER_SOL) {
+  if ((mode === "create-vault" || mode === "deposit") && degenParkSol > 0 && degenSol < DEGEN_DEPOSIT + 0.05 * LAMPORTS_PER_SOL) {
     throw new Error(
-      `Retail wallet needs at least ${(parkSol + 0.02).toFixed(2)} SOL on Devnet to park funds + fees`
+      `Degen wallet needs at least ${(degenParkSol + 0.05).toFixed(2)} SOL on Devnet to park into the vault`
+    );
+  }
+  if ((mode === "create-vault" || mode === "deposit") && retailSol < DEPOSIT + 0.02 * LAMPORTS_PER_SOL) {
+    throw new Error(
+      `Retail wallet needs at least ${(parkSol + 0.02).toFixed(2)} SOL on Devnet to park funds`
     );
   }
   if (mode === "open-position" && retailSol < 0.02 * LAMPORTS_PER_SOL) {
     throw new Error("Retail wallet needs a little Devnet SOL for fees");
   }
+  if (mode === "withdraw-wallet" && retailSol < 0.01 * LAMPORTS_PER_SOL) {
+    throw new Error("Retail wallet needs a little Devnet SOL for the withdraw transaction");
+  }
+  if (mode === "close-vault" && degenSol < 0.02 * LAMPORTS_PER_SOL) {
+    throw new Error("Degen wallet needs a little Devnet SOL to close the vault");
+  }
 
   const strategistAccount = pda([Buffer.from("strategist"), degen.publicKey.toBuffer()]);
   const license = pda([Buffer.from("license"), degen.publicKey.toBuffer()]);
-  const strategistAta = getAssociatedTokenAddressSync(PLATFORM_MINT, degen.publicKey);
+  const licenseTokenVault = pda([Buffer.from("license_vault"), degen.publicKey.toBuffer()]);
+  let platformMint = PLATFORM_MINT;
+  let licenseLockRaw = LICENSE_LOCK_RAW;
+  try {
+    const cfg = await (degenProg.account as any).protocolConfig.fetch(PROTOCOL_CONFIG);
+    if (cfg?.platformTokenMint) platformMint = cfg.platformTokenMint as PublicKey;
+    const onChainLock = cfg?.licenseLockAmount != null ? BigInt(cfg.licenseLockAmount.toString()) : 0n;
+    if (
+      degen.publicKey.equals(cfg.authority as PublicKey) &&
+      onChainLock !== LICENSE_LOCK_RAW
+    ) {
+      const upd = await call(degenProg, "update_protocol_config", "updateProtocolConfig")(
+        null,
+        new BN(LICENSE_LOCK_RAW.toString()),
+        null,
+        null,
+        null,
+        null
+      )
+        .accounts({
+          authority: degen.publicKey,
+          protocolConfig: PROTOCOL_CONFIG,
+        })
+        .transaction();
+      await sendAndPoll(rpc, upd, [degen]);
+      licenseLockRaw = LICENSE_LOCK_RAW;
+    } else if (onChainLock > 0n) {
+      licenseLockRaw = onChainLock;
+    }
+  } catch {
+    /* keep compiled defaults if protocol fetch fails */
+  }
+  const strategistAta = getAssociatedTokenAddressSync(platformMint, degen.publicKey);
 
-  if (mode === "open-position") {
+  if (mode === "open-position" || mode === "withdraw-wallet" || mode === "close-vault" || mode === "deposit") {
     if (!(await rpc.retry((c) => c.getAccountInfo(license)))) {
       emit({
         id: "ata",
@@ -318,11 +408,18 @@ export async function runLiveFlow(opts: {
     emit({
       id: "license",
       status: "skipped",
-      detail: "License already on-chain — Open position does not create it again",
+      detail:
+        mode === "withdraw-wallet"
+          ? "License already on-chain — wallet withdraw does not create it again"
+          : mode === "close-vault"
+            ? "License stays locked in this vault until Close vault returns 1vault Licence to the degen wallet"
+            : mode === "deposit"
+              ? "License already on-chain — Deposit does not lock it again"
+              : "License already on-chain — Open position does not create it again",
       fields: { license: "already active", strategistPda: strategistAccount.toBase58() },
     });
   } else {
-  emit({ id: "license", status: "running", detail: "Checking strategist + license PDAs" });
+  emit({ id: "license", status: "running", detail: "Prepare 1,000,000 1vault Licence to lock inside the vault" });
   try {
     const fields: Record<string, string> = {
       strategistPda: strategistAccount.toBase58(),
@@ -339,6 +436,28 @@ export async function runLiveFlow(opts: {
       fields.register = "already exists";
     }
     if (!(await rpc.retry((c) => c.getAccountInfo(license)))) {
+      const ready = await ensureLicenseTokens({
+        rpc,
+        payer: degen,
+        mint: platformMint,
+        lockRaw: licenseLockRaw,
+        sendAndPoll,
+      });
+      fields.token = LICENSE_NAME;
+      fields.mint = platformMint.toBase58();
+      fields.required = formatLicenseAmount(licenseLockRaw, ready.decimals);
+      fields.balance = formatLicenseAmount(ready.balance, ready.decimals);
+      if (ready.mintTx) {
+        fields.mintTx = explorerTx(ready.mintTx);
+      }
+      if (ready.metadataTx) {
+        fields.metadataTx = explorerTx(ready.metadataTx);
+      }
+      if (ready.balance < licenseLockRaw) {
+        throw new Error(
+          `Degen wallet needs ${formatLicenseAmount(licenseLockRaw, ready.decimals)} to create a vault`
+        );
+      }
       const tx = await call(degenProg, "lock_license", "lockLicense")()
         .accounts({
           strategist: degen.publicKey,
@@ -346,19 +465,40 @@ export async function runLiveFlow(opts: {
           strategistAccount,
           license,
           strategistTokenAccount: strategistAta,
-          platformTokenMint: PLATFORM_MINT,
+          licenseTokenVault,
+          platformTokenMint: platformMint,
         })
         .transaction();
       const sig = await sendAndPoll(rpc, tx, [degen]);
       fields.lockTx = sig;
       fields.lockExplorer = explorerTx(sig);
+      fields.locked = formatLicenseAmount(licenseLockRaw, ready.decimals);
     } else {
       fields.license = "already locked";
+      fields.token = LICENSE_NAME;
+      const ready = await ensureLicenseTokens({
+        rpc,
+        payer: degen,
+        mint: platformMint,
+        lockRaw: licenseLockRaw,
+        sendAndPoll,
+      });
+      fields.mint = platformMint.toBase58();
+      fields.required = formatLicenseAmount(licenseLockRaw, ready.decimals);
+      fields.balance = formatLicenseAmount(ready.balance, ready.decimals);
+      if (ready.metadataTx) fields.metadataTx = explorerTx(ready.metadataTx);
+      if (ready.balance < licenseLockRaw) {
+        throw new Error(
+          `Degen wallet needs ${formatLicenseAmount(licenseLockRaw, ready.decimals)} to lock inside the vault`
+        );
+      }
     }
     emit({
       id: "license",
       status: fields.lockTx || fields.registerTx ? "success" : "skipped",
-      detail: fields.license === "already locked" ? "License already on-chain" : "License locked",
+      detail: fields.license === "already locked"
+        ? "Licence record already active — 1M 1VL locks into the vault on Create vault"
+        : `Licence ready — Create vault will lock ${fields.locked ?? "1,000,000 1VL"} inside the vault`,
       tx: fields.lockTx ?? fields.registerTx,
       fields,
     });
@@ -384,9 +524,10 @@ export async function runLiveFlow(opts: {
     nextTradeId?: { toString(): string };
     nextPositionId?: { toString(): string };
     name: string;
+    status?: unknown;
   };
 
-  if (mode === "open-position") {
+  if (mode === "open-position" || mode === "withdraw-wallet" || mode === "close-vault" || mode === "deposit") {
     const existing = opts.vaultId ?? (await findLatestVaultId(rpc, degen.publicKey));
     if (!existing) {
       emit({
@@ -405,13 +546,17 @@ export async function runLiveFlow(opts: {
     emit({
       id: "vault",
       status: "success",
-      detail: `Using vault #${vaultId} — degen signs, vault capital buys`,
+      detail:
+        mode === "deposit"
+          ? `Using vault #${vaultId} — Deposit parks SOL from Follow settings`
+          : `Using vault #${vaultId} — 1,000,000 1VL stays locked here until Close vault`,
       fields: {
         vaultId: String(vaultId),
         name: vault.name,
         vault: vaultPk.toBase58(),
         shareMint: shareMintFor(vaultPk).toBase58(),
         vaultAta: vault.vaultTokenAccount.toBase58(),
+        licenseLocked: "1,000,000 1VL",
         explorer: explorerAddr(vaultPk.toBase58()),
       },
     });
@@ -455,6 +600,9 @@ export async function runLiveFlow(opts: {
           vault: vaultPk,
           baseMint: NATIVE_MINT,
           vaultTokenAccount: vaultToken.publicKey,
+          strategistLicenseTokens: strategistAta,
+          platformTokenMint: platformMint,
+          vaultLicenseVault: pda([Buffer.from("vault_license"), vaultPk.toBuffer()]),
         })
         .signers([vaultToken])
         .transaction();
@@ -463,7 +611,7 @@ export async function runLiveFlow(opts: {
       emit({
         id: "vault",
         status: "success",
-        detail: `${vaultName} created on Devnet`,
+        detail: `${vaultName} created · 1,000,000 1vault Licence locked in this vault`,
         tx: sig,
         fields: {
           vaultId: String(vaultId),
@@ -471,8 +619,19 @@ export async function runLiveFlow(opts: {
           vault: vaultPk.toBase58(),
           shareMint: shareMintFor(vaultPk).toBase58(),
           vaultAta: vault.vaultTokenAccount.toBase58(),
+          licenseLocked: "1,000,000 1VL",
           explorer: explorerAddr(vaultPk.toBase58()),
           tx: explorerTx(sig),
+        },
+      });
+      emit({
+        id: "license",
+        status: "success",
+        detail: "1,000,000 1vault Licence is locked inside this vault until Close vault",
+        fields: {
+          token: LICENSE_NAME,
+          locked: "1,000,000 1VL",
+          vault: vaultPk.toBase58(),
         },
       });
     } catch (e) {
@@ -491,8 +650,117 @@ export async function runLiveFlow(opts: {
     retail.publicKey.toBuffer(),
   ]);
 
+  const followParams = {
+    autoFollow,
+    allocationMode: { percentage: {} },
+    positionSize: new BN(copyBps),
+    maxPositionBps,
+    maxExposureBps: 8000,
+    maxOpenPositions: 3,
+    followDca: false,
+    dcaMode: { followStrategist: {} },
+    dcaAllocationBps: 0,
+    followPartialExit: true,
+    followFullExit: true,
+    followTpSl,
+    maxSlippageBps: 100,
+  };
+
+  async function configureFollow(investor: Keypair): Promise<void> {
+    const prog = makeProgram(rpc, investor, idl);
+    const cfg = pda([
+      Buffer.from("investor_config"),
+      vaultPk.toBuffer(),
+      investor.publicKey.toBuffer(),
+    ]);
+    if (!(await rpc.retry((c) => c.getAccountInfo(cfg)))) {
+      const tx = await call(prog, "create_investor_config", "createInvestorConfig")()
+        .accounts({
+          investor: investor.publicKey,
+          protocolConfig: PROTOCOL_CONFIG,
+          vault: vaultPk,
+          investorConfig: cfg,
+          systemProgram: SystemProgram.programId,
+        })
+        .transaction();
+      await sendAndPoll(rpc, tx, [investor]);
+    }
+    const upd = await call(prog, "update_investor_config", "updateInvestorConfig")(followParams)
+      .accounts({
+        investor: investor.publicKey,
+        vault: vaultPk,
+        investorConfig: cfg,
+      })
+      .transaction();
+    await sendAndPoll(rpc, upd, [investor]);
+    if (autoFollow) {
+      const fol = await call(prog, "follow_on", "followOn")()
+        .accounts({ investor: investor.publicKey, vault: vaultPk, investorConfig: cfg })
+        .transaction();
+      await sendAndPoll(rpc, fol, [investor]);
+    }
+  }
+
+  async function parkFunds(investor: Keypair, amountLamports: number, label: string): Promise<void> {
+    if (amountLamports <= 0) return;
+    await configureFollow(investor);
+    const prog = makeProgram(rpc, investor, idl);
+    const wsol = getAssociatedTokenAddressSync(NATIVE_MINT, investor.publicKey);
+    const shares = getAssociatedTokenAddressSync(shareMint, investor.publicKey);
+    const bal = await safeBal(investor.publicKey);
+    if (bal >= 0 && bal < amountLamports + 0.02 * LAMPORTS_PER_SOL) {
+      throw new Error(
+        `${label} needs at least ${((amountLamports / LAMPORTS_PER_SOL) + 0.02).toFixed(2)} SOL to park funds`
+      );
+    }
+    const setup = new Transaction().add(
+      createAssociatedTokenAccountIdempotentInstruction(
+        investor.publicKey,
+        wsol,
+        investor.publicKey,
+        NATIVE_MINT
+      ),
+      SystemProgram.transfer({
+        fromPubkey: investor.publicKey,
+        toPubkey: wsol,
+        lamports: amountLamports,
+      }),
+      createSyncNativeInstruction(wsol),
+      createAssociatedTokenAccountIdempotentInstruction(
+        investor.publicKey,
+        shares,
+        investor.publicKey,
+        shareMint
+      )
+    );
+    await sendAndPoll(rpc, setup, [investor]);
+    const latest = await (degenProg.account as any).vault.fetch(vaultPk);
+    const tx = await call(prog, "deposit", "deposit")(new BN(amountLamports))
+      .accounts({
+        investor: investor.publicKey,
+        protocolConfig: PROTOCOL_CONFIG,
+        vault: vaultPk,
+        investorTokenAccount: wsol,
+        vaultTokenAccount: latest.vaultTokenAccount,
+        shareMint,
+        investorShareAccount: shares,
+      })
+      .transaction();
+    await sendAndPoll(rpc, tx, [investor]);
+    const leftoverWsol = await tokenAmt(rpc, wsol);
+    if (leftoverWsol === 0n) {
+      await unwrapWsolToNative(rpc, investor, wsol).catch(() => undefined);
+    }
+  }
+
   const investorConfigInfo = await rpc.retry((c) => c.getAccountInfo(investorConfig));
-  if (mode === "open-position" && investorConfigInfo) {
+  if (mode === "close-vault") {
+    emit({
+      id: "settings",
+      status: "skipped",
+      detail: "Close vault is a degen action — retail follow settings are unchanged",
+    });
+  } else if ((mode === "open-position" || mode === "withdraw-wallet") && investorConfigInfo) {
     emit({
       id: "settings",
       status: "skipped",
@@ -573,80 +841,93 @@ export async function runLiveFlow(opts: {
   }
 
   const alreadyParked = await tokenAmt(rpc, retailShares);
-  if (mode === "open-position" && alreadyParked > 0n) {
+  const vaultAtaAmt = Number(await tokenAmt(rpc, vault.vaultTokenAccount));
+  const needPark = alreadyParked === 0n || vaultAtaAmt < TRADE;
+  if (mode === "close-vault") {
     vault = await (degenProg.account as any).vault.fetch(vaultPk);
     emit({
       id: "deposit",
       status: "skipped",
-      detail: `Funds already parked in vault #${vaultId} · ${alreadyParked} shares`,
+      detail:
+        Number(vault.totalShares.toString()) > 0
+          ? `Vault #${vaultId} still has shares — retail must Withdraw first, then Close vault returns 1vault Licence`
+          : `Vault #${vaultId} is empty of shares — closing returns locked 1vault Licence to the degen wallet`,
+      fields: {
+        vaultId: String(vaultId),
+        vault: vaultPk.toBase58(),
+        shares: alreadyParked.toString(),
+        vaultAssets: lamportsToSol(vault.totalAssets.toString()),
+      },
+    });
+  } else if (mode === "withdraw-wallet") {
+    vault = await (degenProg.account as any).vault.fetch(vaultPk);
+    emit({
+      id: "deposit",
+      status: "skipped",
+      detail: `Redeeming parked funds from vault #${vaultId} to wallet · flat $0.50 platform fee`,
+      fields: {
+        vaultId: String(vaultId),
+        vault: vaultPk.toBase58(),
+        shares: alreadyParked.toString(),
+        vaultAssets: lamportsToSol(vault.totalAssets.toString()),
+        depositFee: "$0",
+        walletFee: "$0.50",
+      },
+    });
+  } else if (mode === "open-position" && !needPark) {
+    vault = await (degenProg.account as any).vault.fetch(vaultPk);
+    emit({
+      id: "deposit",
+      status: "skipped",
+      detail: `${lamportsToSol(vaultAtaAmt)} SOL already locked in vault #${vaultId} · no deposit fee`,
       fields: {
         vaultId: String(vaultId),
         vault: vaultPk.toBase58(),
         amount: "already parked",
         shares: alreadyParked.toString(),
         vaultAssets: lamportsToSol(vault.totalAssets.toString()),
+        depositFee: "$0",
+        walletFee: "$0.50 on wallet withdraw",
       },
     });
   } else {
+  const extraCount = extraRetails.length;
+  const parts = [
+    `retail ${parkSol.toFixed(3)}`,
+    extraCount ? `+ ${extraCount} extra retail` : "",
+    degenParkSol > 0 ? `+ degen ${degenParkSol.toFixed(3)}` : "",
+  ].filter(Boolean);
   emit({
     id: "deposit",
     status: "running",
-    detail: `Parking ${parkSol} SOL in vault #${vaultId}`,
+    detail: `Parking ${parts.join(" ")} SOL in vault #${vaultId}`,
   });
   try {
-    if (retailSol < DEPOSIT + 0.02 * LAMPORTS_PER_SOL) {
-      throw new Error(
-        `Retail wallet needs at least ${(parkSol + 0.02).toFixed(2)} SOL to park funds + fees`
-      );
+    await parkFunds(retail, DEPOSIT, "Retail wallet");
+    for (let i = 0; i < extraRetails.length; i++) {
+      await parkFunds(extraRetails[i], DEPOSIT, `Retail ${i + 2}`);
     }
-    const setup = new Transaction().add(
-      createAssociatedTokenAccountIdempotentInstruction(
-        retail.publicKey,
-        retailWsol,
-        retail.publicKey,
-        NATIVE_MINT
-      ),
-      SystemProgram.transfer({
-        fromPubkey: retail.publicKey,
-        toPubkey: retailWsol,
-        lamports: DEPOSIT,
-      }),
-      createSyncNativeInstruction(retailWsol),
-      createAssociatedTokenAccountIdempotentInstruction(
-        retail.publicKey,
-        retailShares,
-        retail.publicKey,
-        shareMint
-      )
-    );
-    const wrapSig = await sendAndPoll(rpc, setup, [retail]);
-    const tx = await call(retailProg, "deposit", "deposit")(new BN(DEPOSIT))
-      .accounts({
-        investor: retail.publicKey,
-        protocolConfig: PROTOCOL_CONFIG,
-        vault: vaultPk,
-        investorTokenAccount: retailWsol,
-        vaultTokenAccount: vault.vaultTokenAccount,
-        shareMint,
-        investorShareAccount: retailShares,
-      })
-      .transaction();
-    const sig = await sendAndPoll(rpc, tx, [retail]);
+    if (DEGEN_DEPOSIT > 0) {
+      await parkFunds(degen, DEGEN_DEPOSIT, "Degen wallet");
+    }
     const shares = await tokenAmt(rpc, retailShares);
     vault = await (degenProg.account as any).vault.fetch(vaultPk);
+    const retailIn = parkSol * (1 + extraCount);
+    const estimate = retailIn + degenParkSol;
     emit({
       id: "deposit",
       status: "success",
-      detail: `Parked ${parkSol} wSOL in vault #${vaultId} · ready to auto-follow`,
-      tx: sig,
+      detail: `Parked ${estimate.toFixed(3)} SOL into vault #${vaultId} · degen ${degenParkSol.toFixed(3)} + retail ${retailIn.toFixed(3)} · no deposit fee`,
       fields: {
         vaultId: String(vaultId),
         vault: vaultPk.toBase58(),
-        wrapTx: explorerTx(wrapSig),
-        depositTx: explorerTx(sig),
-        amount: `${parkSol.toFixed(3)} SOL`,
+        amount: `${estimate.toFixed(3)} SOL`,
+        degenIn: `${degenParkSol.toFixed(3)} SOL`,
+        retailIn: `${retailIn.toFixed(3)} SOL`,
         shares: shares.toString(),
         vaultAssets: lamportsToSol(vault.totalAssets.toString()),
+        depositFee: "$0",
+        walletFee: "$0.50 on wallet withdraw",
       },
     });
   } catch (e) {
@@ -664,13 +945,13 @@ export async function runLiveFlow(opts: {
       ? Math.floor((totalAssetsNow * Number(shareAmtNow)) / totalSharesNow)
       : DEPOSIT;
 
-  if (mode === "create-vault") {
+  if (mode === "create-vault" || mode === "deposit") {
     const afterRetail = await safeBal(retail.publicKey);
     const afterDegen = await safeBal(degen.publicKey);
     emit({
       id: "degen",
       status: "success",
-      detail: "Vault created · retail is set up on this vault",
+      detail: mode === "deposit" ? "Vault already open — degen + retail deposited more SOL" : "Vault created · degen + retail parked SOL",
       fields: {
         pubkey: degen.publicKey.toBase58(),
         sol: lamportsToSol(afterDegen),
@@ -679,13 +960,284 @@ export async function runLiveFlow(opts: {
     emit({
       id: "retail",
       status: "success",
-      detail: "Follow settings + parked funds on the new vault",
+      detail: mode === "deposit"
+        ? `Deposited pooled SOL into vault #${vaultId} · no deposit fee`
+        : "Follow settings + parked degen + retail SOL · no deposit fee",
       fields: {
         pubkey: retail.publicKey.toBase58(),
         sol: lamportsToSol(afterRetail),
       },
     });
     return { vaultId, vault: vaultPk.toBase58() };
+  }
+
+  if (mode === "close-vault") {
+    const st = statusKey(vault.status);
+    emit({
+      id: "vault",
+      status: "running",
+      detail: `Closing vault #${vaultId} — locked 1vault Licence returns to the degen wallet`,
+      fields: { vaultId: String(vaultId), vault: vaultPk.toBase58(), status: st },
+    });
+    try {
+      vault = await (degenProg.account as any).vault.fetch(vaultPk);
+      const sharesLeft = Number(vault.totalShares.toString());
+      if (sharesLeft > 0) {
+        throw new Error(
+          "Retail still has shares in this vault — use Withdraw on the vault node first (flat $0.50), then Close vault"
+        );
+      }
+      if (st !== "closed" && st !== "closing") {
+        const initTx = await call(degenProg, "initiate_vault_close", "initiateVaultClose")()
+          .accounts({
+            strategist: degen.publicKey,
+            vault: vaultPk,
+          })
+          .transaction();
+        await sendAndPoll(rpc, initTx, [degen]);
+      }
+      if (st !== "closed") {
+        vault = await (degenProg.account as any).vault.fetch(vaultPk);
+        const closeTx = await call(degenProg, "close_vault", "closeVault")()
+          .accounts({
+            strategist: degen.publicKey,
+            strategistAccount,
+            vault: vaultPk,
+            vaultTokenAccount: vault.vaultTokenAccount,
+            vaultLicenseVault: pda([Buffer.from("vault_license"), vaultPk.toBuffer()]),
+            strategistLicenseTokens: strategistAta,
+            tokenProgram: TOKEN_PROGRAM_ID,
+          })
+          .transaction();
+        await sendAndPoll(rpc, closeTx, [degen]);
+      }
+      emit({
+        id: "vault",
+        status: "success",
+        detail: `Vault #${vaultId} closed · 1,000,000 1vault Licence returned to the degen wallet`,
+        fields: { vaultId: String(vaultId), vault: vaultPk.toBase58(), status: "closed", licenseReturned: "1,000,000 1VL" },
+      });
+
+      const licenseInfo = await rpc.retry((c) => c.getAccountInfo(license));
+      if (!licenseInfo) {
+        emit({
+          id: "license",
+          status: "skipped",
+          detail: "No locked 1vault Licence to return",
+        });
+        return { vaultId, vault: vaultPk.toBase58(), closed: true };
+      }
+
+      const strat = await (degenProg.account as any).strategist.fetch(strategistAccount);
+      const active = Number(strat.activeVaultCount?.toString?.() ?? strat.active_vault_count ?? 0);
+      if (active > 0) {
+        emit({
+          id: "license",
+          status: "skipped",
+          detail: `This vault returned its 1M 1VL to the degen wallet · licence record stays while ${active} other vault(s) remain open`,
+          fields: { activeVaults: String(active) },
+        });
+        return { vaultId, vault: vaultPk.toBase58(), closed: true };
+      }
+
+      emit({
+        id: "license",
+        status: "running",
+        detail: "Unlocking 1vault Licence back to the degen wallet",
+      });
+      let returnedRaw = licenseLockRaw;
+      try {
+        const lic = await (degenProg.account as any).license.fetch(license);
+        if (lic?.lockedAmount != null) returnedRaw = BigInt(lic.lockedAmount.toString());
+      } catch {
+        /* use protocol lock amount */
+      }
+      const ataIx = new Transaction().add(
+        createAssociatedTokenAccountIdempotentInstruction(
+          degen.publicKey,
+          strategistAta,
+          degen.publicKey,
+          platformMint
+        )
+      );
+      await sendAndPoll(rpc, ataIx, [degen]);
+      const unlockTx = await call(degenProg, "unlock_license", "unlockLicense")()
+        .accounts({
+          strategist: degen.publicKey,
+          protocolConfig: PROTOCOL_CONFIG,
+          strategistAccount,
+          license,
+          licenseTokenVault,
+          strategistTokenAccount: strategistAta,
+        })
+        .transaction();
+      const unlockSig = await sendAndPoll(rpc, unlockTx, [degen]);
+      emit({
+        id: "license",
+        status: "success",
+        detail: `Unlocked 1vault Licence — tokens returned to the degen wallet`,
+        tx: unlockSig,
+        fields: {
+          token: LICENSE_NAME,
+          returned: formatLicenseAmount(returnedRaw, LICENSE_DECIMALS),
+          wallet: degen.publicKey.toBase58(),
+          tx: explorerTx(unlockSig),
+        },
+      });
+      return { vaultId, vault: vaultPk.toBase58(), closed: true };
+    } catch (e) {
+      emit({ id: "vault", status: "error", detail: String(e).slice(0, 400) });
+      throw e;
+    }
+  }
+
+  if (mode === "withdraw-wallet") {
+    emit({
+      id: "toWallet",
+      status: "running",
+      detail: "Redeeming locked vault SOL to the retail wallet · flat $0.50 platform fee",
+    });
+    try {
+      if (shareAmtNow <= 0n) {
+        const leftover = await tokenAmt(rpc, retailWsol);
+        if (leftover > 0n) {
+          const unwrapped = await unwrapWsolToNative(rpc, retail, retailWsol);
+          const afterRetail = await safeBal(retail.publicKey);
+          emit({
+            id: "toWallet",
+            status: "success",
+            detail: "Converted leftover wSOL into native SOL",
+            tx: unwrapped.sig,
+            fields: {
+              unwrapped: `${lamportsToSol(unwrapped.unwrapped)} native SOL`,
+              mint: "11111111111111111111111111111111",
+              platformFee: "$0",
+            },
+          });
+          emit({
+            id: "retail",
+            status: "success",
+            detail: "Native SOL received (unwrapped from wSOL)",
+            fields: {
+              pubkey: retail.publicKey.toBase58(),
+              sol: lamportsToSol(afterRetail),
+            },
+          });
+          return { vaultId, vault: vaultPk.toBase58() };
+        }
+        throw new Error("Retail has no shares in this vault — park funds first");
+      }
+      vault = await (degenProg.account as any).vault.fetch(vaultPk);
+      const navTx = await call(degenProg, "update_nav", "updateNav")()
+        .accounts({ vault: vaultPk, vaultTokenAccount: vault.vaultTokenAccount })
+        .transaction();
+      await sendAndPoll(rpc, navTx, [degen]);
+      vault = await (degenProg.account as any).vault.fetch(vaultPk);
+      const nav =
+        Number(vault.totalAssets.toString()) +
+        Number((vault as { positionValue?: { toString(): string } }).positionValue?.toString?.() ?? 0);
+      const totalShares = Number(vault.totalShares.toString());
+      const vaultAtaNow = Number(await tokenAmt(rpc, vault.vaultTokenAccount));
+      const grossEst =
+        shareAmtNow > 0n && totalShares > 0
+          ? Math.floor((Number(shareAmtNow) * nav) / totalShares)
+          : 0;
+      if (grossEst <= WITHDRAW_FLAT_FEE_LAMPORTS) {
+        throw new Error(
+          "Parked value is too small to cover the flat $0.50 platform fee on wallet withdraw"
+        );
+      }
+      const maxByLiq =
+        nav > 0 && totalShares > 0
+          ? BigInt(Math.floor((vaultAtaNow * totalShares) / nav))
+          : 0n;
+      const sharesToBurn = shareAmtNow < maxByLiq ? shareAmtNow : maxByLiq;
+      if (sharesToBurn <= 0n) {
+        throw new Error("Vault has no liquid wSOL to send to the wallet");
+      }
+      const unwrapPlatform = pda([
+        Buffer.from("fee_unwrap"),
+        vaultPk.toBuffer(),
+        PLATFORM_WALLET.toBuffer(),
+      ]);
+      const treasuryAta = pda([Buffer.from("treasury"), NATIVE_MINT.toBuffer()]);
+      const setup = new Transaction().add(
+        createAssociatedTokenAccountIdempotentInstruction(
+          retail.publicKey,
+          retailWsol,
+          retail.publicKey,
+          NATIVE_MINT
+        )
+      );
+      await sendAndPoll(rpc, setup, [retail]);
+      const tx = await call(retailProg, "withdraw", "withdraw")(new BN(sharesToBurn.toString()))
+        .accounts({
+          investor: retail.publicKey,
+          protocolConfig: PROTOCOL_CONFIG,
+          vault: vaultPk,
+          investorShareAccount: retailShares,
+          investorTokenAccount: retailWsol,
+          vaultTokenAccount: vault.vaultTokenAccount,
+          shareMint,
+          treasuryTokenAccount: treasuryAta,
+          platformWallet: PLATFORM_WALLET,
+          unwrapPlatform,
+          nativeMint: NATIVE_MINT,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+          staker: null,
+          referralAccount: null,
+        })
+        .transaction();
+      const sig = await sendAndPoll(rpc, tx, [retail]);
+      // Program pays the redeem into the retail wSOL ATA (So1111…11112).
+      // Close that ATA so it becomes native SOL (11111…11111), not leftover wSOL.
+      const unwrapped = await unwrapWsolToNative(rpc, retail, retailWsol);
+      const afterPlatform = await safeBal(PLATFORM_WALLET);
+      const afterRetail = await safeBal(retail.publicKey);
+      emit({
+        id: "toWallet",
+        status: "success",
+        detail: `Unwrapped to native SOL · flat $0.50 platform fee`,
+        tx: unwrapped.sig ?? sig,
+        fields: {
+          explorer: explorerTx(unwrapped.sig ?? sig),
+          withdrawTx: explorerTx(sig),
+          gross: lamportsToSol(grossEst),
+          platformFee: "$0.50",
+          netReceived: lamportsToSol(unwrapped.unwrapped),
+          unwrapped: `${lamportsToSol(unwrapped.unwrapped)} native SOL`,
+          mint: "11111111111111111111111111111111",
+          exitFee: "flat $0.50",
+        },
+      });
+      emit({
+        id: "platform",
+        status: "success",
+        detail: "Platform received the flat $0.50 withdraw fee",
+        fields: {
+          wallet: PLATFORM_WALLET.toBase58(),
+          before: lamportsToSol(beforePlatform),
+          after: lamportsToSol(afterPlatform),
+          delta: lamportsToSol(afterPlatform - beforePlatform),
+          explorer: explorerAddr(PLATFORM_WALLET.toBase58()),
+        },
+      });
+      emit({
+        id: "retail",
+        status: "success",
+        detail: "Native SOL received (unwrapped from wSOL)",
+        fields: {
+          pubkey: retail.publicKey.toBase58(),
+          sol: lamportsToSol(afterRetail),
+        },
+      });
+      return { vaultId, vault: vaultPk.toBase58() };
+    } catch (e) {
+      emit({ id: "toWallet", status: "error", detail: String(e).slice(0, 400) });
+      throw e;
+    }
   }
 
   emit({
@@ -741,6 +1293,8 @@ export async function runLiveFlow(opts: {
   const maxPosBps = Number((vault as { maxPositionBps?: number }).maxPositionBps ?? 5000);
   const maxPos = Math.floor((vaultAssets * maxPosBps) / 10_000);
   const tradeLamports = Math.min(TRADE, Math.max(1_000_000, maxPos || TRADE));
+  // Live program adds received token units onto vault.position_value (lamports).
+  const demoAmount = BigInt(tradeLamports);
   const tradeId = bnNum(vault.nextTradeId, 1);
   const positionId = bnNum(vault.nextPositionId, 1);
   const vaultRisk = pda([Buffer.from("vault_risk"), vaultPk.toBuffer()]);
@@ -812,6 +1366,13 @@ export async function runLiveFlow(opts: {
     status: "running",
     detail: "1Vault executes the buy — degen signs, vault pays",
   });
+  emit({
+    id: "mirror",
+    status: "running",
+    detail: autoFollow
+      ? "Auto-follow ON — retail vault share rides this buy"
+      : "Auto-follow is OFF in retail settings",
+  });
   try {
     const cfg: any = await (degenProg.account as any).protocolConfig.fetch(PROTOCOL_CONFIG);
     const listed = ((cfg.allowedDexPrograms ?? []) as PublicKey[]).filter(
@@ -829,7 +1390,7 @@ export async function runLiveFlow(opts: {
     if (!dex) {
       throw new Error("No allowlisted DEX on protocol config — cannot execute vault buy");
     }
-    await mintDemo(rpc, degen, memeMint, vaultMemeAta, DEMO_TOKENS);
+    await mintDemo(rpc, degen, memeMint, vaultMemeAta, demoAmount);
     const tx = await call(degenProg, "execute_trade", "executeTrade")(Buffer.alloc(0))
       .accounts({
         strategist: degen.publicKey,
@@ -851,7 +1412,7 @@ export async function runLiveFlow(opts: {
       tx: sig,
       fields: {
         dex: dex.toBase58(),
-        received: "1000 DEMO",
+        received: `${(Number(demoAmount) / 1_000_000).toFixed(0)} DEMO`,
         explorer: explorerTx(sig),
       },
     });
@@ -869,7 +1430,7 @@ export async function runLiveFlow(opts: {
     const tx = await call(degenProg, "open_position", "openPosition")(
       new BN(positionId),
       new BN(tradeLamports),
-      new BN(DEMO_TOKENS.toString())
+      new BN(demoAmount.toString())
     )
       .accounts({
         strategist: degen.publicKey,
@@ -888,7 +1449,7 @@ export async function runLiveFlow(opts: {
       fields: {
         positionId: String(positionId),
         entry: lamportsToSol(tradeLamports),
-        tokens: "1000 DEMO",
+        tokens: `${(Number(demoAmount) / 1_000_000).toFixed(0)} DEMO`,
         capital: "vault",
         positionPda: positionPk.toBase58(),
         explorer: explorerTx(sig),
@@ -899,11 +1460,6 @@ export async function runLiveFlow(opts: {
     throw e;
   }
 
-  emit({
-    id: "mirror",
-    status: "running",
-    detail: "Auto-follow: retail is already in the vault — no new deposit",
-  });
   try {
     if (!autoFollow) {
       emit({
@@ -941,7 +1497,7 @@ export async function runLiveFlow(opts: {
       emit({
         id: "mirror",
         status: "success",
-        detail: `Retail share of the vault buy · ${(copyBps / 100).toFixed(0)}% · no new deposit`,
+        detail: `Auto-follow filled with the vault buy · ${(copyBps / 100).toFixed(0)}% of locked AUM`,
         tx: sig,
         fields: {
           auto: "ON",
@@ -989,6 +1545,30 @@ export async function runLiveFlow(opts: {
     throw e;
   }
 
+  // Accrue while marked PnL is still in position_value. Live update_nav ratchets HWM
+  // without taking fees, so accruing after that NAV sync yields NothingToClaim.
+  let degenFeeLamports = 0;
+  let protocolFeeLamports = 0;
+  let accrueSig = "";
+  try {
+    const accrueTx = await call(degenProg, "accrue_fees", "accrueFees")()
+      .accounts({ protocolConfig: PROTOCOL_CONFIG, vault: vaultPk, staker: null })
+      .transaction();
+    accrueSig = await sendAndPoll(rpc, accrueTx, [degen]);
+    const feeState: any = await (degenProg.account as any).vaultFeeState.fetch(
+      pda([Buffer.from("vault_fee"), vaultPk.toBuffer()])
+    );
+    const accruedDegen = Number(feeState.accruedPerformanceFees?.toString?.() ?? 0);
+    const claimedDegen = Number(feeState.claimedPerformanceFees?.toString?.() ?? 0);
+    const accruedProto = Number(feeState.accruedProtocolFees?.toString?.() ?? 0);
+    const claimedProto = Number(feeState.claimedProtocolFees?.toString?.() ?? 0);
+    degenFeeLamports = Math.max(0, accruedDegen - claimedDegen);
+    protocolFeeLamports = Math.max(0, accruedProto - claimedProto);
+  } catch (e) {
+    emit({ id: "accrue", status: "error", detail: String(e).slice(0, 400) });
+    throw e;
+  }
+
   emit({
     id: "closePos",
     status: "running",
@@ -1030,7 +1610,7 @@ export async function runLiveFlow(opts: {
         vault: vaultPk,
         vaultPosition: positionPk,
         vaultTokenAccount: vault.vaultTokenAccount,
-        outputTokenAccount: vault.vaultTokenAccount,
+        outputTokenAccount: vaultMemeAta,
         tokenProgram: TOKEN_PROGRAM_ID,
       })
       .transaction();
@@ -1043,7 +1623,7 @@ export async function runLiveFlow(opts: {
     emit({
       id: "closePos",
       status: "success",
-      detail: "Position closed · +0.05 SOL realized in vault ATA",
+      detail: "Market exit · PnL is in the vault — cutting degen + platform fees next",
       tx: closeSig,
       fields: {
         proceeds: "0.050000000 SOL",
@@ -1070,118 +1650,14 @@ export async function runLiveFlow(opts: {
   ]);
 
   emit({
-    id: "withdraw",
-    status: "running",
-    detail: "Retail exit first — degen fee is based on this exit amount",
-  });
-
-  let degenFeeLamports = 0;
-  let protocolFeeLamports = 0;
-  let accrueSig = "";
-  try {
-    const clearTx = await call(degenProg, "update_vault_staked_value", "updateVaultStakedValue")(
-      new BN(0)
-    )
-      .accounts({ strategist: degen.publicKey, vault: vaultPk })
-      .transaction();
-    await sendAndPoll(rpc, clearTx, [degen]);
-    vault = await (degenProg.account as any).vault.fetch(vaultPk);
-    const navTx = await call(degenProg, "update_nav", "updateNav")()
-      .accounts({ vault: vaultPk, vaultTokenAccount: vault.vaultTokenAccount })
-      .transaction();
-    await sendAndPoll(rpc, navTx, [degen]);
-
-    const accrueTx = await call(degenProg, "accrue_fees", "accrueFees")()
-      .accounts({ protocolConfig: PROTOCOL_CONFIG, vault: vaultPk, staker: null })
-      .transaction();
-    accrueSig = await sendAndPoll(rpc, accrueTx, [degen]);
-    const feeState: any = await (degenProg.account as any).vaultFeeState.fetch(
-      pda([Buffer.from("vault_fee"), vaultPk.toBuffer()])
-    );
-    const accruedDegen = Number(feeState.accruedPerformanceFees?.toString?.() ?? 0);
-    const claimedDegen = Number(feeState.claimedPerformanceFees?.toString?.() ?? 0);
-    const accruedProto = Number(feeState.accruedProtocolFees?.toString?.() ?? 0);
-    const claimedProto = Number(feeState.claimedProtocolFees?.toString?.() ?? 0);
-    degenFeeLamports = Math.max(0, accruedDegen - claimedDegen);
-    protocolFeeLamports = Math.max(0, accruedProto - claimedProto);
-
-    vault = await (degenProg.account as any).vault.fetch(vaultPk);
-    const sharesHeld = await tokenAmt(rpc, retailShares);
-    const nav =
-      Number(vault.totalAssets.toString()) +
-      Number((vault as { positionValue?: { toString(): string } }).positionValue?.toString?.() ?? 0) +
-      Number(vault.stakedValue?.toString?.() ?? 0);
-    const totalShares = Number(vault.totalShares.toString());
-    const feeReserve = degenFeeLamports + protocolFeeLamports + 20_000;
-    const withdrawableNav = Math.max(0, nav - feeReserve);
-    const sharesToBurn =
-      sharesHeld > 0n && nav > 0 && totalShares > 0
-        ? BigInt(Math.floor((Number(sharesHeld) * withdrawableNav) / nav))
-        : 0n;
-    if (sharesToBurn <= 0n) {
-      throw new Error("Retail has no shares to exit — park funds with Create vault first");
-    }
-    const gross = Math.floor((Number(sharesToBurn) * nav) / totalShares);
-    const exitFeeLamports = Math.floor((gross * 50) / 10_000);
-    const netLamports = gross - exitFeeLamports;
-    const parkedForExit =
-      sharesHeld > 0n
-        ? Math.floor((parkedLamports * Number(sharesToBurn)) / Number(sharesHeld))
-        : parkedLamports;
-    const profitLamports = netLamports - parkedForExit;
-    const platformFeeLamports = protocolFeeLamports + exitFeeLamports;
-    const treasuryAta = pda([Buffer.from("treasury"), NATIVE_MINT.toBuffer()]);
-    const tx = await call(retailProg, "withdraw", "withdraw")(new BN(sharesToBurn.toString()))
-      .accounts({
-        investor: retail.publicKey,
-        protocolConfig: PROTOCOL_CONFIG,
-        vault: vaultPk,
-        investorShareAccount: retailShares,
-        investorTokenAccount: retailWsol,
-        vaultTokenAccount: vault.vaultTokenAccount,
-        shareMint,
-        treasuryTokenAccount: treasuryAta,
-        platformWallet: PLATFORM_WALLET,
-        unwrapPlatform,
-        nativeMint: NATIVE_MINT,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-        rent: SYSVAR_RENT_PUBKEY,
-        staker: null,
-        referralAccount: null,
-      })
-      .transaction();
-    const sig = await sendAndPoll(rpc, tx, [retail]);
-    emit({
-      id: "withdraw",
-      status: "success",
-      detail: `Exit ${lamportsToSol(gross)} · profit ${lamportsToSol(profitLamports)} · degen fee from this exit ${lamportsToSol(degenFeeLamports)}`,
-      tx: sig,
-      fields: {
-        explorer: explorerTx(sig),
-        sharesBurned: sharesToBurn.toString(),
-        parked: `${lamportsToSol(parkedForExit)} SOL`,
-        profit: `${profitLamports >= 0 ? "+" : ""}${lamportsToSol(profitLamports)} SOL`,
-        platformFee: `${lamportsToSol(platformFeeLamports)} SOL`,
-        degenFee: `${lamportsToSol(degenFeeLamports)} SOL`,
-        netReceived: `${lamportsToSol(netLamports)} SOL`,
-        exitFee: "50 bps",
-      },
-    });
-  } catch (e) {
-    emit({ id: "withdraw", status: "error", detail: String(e).slice(0, 400) });
-    throw e;
-  }
-
-  emit({
     id: "accrue",
     status: "running",
-    detail: "Fee from that exit amount — then pay degen",
+    detail: "Cutting degen + platform fees from vault SOL at market exit",
   });
   emit({
     id: "accrue",
     status: "success",
-    detail: `Fee from that exit · degen ${lamportsToSol(degenFeeLamports)} · protocol ${lamportsToSol(protocolFeeLamports)}`,
+    detail: `From vault · degen pool ${lamportsToSol(degenFeeLamports)} · platform ${lamportsToSol(protocolFeeLamports)}`,
     tx: accrueSig,
     fields: {
       explorer: explorerTx(accrueSig),
@@ -1193,70 +1669,130 @@ export async function runLiveFlow(opts: {
   emit({
     id: "claim",
     status: "running",
-    detail: "Retail has exited — now pay degen + platform from that exit",
+    detail: "Paying EXQCB3… degen pool and platform wallet directly from the vault",
+  });
+  let claimSig = "";
+  try {
+    if (degenFeeLamports <= 0 && protocolFeeLamports <= 0) {
+      emit({
+        id: "claim",
+        status: "skipped",
+        detail: "No performance fee to cut from this exit",
+      });
+    } else {
+      vault = await (degenProg.account as any).vault.fetch(vaultPk);
+      const claimTx = await call(degenProg, "claim_fees", "claimFees")()
+        .accounts({
+          strategist: degen.publicKey,
+          protocolConfig: PROTOCOL_CONFIG,
+          vault: vaultPk,
+          vaultTokenAccount: vault.vaultTokenAccount,
+          platformWallet: PLATFORM_WALLET,
+          degenWallet: DEGEN_FEE_WALLET,
+          unwrapPlatform,
+          unwrapDegen,
+          nativeMint: NATIVE_MINT,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .transaction();
+      claimSig = await sendAndPoll(rpc, claimTx, [degen]);
+      const afterPlatform = await safeBal(PLATFORM_WALLET);
+      const afterDegenFee = await safeBal(DEGEN_FEE_WALLET);
+      emit({
+        id: "claim",
+        status: "success",
+        detail: "Vault SOL sent to degen pool + platform wallets",
+        tx: claimSig,
+        fields: {
+          explorer: explorerTx(claimSig),
+          platformDelta: lamportsToSol(afterPlatform - beforePlatform),
+          degenFeeDelta: lamportsToSol(afterDegenFee - beforeDegenFee),
+          degenWallet: DEGEN_FEE_WALLET.toBase58(),
+          platformWallet: PLATFORM_WALLET.toBase58(),
+        },
+      });
+      emit({
+        id: "platform",
+        status: "success",
+        detail: "Platform fee cut from vault at market exit",
+        fields: {
+          wallet: PLATFORM_WALLET.toBase58(),
+          before: lamportsToSol(beforePlatform),
+          after: lamportsToSol(afterPlatform),
+          delta: lamportsToSol(afterPlatform - beforePlatform),
+          explorer: explorerAddr(PLATFORM_WALLET.toBase58()),
+        },
+      });
+      emit({
+        id: "degenFee",
+        status: "success",
+        detail: "Degen pool paid from vault at market exit",
+        fields: {
+          wallet: DEGEN_FEE_WALLET.toBase58(),
+          before: lamportsToSol(beforeDegenFee),
+          after: lamportsToSol(afterDegenFee),
+          delta: lamportsToSol(afterDegenFee - beforeDegenFee),
+          explorer: explorerAddr(DEGEN_FEE_WALLET.toBase58()),
+        },
+      });
+    }
+  } catch (e) {
+    emit({ id: "claim", status: "error", detail: String(e).slice(0, 400) });
+    throw e;
+  }
+
+  emit({
+    id: "withdraw",
+    status: "running",
+    detail: "Fees already paid — remaining retail AUM stays locked in the vault",
   });
   try {
-    vault = await (degenProg.account as any).vault.fetch(vaultPk);
-    const claimTx = await call(degenProg, "claim_fees", "claimFees")()
-      .accounts({
-        strategist: degen.publicKey,
-        protocolConfig: PROTOCOL_CONFIG,
-        vault: vaultPk,
-        vaultTokenAccount: vault.vaultTokenAccount,
-        platformWallet: PLATFORM_WALLET,
-        degenWallet: DEGEN_FEE_WALLET,
-        unwrapPlatform,
-        unwrapDegen,
-        nativeMint: NATIVE_MINT,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-        rent: SYSVAR_RENT_PUBKEY,
-      })
+    const clearTx = await call(degenProg, "update_vault_staked_value", "updateVaultStakedValue")(
+      new BN(0)
+    )
+      .accounts({ strategist: degen.publicKey, vault: vaultPk })
       .transaction();
-    const claimSig = await sendAndPoll(rpc, claimTx, [degen]);
-    const afterPlatform = await safeBal(PLATFORM_WALLET);
-    const afterDegenFee = await safeBal(DEGEN_FEE_WALLET);
+    await sendAndPoll(rpc, clearTx, [degen]);
+    vault = await (degenProg.account as any).vault.fetch(vaultPk);
+    const navTx = await call(degenProg, "update_nav", "updateNav")()
+      .accounts({ vault: vaultPk, vaultTokenAccount: vault.vaultTokenAccount })
+      .transaction();
+    const lockNavSig = await sendAndPoll(rpc, navTx, [degen]);
+    vault = await (degenProg.account as any).vault.fetch(vaultPk);
+    const sharesHeld = await tokenAmt(rpc, retailShares);
+    const lockedLamports =
+      sharesHeld > 0n && Number(vault.totalShares.toString()) > 0
+        ? Math.floor(
+            (Number(vault.totalAssets.toString()) * Number(sharesHeld)) /
+              Number(vault.totalShares.toString())
+          )
+        : parkedLamports;
     const afterRetail = await safeBal(retail.publicKey);
     const afterDegen = await safeBal(degen.publicKey);
     emit({
-      id: "claim",
+      id: "withdraw",
       status: "success",
-      detail: "Degen and platform received native SOL after retail exit",
-      tx: claimSig,
+      detail: `Locked in vault after fees · ${lamportsToSol(lockedLamports)} SOL. $0.50 only if you withdraw to wallet.`,
+      tx: lockNavSig,
       fields: {
-        explorer: explorerTx(claimSig),
-        platformDelta: lamportsToSol(afterPlatform - beforePlatform),
-        degenFeeDelta: lamportsToSol(afterDegenFee - beforeDegenFee),
+        explorer: explorerTx(lockNavSig),
+        shares: sharesHeld.toString(),
+        parked: `${lamportsToSol(lockedLamports)} SOL`,
+        vaultAssets: lamportsToSol(vault.totalAssets.toString()),
+        platformFee: "already paid at exit",
       },
     });
     emit({
-      id: "platform",
-      status: "success",
-      detail: "Platform wallet native SOL after retail exit",
-      fields: {
-        wallet: PLATFORM_WALLET.toBase58(),
-        before: lamportsToSol(beforePlatform),
-        after: lamportsToSol(afterPlatform),
-        delta: lamportsToSol(afterPlatform - beforePlatform),
-        explorer: explorerAddr(PLATFORM_WALLET.toBase58()),
-      },
-    });
-    emit({
-      id: "degenFee",
-      status: "success",
-      detail: "Degen fee wallet native SOL after retail exit",
-      fields: {
-        wallet: DEGEN_FEE_WALLET.toBase58(),
-        before: lamportsToSol(beforeDegenFee),
-        after: lamportsToSol(afterDegenFee),
-        delta: lamportsToSol(afterDegenFee - beforeDegenFee),
-        explorer: explorerAddr(DEGEN_FEE_WALLET.toBase58()),
-      },
+      id: "toWallet",
+      status: "skipped",
+      detail: "Not sending to wallet. Use Withdraw to wallet for a flat $0.50 platform fee.",
     });
     emit({
       id: "degen",
       status: "success",
-      detail: "Strategist wallet after flow",
+      detail: "Strategist wallet after flow — degen fee went to the pool wallet",
       fields: {
         pubkey: degen.publicKey.toBase58(),
         sol: lamportsToSol(afterDegen),
@@ -1265,15 +1801,16 @@ export async function runLiveFlow(opts: {
     emit({
       id: "retail",
       status: "success",
-      detail: "Investor wallet after flow",
+      detail: "Investor wallet unchanged — capital still locked in the vault",
       fields: {
         pubkey: retail.publicKey.toBase58(),
         sol: lamportsToSol(afterRetail),
       },
     });
   } catch (e) {
-    emit({ id: "claim", status: "error", detail: String(e).slice(0, 400) });
+    emit({ id: "withdraw", status: "error", detail: String(e).slice(0, 400) });
     throw e;
   }
   return { vaultId, vault: vaultPk.toBase58() };
 }
+

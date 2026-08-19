@@ -4,10 +4,10 @@ import { NodeIcon } from "../icons";
 export default function ProtocolNode() {
   const { protocol, views } = useWorkflow();
   const view = views.protocol;
-  const fields = view.fields;
 
   return (
     <div className={`nv nv-protocol status-${view.status === "idle" && protocol ? "ready" : view.status}`}>
+      <div className="nv-card">
       <div className="nv-stripe" />
       <div className="nv-head">
         <div className="nv-id">
@@ -21,18 +21,28 @@ export default function ProtocolNode() {
           {statusLabel(view.status === "idle" ? "ready" : view.status)}
         </span>
       </div>
+      <div className="nv-body">
       <div className="nv-data">
         <Row label="program" value={shortAddr(protocol?.programId)} href={protocol?.explorerProgram} />
         <Row
-          label="platform"
-          value={shortAddr(fields?.platform ?? protocol?.platformWallet)}
+          label="licence"
+          value={protocol?.licenseName ?? "1vault Licence"}
         />
         <Row
-          label="degen fee"
-          value={shortAddr(fields?.degenFee ?? protocol?.degenFeeWallet)}
+          label="lock"
+          value={protocol?.licenseLockTokens ? `${Number(protocol.licenseLockTokens).toLocaleString("en-US")}` : "1,000,000"}
         />
-        {fields?.platformSol ? <Row label="platform SOL" value={fields.platformSol} /> : null}
-        {fields?.degenFeeSol ? <Row label="degen SOL" value={fields.degenFeeSol} /> : null}
+        <Row
+          label="mint"
+          value={shortAddr(protocol?.licenseMint)}
+          href={
+            protocol?.licenseMint
+              ? `https://explorer.solana.com/address/${protocol.licenseMint}?cluster=devnet`
+              : undefined
+          }
+        />
+      </div>
+      </div>
       </div>
     </div>
   );

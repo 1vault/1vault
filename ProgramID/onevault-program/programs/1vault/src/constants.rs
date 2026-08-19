@@ -8,6 +8,7 @@ pub const VAULT_SEED: &[u8] = b"vault";
 pub const INVESTOR_CONFIG_SEED: &[u8] = b"investor_config";
 pub const SHARE_MINT_SEED: &[u8] = b"share_mint";
 pub const LICENSE_VAULT_SEED: &[u8] = b"license_vault";
+pub const VAULT_LICENSE_SEED: &[u8] = b"vault_license";
 pub const REFERRAL_SEED: &[u8] = b"referral";
 pub const TRADE_SEED: &[u8] = b"trade";
 pub const VAULT_POSITION_SEED: &[u8] = b"vault_position";
@@ -26,10 +27,15 @@ pub const MAX_MULTISIG_MEMBERS: usize = 7;
 
 // Fee defaults (per product spec)
 pub const DEFAULT_WITHDRAWAL_FEE_BPS: u16 = 50;
+/// Flat platform fee charged only when redeeming shares to the investor wallet.
+/// Product copy: $0.50. Deposits into the vault are free.
+pub const WITHDRAWAL_FLAT_FEE_LAMPORTS: u64 = 4_000_000;
 pub const DEFAULT_REFERRAL_FEE_SHARE_BPS: u16 = 2000;
 pub const DEFAULT_PERFORMANCE_FEE_BPS: u16 = 2000;
 pub const DEFAULT_PROTOCOL_FEE_BPS: u16 = 500;
-pub const DEFAULT_LICENSE_LOCK_AMOUNT: u64 = 1_000_000;
+/// 1,000,000 whole **1vault Licence** tokens. Mint uses 6 decimals, so this is
+/// `1_000_000 * 10^6` raw units.
+pub const DEFAULT_LICENSE_LOCK_AMOUNT: u64 = 1_000_000_000_000;
 pub const BPS_DENOMINATOR: u64 = 10_000;
 
 pub const MAX_VAULT_NAME_LEN: usize = 64;

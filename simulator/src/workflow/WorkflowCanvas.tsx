@@ -14,6 +14,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { buildEdges, buildNodes, LAYOUT_REV, type NodeView } from "./graph";
 import type { WorkflowNodeId } from "../../shared/events";
+import { useWorkflow } from "./context";
 import WalletNode from "./nodes/WalletNode";
 import ProcessNode from "./nodes/ProcessNode";
 import ProtocolNode from "./nodes/ProtocolNode";
@@ -30,7 +31,7 @@ const nodeTypes = {
 
 function withViews(nodes: Node[], views: Record<WorkflowNodeId, NodeView>): Node[] {
   return nodes.map((node) => {
-    const view = views[node.id as WorkflowNodeId];
+    const view = views[node.id as WorkflowNodeId] ?? { status: "idle" as const };
     return {
       ...node,
       data: { ...node.data, view },
@@ -40,28 +41,30 @@ function withViews(nodes: Node[], views: Record<WorkflowNodeId, NodeView>): Node
 }
 
 function Canvas({ views }: { views: Record<WorkflowNodeId, NodeView> }) {
-  const [nodes, setNodes, onNodesChange] = useNodesState(withViews(buildNodes(), views));
-  const [edges, setEdges, onEdgesChange] = useEdgesState(buildEdges(views));
+  const { retails } = useWorkflow();
+  const retailCount = Math.max(1, retails.length);
+  const [nodes, setNodes, onNodesChange] = useNodesState(withViews(buildNodes(retailCount), views));
+  const [edges, setEdges, onEdgesChange] = useEdgesState(buildEdges(views, retailCount));
   const { fitView } = useReactFlow();
 
   useEffect(() => {
     setNodes((current) => {
-      const built = withViews(buildNodes(), views);
+      const built = withViews(buildNodes(retailCount), views);
       const positions = new Map(current.map((n) => [n.id, n.position]));
       return built.map((n) => ({
         ...n,
         position: positions.get(n.id) ?? n.position,
       }));
     });
-    setEdges(buildEdges(views));
-  }, [views, setNodes, setEdges]);
+    setEdges(buildEdges(views, retailCount));
+  }, [views, retailCount, setNodes, setEdges]);
 
   useEffect(() => {
     const id = window.setTimeout(() => {
-      void fitView({ padding: 0.1, minZoom: 0.22, maxZoom: 1.05, duration: 220 });
+      void fitView({ padding: 0.12, minZoom: 0.2, maxZoom: 1.05, duration: 220 });
     }, 80);
     return () => window.clearTimeout(id);
-  }, [fitView]);
+  }, [fitView, retailCount]);
 
   const typedNodes = useMemo(() => nodes, [nodes]);
 
@@ -73,11 +76,11 @@ function Canvas({ views }: { views: Record<WorkflowNodeId, NodeView> }) {
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       colorMode="dark"
-      minZoom={0.2}
+      minZoom={0.18}
       maxZoom={1.6}
       fitView
-      fitViewOptions={{ padding: 0.14, minZoom: 0.2, maxZoom: 1.05 }}
-      defaultEdgeOptions={{ type: "smoothstep" }}
+      fitViewOptions={{ padding: 0.14, minZoom: 0.18, maxZoom: 1.05 }}
+      defaultEdgeOptions={{ type: "smoothstep", zIndex: 0 }}
       panOnScroll
       zoomOnScroll
       nodesConnectable={false}
@@ -86,7 +89,7 @@ function Canvas({ views }: { views: Record<WorkflowNodeId, NodeView> }) {
       deleteKeyCode={null}
       proOptions={{ hideAttribution: true }}
     >
-      <Background variant={BackgroundVariant.Dots} gap={22} size={1.4} color="#1a4d6b" />
+      <Background variant={BackgroundVariant.Dots} gap={24} size={1.1} color="#16384c" />
       <Controls showInteractive={false} />
       <MiniMap
         pannable

@@ -27,6 +27,8 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, rpc: RPC_URL.includes("helius") ? "helius-devnet" : "custom" });
 });
 
+const LICENSE_MINT = "4R9AHfF2wE8X8252Swra3ncvKVDe3m73k8EfP99zz6YK";
+
 app.get("/api/protocol", (_req, res) => {
   const info: ProtocolInfo = {
     cluster: "devnet",
@@ -35,6 +37,9 @@ app.get("/api/protocol", (_req, res) => {
     platformWallet: PLATFORM_WALLET,
     degenFeeWallet: DEGEN_FEE_WALLET,
     explorerProgram: `https://explorer.solana.com/address/${PROGRAM_ID}?cluster=devnet`,
+    licenseMint: LICENSE_MINT,
+    licenseName: "1vault Licence",
+    licenseLockTokens: "1000000",
   };
   res.json(info);
 });
@@ -80,6 +85,7 @@ app.post("/api/run", async (req, res) => {
 
   let degen;
   let retail;
+  let extraRetails: ReturnType<typeof parseSecretKey>[] = [];
   try {
     degen = req.body?.degenUseCli
       ? loadCliKeypair()
@@ -87,6 +93,12 @@ app.post("/api/run", async (req, res) => {
     retail = req.body?.retailUseCli
       ? loadCliKeypair()
       : parseSecretKey(String(req.body?.retailSecret ?? ""));
+    extraRetails = [];
+    for (const item of req.body?.extraRetails ?? []) {
+      extraRetails.push(
+        item?.useCli ? loadCliKeypair() : parseSecretKey(String(item?.secret ?? ""))
+      );
+    }
   } catch (e) {
     res.status(400).json({ error: String(e).slice(0, 240) });
     return;
@@ -108,13 +120,22 @@ app.post("/api/run", async (req, res) => {
   const emit = (update: NodeUpdate) => send("node", update);
 
   try {
-    const mode = (req.body?.mode === "create-vault" ? "create-vault" : "open-position") as SimMode;
+    const mode = (req.body?.mode === "create-vault"
+      ? "create-vault"
+      : req.body?.mode === "withdraw-wallet"
+        ? "withdraw-wallet"
+        : req.body?.mode === "close-vault"
+          ? "close-vault"
+          : req.body?.mode === "deposit"
+            ? "deposit"
+            : "open-position") as SimMode;
     const vaultId = Number(req.body?.vaultId);
     send("start", { at: new Date().toISOString(), indexer: INDEXER_API, mode });
     const result = await runLiveFlow({
       rpcUrl: RPC_URL,
       degen,
       retail,
+      extraRetails,
       emit,
       settings: req.body?.settings,
       mode,

@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use anchor_spl::token::{self, CloseAccount, Token, TokenAccount, Transfer};
 
 use crate::constants::*;
 use crate::error::OneVaultError;
@@ -76,7 +76,7 @@ pub struct LockLicense<'info> {
     pub strategist_token_account: Box<Account<'info, TokenAccount>>,
 
     #[account(
-        init,
+        init_if_needed,
         payer = strategist,
         seeds = [LICENSE_VAULT_SEED, strategist.key().as_ref()],
         bump,
@@ -93,26 +93,12 @@ pub struct LockLicense<'info> {
 }
 
 pub fn handle_lock_license(ctx: Context<LockLicense>) -> Result<()> {
-    let lock_amount = ctx.accounts.protocol_config.license_lock_amount;
-
-    require!(
-        ctx.accounts.strategist_token_account.amount >= lock_amount,
-        OneVaultError::InsufficientLicenseBalance
-    );
-
-    let cpi_accounts = Transfer {
-        from: ctx.accounts.strategist_token_account.to_account_info(),
-        to: ctx.accounts.license_token_vault.to_account_info(),
-        authority: ctx.accounts.strategist.to_account_info(),
-    };
-    token::transfer(
-        CpiContext::new(ctx.accounts.token_program.key(), cpi_accounts),
-        lock_amount,
-    )?;
-
+    // 1M 1vault Licence is locked inside each vault on `create_vault`,
+    // not in this strategist-wide PDA. This instruction only activates
+    // the license record required to open vaults.
     let license = &mut ctx.accounts.license;
     license.strategist = ctx.accounts.strategist.key();
-    license.locked_amount = lock_amount;
+    license.locked_amount = 0;
     license.is_active = true;
     license.bump = ctx.bumps.license;
 
@@ -150,12 +136,14 @@ pub struct UnlockLicense<'info> {
     )]
     pub license: Account<'info, License>,
 
+    /// CHECK: SPL token vault; emptied and closed in the handler so a later
+    /// `lock_license` can recreate it.
     #[account(
         mut,
         seeds = [LICENSE_VAULT_SEED, strategist.key().as_ref()],
         bump,
     )]
-    pub license_token_vault: Account<'info, TokenAccount>,
+    pub license_token_vault: UncheckedAccount<'info>,
 
     #[account(
         mut,
@@ -178,19 +166,33 @@ pub fn handle_unlock_license(ctx: Context<UnlockLicense>) -> Result<()> {
     ];
     let signer = &[&seeds[..]];
 
-    let cpi_accounts = Transfer {
-        from: ctx.accounts.license_token_vault.to_account_info(),
-        to: ctx.accounts.strategist_token_account.to_account_info(),
-        authority: ctx.accounts.license.to_account_info(),
-    };
-    token::transfer(
-        CpiContext::new_with_signer(
-            ctx.accounts.token_program.key(),
-            cpi_accounts,
+    if locked_amount > 0 {
+        let cpi_accounts = Transfer {
+            from: ctx.accounts.license_token_vault.to_account_info(),
+            to: ctx.accounts.strategist_token_account.to_account_info(),
+            authority: ctx.accounts.license.to_account_info(),
+        };
+        token::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                cpi_accounts,
+                signer,
+            ),
+            locked_amount,
+        )?;
+    }
+
+    if !ctx.accounts.license_token_vault.data_is_empty() {
+        token::close_account(CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            CloseAccount {
+                account: ctx.accounts.license_token_vault.to_account_info(),
+                destination: ctx.accounts.strategist.to_account_info(),
+                authority: ctx.accounts.license.to_account_info(),
+            },
             signer,
-        ),
-        locked_amount,
-    )?;
+        ))?;
+    }
 
     Ok(())
 }

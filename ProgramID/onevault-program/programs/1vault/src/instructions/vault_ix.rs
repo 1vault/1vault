@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Mint, Token, TokenAccount};
+use anchor_spl::token::{self, CloseAccount, Mint, Token, TokenAccount, Transfer};
 
 use crate::constants::*;
 use crate::error::OneVaultError;
@@ -118,6 +118,26 @@ pub struct CreateVault<'info> {
     )]
     pub vault_token_account: Box<Account<'info, TokenAccount>>,
 
+    #[account(
+        mut,
+        constraint = strategist_license_tokens.mint == protocol_config.platform_token_mint @ OneVaultError::InvalidAmount,
+        constraint = strategist_license_tokens.owner == strategist.key() @ OneVaultError::Unauthorized,
+    )]
+    pub strategist_license_tokens: Box<Account<'info, TokenAccount>>,
+
+    #[account(address = protocol_config.platform_token_mint)]
+    pub platform_token_mint: Box<Account<'info, Mint>>,
+
+    #[account(
+        init,
+        payer = strategist,
+        seeds = [VAULT_LICENSE_SEED, vault.key().as_ref()],
+        bump,
+        token::mint = platform_token_mint,
+        token::authority = vault,
+    )]
+    pub vault_license_vault: Box<Account<'info, TokenAccount>>,
+
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
     pub rent: Sysvar<'info, Rent>,
@@ -222,6 +242,23 @@ pub fn handle_create_vault(
     let strategist_account = &mut ctx.accounts.strategist_account;
     strategist_account.vault_count = strategist_account.vault_count.saturating_add(1);
     strategist_account.active_vault_count = strategist_account.active_vault_count.saturating_add(1);
+
+    let lock_amount = ctx.accounts.protocol_config.license_lock_amount;
+    require!(
+        ctx.accounts.strategist_license_tokens.amount >= lock_amount,
+        OneVaultError::InsufficientLicenseBalance
+    );
+    token::transfer(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.strategist_license_tokens.to_account_info(),
+                to: ctx.accounts.vault_license_vault.to_account_info(),
+                authority: ctx.accounts.strategist.to_account_info(),
+            },
+        ),
+        lock_amount,
+    )?;
 
     Ok(())
 }
@@ -374,9 +411,62 @@ pub struct CloseVault<'info> {
     #[account(constraint = vault_token_account.key() == vault.vault_token_account,
         constraint = vault_token_account.amount == 0 @ OneVaultError::VaultHasAssets)]
     pub vault_token_account: Account<'info, TokenAccount>,
+    /// CHECK: PDA token account holding the 1vault Licence lock. Empty for vaults
+    /// created before per-vault licence escrow.
+    #[account(
+        mut,
+        seeds = [VAULT_LICENSE_SEED, vault.key().as_ref()],
+        bump,
+    )]
+    pub vault_license_vault: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        constraint = strategist_license_tokens.owner == strategist.key() @ OneVaultError::Unauthorized,
+    )]
+    pub strategist_license_tokens: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
 }
 
 pub fn handle_close_vault(ctx: Context<CloseVault>) -> Result<()> {
+    let vault_bump = ctx.accounts.vault.bump;
+    let vault_id_bytes = ctx.accounts.vault.vault_id.to_le_bytes();
+    let strategist_key = ctx.accounts.vault.strategist;
+    let seeds: &[&[u8]] = &[
+        VAULT_SEED,
+        strategist_key.as_ref(),
+        vault_id_bytes.as_ref(),
+        &[vault_bump],
+    ];
+    let signer = &[seeds];
+
+    let license_info = ctx.accounts.vault_license_vault.to_account_info();
+    if !license_info.data_is_empty() {
+        let amount = Account::<TokenAccount>::try_from(&license_info)?.amount;
+        if amount > 0 {
+            token::transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.token_program.to_account_info(),
+                    Transfer {
+                        from: ctx.accounts.vault_license_vault.to_account_info(),
+                        to: ctx.accounts.strategist_license_tokens.to_account_info(),
+                        authority: ctx.accounts.vault.to_account_info(),
+                    },
+                    signer,
+                ),
+                amount,
+            )?;
+        }
+        token::close_account(CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            CloseAccount {
+                account: ctx.accounts.vault_license_vault.to_account_info(),
+                destination: ctx.accounts.strategist.to_account_info(),
+                authority: ctx.accounts.vault.to_account_info(),
+            },
+            signer,
+        ))?;
+    }
+
     ctx.accounts.vault.status = VaultStatus::Closed;
     ctx.accounts.strategist_account.active_vault_count =
         ctx.accounts.strategist_account.active_vault_count.saturating_sub(1);
@@ -403,12 +493,6 @@ pub struct UpdateNav<'info> {
 pub fn handle_update_nav(ctx: Context<UpdateNav>) -> Result<()> {
     let vault = &mut ctx.accounts.vault;
     vault.total_assets = ctx.accounts.vault_token_account.amount;
-    if vault.total_shares > 0 {
-        let share_price = vault.share_price()?;
-        if share_price > vault.high_water_mark {
-            vault.high_water_mark = share_price;
-        }
-    }
     Ok(())
 }
 

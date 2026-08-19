@@ -240,6 +240,7 @@ pub struct Deposit<'info> {
 
 pub fn handle_deposit(ctx: Context<Deposit>, amount: u64) -> Result<()> {
     require!(amount > 0, OneVaultError::ZeroDeposit);
+    // Parking funds in the vault has no platform fee.
 
     let total_shares = ctx.accounts.vault.total_shares;
     let nav = ctx.accounts.vault.nav()?;
@@ -432,12 +433,13 @@ pub fn handle_withdraw(ctx: Context<Withdraw>, shares: u64) -> Result<()> {
         OneVaultError::InsufficientLiquidity
     );
 
-    let withdrawal_fee_bps = ctx.accounts.protocol_config.withdrawal_fee_bps;
-    let mut fee_amount = apply_bps(gross_amount, withdrawal_fee_bps)?;
+    // Deposit is free. Wallet redeem always pays a flat platform fee ($0.50).
+    let mut fee_amount = WITHDRAWAL_FLAT_FEE_LAMPORTS;
 
     if let Some(staker) = &ctx.accounts.staker {
         fee_amount = apply_discount_bps(fee_amount, staker.fee_discount_bps)?;
     }
+    require!(gross_amount > fee_amount, OneVaultError::InvalidAmount);
 
     let referral_share = if ctx.accounts.referral_account.is_some() {
         apply_bps(fee_amount, ctx.accounts.protocol_config.referral_fee_share_bps)?

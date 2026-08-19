@@ -1,19 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchProtocol, previewWallet, runWorkflow, SETUP_NODES, TRADE_NODES } from "./api";
+import { CLOSE_NODES, DEPOSIT_NODES, fetchProtocol, previewWallet, runWorkflow, SETUP_NODES, TRADE_NODES, WALLET_OUT_NODES } from "./api";
 import type { NodeUpdate, ProtocolInfo, SimMode } from "../shared/events";
 import WorkflowCanvas from "./workflow/WorkflowCanvas";
 import { WorkflowContext, type WorkflowCtx } from "./workflow/context";
-import { initialViews, defaultRetailSettings, type WalletSlot } from "./workflow/graph";
+import { initialViews, defaultRetailSettings, emptyWallet, MAX_RETAILS, type WalletSlot } from "./workflow/graph";
+import logo from "./assets/1vault-logo.png";
 
-const emptyWallet: WalletSlot = { secret: "", useCli: false };
 const LOG_MIN = 72;
 const LOG_MAX = 420;
 
 export default function App() {
   const [protocol, setProtocol] = useState<ProtocolInfo>();
   const [views, setViews] = useState(initialViews);
-  const [degen, setDegenState] = useState<WalletSlot>(emptyWallet);
-  const [retail, setRetailState] = useState<WalletSlot>(emptyWallet);
+  const [degen, setDegenState] = useState<WalletSlot>(() => emptyWallet());
+  const [retails, setRetails] = useState<WalletSlot[]>([emptyWallet()]);
   const [settings, setSettings] = useState(defaultRetailSettings);
   const [activeVault, setActiveVault] = useState<{ vaultId: number; vault: string } | undefined>(() => {
     try {
@@ -32,6 +32,7 @@ export default function App() {
 
   useEffect(() => {
     if (activeVault) sessionStorage.setItem("1v-vault", JSON.stringify(activeVault));
+    else sessionStorage.removeItem("1v-vault");
   }, [activeVault]);
 
   useEffect(() => {
@@ -77,47 +78,64 @@ export default function App() {
   }, []);
 
   const importWallet = useCallback(
-    async (role: "degen" | "retail", mode: "secret" | "cli") => {
-      const slot = role === "degen" ? degen : retail;
-      const set = role === "degen" ? setDegenState : setRetailState;
+    async (role: "degen" | "retail", mode: "secret" | "cli", index = 0) => {
+      const slot = role === "degen" ? degen : retails[index];
+      if (!slot) return;
+      const apply = (patch: Partial<WalletSlot>) => {
+        if (role === "degen") setDegenState((p) => ({ ...p, ...patch }));
+        else setRetails((prev) => prev.map((w, i) => (i === index ? { ...w, ...patch } : w)));
+      };
       try {
-        set((p) => ({ ...p, error: undefined }));
+        apply({ error: undefined });
         const preview = await previewWallet(
           mode === "cli" ? { useCli: true } : { secret: slot.secret }
         );
-        set((p) => ({
-          ...p,
+        apply({
           useCli: mode === "cli",
-          secret: mode === "cli" ? "" : p.secret,
+          secret: mode === "cli" ? "" : slot.secret,
           pubkey: preview.pubkey,
           sol: preview.sol,
           error: undefined,
-        }));
-        setViews((prev) => ({
-          ...prev,
-          [role]: {
-            status: "ready",
-            detail: "Wallet loaded from Devnet",
-            fields: { pubkey: preview.pubkey, sol: preview.sol },
-          },
-        }));
+        });
+        if (role === "degen" || index === 0) {
+          setViews((prev) => ({
+            ...prev,
+            [role]: {
+              status: "ready",
+              detail: "Wallet loaded from Devnet",
+              fields: { pubkey: preview.pubkey, sol: preview.sol },
+            },
+          }));
+        }
       } catch (e) {
-        set((p) => ({ ...p, error: String(e).replace(/^Error:\s*/, "") }));
+        apply({ error: String(e).replace(/^Error:\s*/, "") });
       }
     },
-    [degen, retail]
+    [degen, retails]
   );
 
   const start = useCallback(async (mode: SimMode) => {
     if (running) return;
-    if (!degen.pubkey || !retail.pubkey) return;
+    const loaded = retails.filter((r) => r.pubkey);
+    if (!degen.pubkey || loaded.length === 0) return;
+    const retail = loaded[0];
+    const extras = loaded.slice(1);
     setFatal(undefined);
     setRunning(true);
     setRunningMode(mode);
     setLog((prev) => [...prev, `START     ${mode}`]);
     setViews((prev) => {
       const next = { ...prev };
-      const reset = mode === "create-vault" ? [...SETUP_NODES, ...TRADE_NODES] : TRADE_NODES;
+      const reset =
+        mode === "create-vault"
+          ? [...SETUP_NODES, ...TRADE_NODES, ...WALLET_OUT_NODES]
+          : mode === "withdraw-wallet"
+            ? WALLET_OUT_NODES
+            : mode === "close-vault"
+              ? CLOSE_NODES
+              : mode === "deposit"
+                ? DEPOSIT_NODES
+                : TRADE_NODES;
       reset.forEach((id) => {
         next[id] = { status: "idle" };
       });
@@ -130,13 +148,17 @@ export default function App() {
           retailSecret: retail.useCli ? undefined : retail.secret,
           degenUseCli: degen.useCli,
           retailUseCli: retail.useCli,
+          extraRetails: extras.map((w) => ({
+            secret: w.useCli ? undefined : w.secret,
+            useCli: w.useCli,
+          })),
           settings,
           mode,
           vaultId: activeVault?.vaultId,
         },
         (update) => {
           patchView(update);
-          if (update.id === "vault" && update.fields?.vaultId && update.fields.vault) {
+          if (update.id === "vault" && update.fields?.vaultId && update.fields.vault && mode !== "close-vault") {
             setActiveVault({
               vaultId: Number(update.fields.vaultId),
               vault: update.fields.vault,
@@ -150,9 +172,16 @@ export default function App() {
             setLog((prev) => [...prev, `ERROR     ${msg}`]);
           }
           if (event === "done") {
-            const d = data as { vaultId?: number; vault?: string };
-            if (d.vaultId && d.vault) setActiveVault({ vaultId: d.vaultId, vault: d.vault });
-            setLog((prev) => [...prev, `DONE      ${mode}`]);
+            const d = data as { vaultId?: number; vault?: string; closed?: boolean };
+            if (d.closed) {
+              setActiveVault(undefined);
+              setLog((prev) => [...prev, `DONE      ${mode} · vault closed · licence returned`]);
+            } else if (d.vaultId && d.vault) {
+              setActiveVault({ vaultId: d.vaultId, vault: d.vault });
+              setLog((prev) => [...prev, `DONE      ${mode}`]);
+            } else {
+              setLog((prev) => [...prev, `DONE      ${mode}`]);
+            }
           }
         }
       );
@@ -163,7 +192,9 @@ export default function App() {
       setRunning(false);
       setRunningMode(undefined);
     }
-  }, [degen, retail, settings, running, patchView, activeVault]);
+  }, [degen, retails, settings, running, patchView, activeVault]);
+
+  const retail = retails[0] ?? emptyWallet();
 
   const ctx = useMemo<WorkflowCtx>(
     () => ({
@@ -171,30 +202,40 @@ export default function App() {
       protocol,
       degen,
       retail,
+      retails,
       settings,
       running,
+      runningMode,
       activeVault,
+      start,
       setDegen: (patch) => setDegenState((p) => ({ ...p, ...patch })),
-      setRetail: (patch) => setRetailState((p) => ({ ...p, ...patch })),
+      setRetail: (patch) =>
+        setRetails((prev) => prev.map((w, i) => (i === 0 ? { ...w, ...patch } : w))),
+      setRetailAt: (index, patch) =>
+        setRetails((prev) => prev.map((w, i) => (i === index ? { ...w, ...patch } : w))),
+      addRetail: () =>
+        setRetails((prev) => (prev.length >= MAX_RETAILS ? prev : [...prev, emptyWallet()])),
+      removeRetail: (index) =>
+        setRetails((prev) => (prev.length <= 1 || index <= 0 ? prev : prev.filter((_, i) => i !== index))),
       setSettings: (patch) => setSettings((p) => ({ ...p, ...patch })),
       importDegen: (mode) => importWallet("degen", mode),
-      importRetail: (mode) => importWallet("retail", mode),
+      importRetail: (mode, index = 0) => importWallet("retail", mode, index),
     }),
-    [views, protocol, degen, retail, settings, running, importWallet, activeVault]
+    [views, protocol, degen, retail, retails, settings, running, runningMode, importWallet, activeVault, start]
   );
 
-  const canStart = Boolean(degen.pubkey && retail.pubkey) && !running;
+  const canStart = Boolean(degen.pubkey && retails.some((r) => r.pubkey)) && !running;
 
   return (
     <WorkflowContext.Provider value={ctx}>
       <div className="app">
         <header className="topbar">
           <div className="brand">
-            <div className="mark">1V</div>
-            <div>
-              <div className="brand-name">1Vault</div>
-              <div className="brand-sub">Live Devnet workflow</div>
-            </div>
+            <img
+              className="brand-logo"
+              src={logo}
+              alt="1vault"
+            />
           </div>
           <div className="top-meta">
             <span className="chip">devnet</span>
@@ -208,19 +249,19 @@ export default function App() {
           <div className="top-actions">
             <button
               type="button"
-              className="btn btn-start btn-alt"
+              className="btn-header"
               disabled={!canStart}
               onClick={() => void start("create-vault")}
             >
-              {runningMode === "create-vault" ? "Running…" : "Create vault"}
+              {runningMode === "create-vault" ? "Creating…" : "Create vault"}
             </button>
             <button
               type="button"
-              className="btn btn-start"
+              className="btn-header btn-header-primary"
               disabled={!canStart}
               onClick={() => void start("open-position")}
             >
-              {runningMode === "open-position" ? "Running…" : "Open position"}
+              {runningMode === "open-position" ? "Opening…" : "Open position"}
             </button>
           </div>
         </header>
@@ -242,7 +283,7 @@ export default function App() {
           <div className="logdock-head">Execution · drag up / down</div>
           <pre className="logdock-body">
             {log.length === 0
-              ? "1. Create vault — degen opens the vault, retail joins and parks funds on that same vault.  2. Open position — degen buys; retail auto-follows. Fee SOL lands after retail exit."
+              ? "1. Create vault — 1,000,000 1vault Licence locks inside that vault.  2. Degen Trade SOL + retail Park SOL deposit into the vault ($0 fee). Use + to add more retail wallets.  3. Open position — pooled vault SOL enters the market.  4. Withdraw returns native SOL ($0.50). Close vault returns the 1M 1VL to the degen wallet."
               : log.join("\n")}
           </pre>
         </footer>

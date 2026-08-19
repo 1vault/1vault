@@ -19,6 +19,7 @@ export const SEEDS = {
   investorConfig: "investor_config",
   shareMint: "share_mint",
   licenseVault: "license_vault",
+  vaultLicense: "vault_license",
   referral: "referral",
   trade: "trade",
   vaultPosition: "vault_position",
