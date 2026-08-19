@@ -11,6 +11,7 @@ export const EVENT_DISCRIMINATORS: Record<string, string> = {
   PositionOpened: eventDisc("PositionOpened"),
   PositionUpdated: eventDisc("PositionUpdated"),
   PositionClosed: eventDisc("PositionClosed"),
+  PositionFollowersClosed: eventDisc("PositionFollowersClosed"),
   TpSlTriggered: eventDisc("TpSlTriggered"),
   FeeAccrued: eventDisc("FeeAccrued"),
   ReferralRewardAccrued: eventDisc("ReferralRewardAccrued"),
@@ -20,6 +21,14 @@ export const EVENT_DISCRIMINATORS: Record<string, string> = {
   VaultSolStaked: eventDisc("VaultSolStaked"),
   VaultSolUnstaked: eventDisc("VaultSolUnstaked"),
   RiskCircuitBreakerTripped: eventDisc("RiskCircuitBreakerTripped"),
+  VaultClosingInitiated: eventDisc("VaultClosingInitiated"),
+  VaultClosed: eventDisc("VaultClosed"),
+  VaultClosePayout: eventDisc("VaultClosePayout"),
+  UpgradeProposalCreated: eventDisc("UpgradeProposalCreated"),
+  UpgradeProposalApproved: eventDisc("UpgradeProposalApproved"),
+  UpgradeProposalReady: eventDisc("UpgradeProposalReady"),
+  UpgradeProposalCancelled: eventDisc("UpgradeProposalCancelled"),
+  UpgradeProposalExecuted: eventDisc("UpgradeProposalExecuted"),
 };
 
 function eventDisc(name: string): string {
@@ -43,4 +52,12 @@ export function readU64(buf: Buffer, offset: number): bigint {
 
 export function readI64(buf: Buffer, offset: number): bigint {
   return buf.readBigInt64LE(offset);
+}
+
+export function readString(buf: Buffer, offset: number): { value: string; size: number } {
+  if (offset + 4 > buf.length) return { value: "", size: 4 };
+  const len = buf.readUInt32LE(offset);
+  const start = offset + 4;
+  const end = Math.min(start + len, buf.length);
+  return { value: buf.subarray(start, end).toString("utf8"), size: 4 + len };
 }

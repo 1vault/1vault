@@ -18,6 +18,8 @@ export const defaultRetailSettings: RetailSettings = {
   followTpSl: true,
   parkSol: 0.1,
   degenParkSol: 0.1,
+  takeProfitBps: 2000,
+  stopLossBps: 500,
 };
 
 export function emptyWallet(): WalletSlot {

@@ -62,12 +62,15 @@ pub fn handle_create_investor_config(ctx: Context<CreateInvestorConfig>) -> Resu
     config.follow_full_exit = defaults.follow_full_exit;
     config.follow_tp_sl = defaults.follow_tp_sl;
     config.max_slippage_bps = defaults.max_slippage_bps;
+    config.take_profit_bps = defaults.take_profit_bps;
+    config.stop_loss_bps = defaults.stop_loss_bps;
 
     Ok(())
 }
 
 #[derive(Accounts)]
 pub struct UpdateInvestorConfig<'info> {
+    #[account(mut)]
     pub investor: Signer<'info>,
 
     pub vault: Account<'info, Vault>,
@@ -77,8 +80,13 @@ pub struct UpdateInvestorConfig<'info> {
         seeds = [INVESTOR_CONFIG_SEED, vault.key().as_ref(), investor.key().as_ref()],
         bump = investor_config.bump,
         constraint = investor_config.investor == investor.key() @ OneVaultError::Unauthorized,
+        realloc = 8 + InvestorVaultConfig::INIT_SPACE,
+        realloc::payer = investor,
+        realloc::zero = false,
     )]
     pub investor_config: Account<'info, InvestorVaultConfig>,
+
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
@@ -96,6 +104,8 @@ pub struct InvestorConfigParams {
     pub follow_full_exit: Option<bool>,
     pub follow_tp_sl: Option<bool>,
     pub max_slippage_bps: Option<u16>,
+    pub take_profit_bps: Option<u16>,
+    pub stop_loss_bps: Option<u16>,
 }
 
 pub fn handle_update_investor_config(
@@ -144,6 +154,12 @@ pub fn handle_update_investor_config(
     }
     if let Some(v) = params.max_slippage_bps {
         config.max_slippage_bps = v;
+    }
+    if let Some(v) = params.take_profit_bps {
+        config.take_profit_bps = v;
+    }
+    if let Some(v) = params.stop_loss_bps {
+        config.stop_loss_bps = v;
     }
 
     Ok(())

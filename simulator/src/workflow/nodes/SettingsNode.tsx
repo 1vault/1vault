@@ -18,8 +18,8 @@ export default function SettingsNode() {
         <div className="nv-id">
           <NodeIcon name="settings" />
           <div>
-            <div className="nv-kicker">retail setup</div>
-            <div className="nv-title">Follow settings</div>
+            <div className="nv-kicker">retail mandate</div>
+            <div className="nv-title">Park + TP / SL</div>
           </div>
         </div>
         <span className={`pill pill-${view.status}`}>{statusLabel(view.status)}</span>
@@ -27,53 +27,10 @@ export default function SettingsNode() {
       <div className="nv-body">
         <p className="nv-hint">
           {ctx.activeVault
-            ? `Vault #${ctx.activeVault.vaultId} · Deposit $0 · Withdraw $0.50`
-            : "Create a vault first, then Deposit / Withdraw"}
+            ? `Vault #${ctx.activeVault.vaultId} · Set how much to park. Degen executes. Close hits everyone.`
+            : "Create a vault first, then set park amount + TP / SL"}
         </p>
         <div className="nv-form nopan nodrag nowheel">
-          <label className="nv-check">
-            <input
-              type="checkbox"
-              checked={s.autoFollow}
-              disabled={ctx.running}
-              onChange={(e) => ctx.setSettings({ autoFollow: e.target.checked })}
-            />
-            Auto-follow ON
-          </label>
-          <label className="nv-field">
-            Copy size
-            <select
-              value={s.copyBps}
-              disabled={ctx.running}
-              onChange={(e) => ctx.setSettings({ copyBps: Number(e.target.value) })}
-            >
-              <option value={2500}>25%</option>
-              <option value={5000}>50%</option>
-              <option value={7500}>75%</option>
-              <option value={10000}>100%</option>
-            </select>
-          </label>
-          <label className="nv-field">
-            Max position
-            <select
-              value={s.maxPositionBps}
-              disabled={ctx.running}
-              onChange={(e) => ctx.setSettings({ maxPositionBps: Number(e.target.value) })}
-            >
-              <option value={2500}>25%</option>
-              <option value={5000}>50%</option>
-              <option value={8000}>80%</option>
-            </select>
-          </label>
-          <label className="nv-check">
-            <input
-              type="checkbox"
-              checked={s.followTpSl}
-              disabled={ctx.running}
-              onChange={(e) => ctx.setSettings({ followTpSl: e.target.checked })}
-            />
-            Follow TP / SL
-          </label>
           <label className="nv-field">
             Retail park
             <input
@@ -85,6 +42,41 @@ export default function SettingsNode() {
               disabled={ctx.running}
               onChange={(e) => ctx.setSettings({ parkSol: Number(e.target.value) || 0.1 })}
             />
+          </label>
+          <label className="nv-field">
+            Take profit
+            <select
+              value={s.takeProfitBps}
+              disabled={ctx.running}
+              onChange={(e) => ctx.setSettings({ takeProfitBps: Number(e.target.value) })}
+            >
+              <option value={1000}>10%</option>
+              <option value={2000}>20%</option>
+              <option value={3000}>30%</option>
+              <option value={5000}>50%</option>
+            </select>
+          </label>
+          <label className="nv-field">
+            Stop loss
+            <select
+              value={s.stopLossBps}
+              disabled={ctx.running}
+              onChange={(e) => ctx.setSettings({ stopLossBps: Number(e.target.value) })}
+            >
+              <option value={300}>3%</option>
+              <option value={500}>5%</option>
+              <option value={1000}>10%</option>
+              <option value={2000}>20%</option>
+            </select>
+          </label>
+          <label className="nv-check">
+            <input
+              type="checkbox"
+              checked={s.autoFollow}
+              disabled={ctx.running}
+              onChange={(e) => ctx.setSettings({ autoFollow: e.target.checked })}
+            />
+            Ride degen close
           </label>
         </div>
       </div>

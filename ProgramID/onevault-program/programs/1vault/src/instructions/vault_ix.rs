@@ -244,13 +244,14 @@ pub fn handle_create_vault(
     strategist_account.active_vault_count = strategist_account.active_vault_count.saturating_add(1);
 
     let lock_amount = ctx.accounts.protocol_config.license_lock_amount;
+    require!(lock_amount > 0, OneVaultError::InsufficientLicenseBalance);
     require!(
         ctx.accounts.strategist_license_tokens.amount >= lock_amount,
         OneVaultError::InsufficientLicenseBalance
     );
     token::transfer(
         CpiContext::new(
-            ctx.accounts.token_program.to_account_info(),
+            ctx.accounts.token_program.key(),
             Transfer {
                 from: ctx.accounts.strategist_license_tokens.to_account_info(),
                 to: ctx.accounts.vault_license_vault.to_account_info(),
@@ -402,14 +403,18 @@ pub struct CloseVault<'info> {
     #[account(mut, seeds = [VAULT_SEED, strategist.key().as_ref(), &vault.vault_id.to_le_bytes()], bump = vault.bump,
         constraint = vault.strategist == strategist.key() @ OneVaultError::Unauthorized,
         constraint = vault.status == VaultStatus::Closing @ OneVaultError::VaultNotClosing,
-        constraint = vault.total_shares == 0 @ OneVaultError::VaultHasShares,
         constraint = vault.open_positions_count == 0 @ OneVaultError::VaultHasOpenPositions,
         constraint = vault.pending_trades_count == 0 @ OneVaultError::VaultHasPendingTrades,
         constraint = vault.position_value == 0 @ OneVaultError::VaultHasOpenPositions,
         constraint = vault.staked_value == 0 @ OneVaultError::VaultHasAssets)]
     pub vault: Account<'info, Vault>,
-    #[account(constraint = vault_token_account.key() == vault.vault_token_account,
-        constraint = vault_token_account.amount == 0 @ OneVaultError::VaultHasAssets)]
+    /// Remaining vault capital is unwrapped to native SOL for each share holder
+    /// via remaining_accounts triples: share ATA, unwrap PDA, destination wallet.
+    #[account(
+        mut,
+        constraint = vault_token_account.key() == vault.vault_token_account,
+        constraint = vault_token_account.mint == vault.base_mint @ OneVaultError::InvalidMint,
+    )]
     pub vault_token_account: Account<'info, TokenAccount>,
     /// CHECK: PDA token account holding the 1vault Licence lock. Empty for vaults
     /// created before per-vault licence escrow.
@@ -425,12 +430,25 @@ pub struct CloseVault<'info> {
     )]
     pub strategist_license_tokens: Account<'info, TokenAccount>,
     pub token_program: Program<'info, Token>,
+    #[account(address = WSOL_MINT)]
+    pub native_mint: Account<'info, Mint>,
+    pub system_program: Program<'info, System>,
 }
 
-pub fn handle_close_vault(ctx: Context<CloseVault>) -> Result<()> {
+fn unpack_token(info: &AccountInfo<'_>) -> Result<(Pubkey, Pubkey, u64)> {
+    require_keys_eq!(*info.owner, token::ID, OneVaultError::InvalidMint);
+    let acc = TokenAccount::try_deserialize(&mut &info.try_borrow_data()?[..])
+        .map_err(|_| error!(OneVaultError::InvalidMint))?;
+    Ok((acc.mint, acc.owner, acc.amount))
+}
+
+pub fn handle_close_vault<'a>(ctx: Context<'a, CloseVault<'a>>) -> Result<()> {
     let vault_bump = ctx.accounts.vault.bump;
     let vault_id_bytes = ctx.accounts.vault.vault_id.to_le_bytes();
     let strategist_key = ctx.accounts.vault.strategist;
+    let vault_key = ctx.accounts.vault.key();
+    let share_mint = ctx.accounts.vault.share_mint;
+    let base_mint = ctx.accounts.vault.base_mint;
     let seeds: &[&[u8]] = &[
         VAULT_SEED,
         strategist_key.as_ref(),
@@ -439,13 +457,111 @@ pub fn handle_close_vault(ctx: Context<CloseVault>) -> Result<()> {
     ];
     let signer = &[seeds];
 
-    let license_info = ctx.accounts.vault_license_vault.to_account_info();
-    if !license_info.data_is_empty() {
-        let amount = Account::<TokenAccount>::try_from(&license_info)?.amount;
-        if amount > 0 {
+    let vault_ata_info = ctx.accounts.vault_token_account.to_account_info();
+    let vault_auth_info = ctx.accounts.vault.to_account_info();
+    let token_program_info = ctx.accounts.token_program.to_account_info();
+    let system_program_info = ctx.accounts.system_program.to_account_info();
+    let native_mint_info = ctx.accounts.native_mint.to_account_info();
+    let strategist_info = ctx.accounts.strategist.to_account_info();
+    let program_id = ctx.program_id;
+    let holders: Vec<(AccountInfo, AccountInfo, AccountInfo)> = ctx
+        .remaining_accounts
+        .chunks(3)
+        .filter(|c| c.len() == 3)
+        .map(|c| (c[0].clone(), c[1].clone(), c[2].clone()))
+        .collect();
+
+    let mut remaining_shares = ctx.accounts.vault.total_shares;
+    let mut remaining_nav = ctx.accounts.vault_token_account.amount;
+    if remaining_shares > 0 {
+        require!(base_mint == WSOL_MINT, OneVaultError::InvalidMint);
+        require!(ctx.remaining_accounts.len() % 3 == 0, OneVaultError::InvalidAmount);
+        require!(
+            holders.len() <= MAX_CLOSE_SHARE_HOLDERS,
+            OneVaultError::InvalidAmount
+        );
+        require!(!holders.is_empty(), OneVaultError::VaultHasShares);
+
+        let mut seen: Vec<Pubkey> = Vec::with_capacity(holders.len());
+        let now = Clock::get()?.unix_timestamp;
+        for (share_info, unwrap_info, wallet_info) in holders.iter() {
+            require!(unwrap_info.is_writable, OneVaultError::Unauthorized);
+            require!(wallet_info.is_writable, OneVaultError::Unauthorized);
+            let (s_mint, s_owner, shares) = unpack_token(share_info)?;
+            require!(s_mint == share_mint, OneVaultError::InvalidMint);
+            require_keys_eq!(*wallet_info.key, s_owner, OneVaultError::Unauthorized);
+            let (expected_unwrap, unwrap_bump) = Pubkey::find_program_address(
+                &[FEE_UNWRAP_SEED, vault_key.as_ref(), s_owner.as_ref()],
+                program_id,
+            );
+            require_keys_eq!(*unwrap_info.key, expected_unwrap, OneVaultError::Unauthorized);
+            require!(!seen.contains(share_info.key), OneVaultError::InvalidAmount);
+            seen.push(*share_info.key);
+
+            if shares > 0 {
+                let payout = Vault::close_payout(shares, remaining_shares, remaining_nav)?;
+                if payout > 0 {
+                    let unwrap_bump_arr = [unwrap_bump];
+                    let unwrap_seeds = [
+                        FEE_UNWRAP_SEED,
+                        vault_key.as_ref(),
+                        s_owner.as_ref(),
+                        unwrap_bump_arr.as_ref(),
+                    ];
+                    crate::utils::create_wsol_unwrap_account(
+                        strategist_info.clone(),
+                        unwrap_info.clone(),
+                        native_mint_info.clone(),
+                        vault_auth_info.clone(),
+                        token_program_info.clone(),
+                        system_program_info.clone(),
+                        &[&unwrap_seeds],
+                    )?;
+                    crate::utils::unwrap_wsol_to_wallet(
+                        token_program_info.clone(),
+                        vault_ata_info.clone(),
+                        vault_auth_info.clone(),
+                        unwrap_info.clone(),
+                        wallet_info.clone(),
+                        payout,
+                        signer,
+                    )?;
+                }
+                remaining_shares = remaining_shares
+                    .checked_sub(shares)
+                    .ok_or(OneVaultError::MathOverflow)?;
+                remaining_nav = remaining_nav.saturating_sub(payout);
+                emit!(crate::events::VaultClosePayout {
+                    vault: vault_key,
+                    investor: s_owner,
+                    shares,
+                    amount: payout,
+                    timestamp: now,
+                });
+            }
+        }
+        require!(remaining_shares == 0, OneVaultError::VaultHasShares);
+    }
+
+    ctx.accounts.vault_token_account.reload()?;
+    require!(
+        ctx.accounts.vault_token_account.amount == 0,
+        OneVaultError::VaultHasAssets
+    );
+    ctx.accounts.vault.total_shares = 0;
+    ctx.accounts.vault.total_assets = 0;
+
+    let license_empty = ctx.accounts.vault_license_vault.data_is_empty();
+    let license_amount = if license_empty {
+        0
+    } else {
+        unpack_token(&ctx.accounts.vault_license_vault.to_account_info())?.2
+    };
+    if !license_empty {
+        if license_amount > 0 {
             token::transfer(
                 CpiContext::new_with_signer(
-                    ctx.accounts.token_program.to_account_info(),
+                    ctx.accounts.token_program.key(),
                     Transfer {
                         from: ctx.accounts.vault_license_vault.to_account_info(),
                         to: ctx.accounts.strategist_license_tokens.to_account_info(),
@@ -453,11 +569,11 @@ pub fn handle_close_vault(ctx: Context<CloseVault>) -> Result<()> {
                     },
                     signer,
                 ),
-                amount,
+                license_amount,
             )?;
         }
         token::close_account(CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
+            ctx.accounts.token_program.key(),
             CloseAccount {
                 account: ctx.accounts.vault_license_vault.to_account_info(),
                 destination: ctx.accounts.strategist.to_account_info(),

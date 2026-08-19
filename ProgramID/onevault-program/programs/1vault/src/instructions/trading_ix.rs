@@ -42,6 +42,14 @@ pub struct RequestTrade<'info> {
     pub trade_request: Box<Account<'info, TradeRequest>>,
 
     pub system_program: Program<'info, System>,
+
+    /// Strategist must hold vault shares (same pool as retail).
+    #[account(
+        constraint = strategist_share_account.mint == vault.share_mint @ OneVaultError::InvalidMint,
+        constraint = strategist_share_account.owner == strategist.key() @ OneVaultError::Unauthorized,
+        constraint = strategist_share_account.amount > 0 @ OneVaultError::StrategistMustPark
+    )]
+    pub strategist_share_account: Box<Account<'info, TokenAccount>>,
 }
 
 pub fn handle_request_trade(

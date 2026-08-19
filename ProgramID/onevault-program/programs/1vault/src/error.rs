@@ -22,13 +22,13 @@ pub enum OneVaultError {
     VaultPaused,
     #[msg("Vault is closed")]
     VaultClosed,
-    #[msg("Vault is closing; finalize after all investors redeem")]
+    #[msg("Vault is closing")]
     VaultClosing,
     #[msg("Vault is not in closing state")]
     VaultNotClosing,
     #[msg("Vault is not closed")]
     VaultNotClosed,
-    #[msg("Vault still has outstanding shares")]
+    #[msg("Close vault must include every remaining share holder")]
     VaultHasShares,
     #[msg("Vault still has assets")]
     VaultHasAssets,
@@ -130,4 +130,6 @@ pub enum OneVaultError {
     ProposalExpired,
     #[msg("Member already approved this proposal")]
     AlreadyApproved,
+    #[msg("Strategist must park SOL in the vault before trading")]
+    StrategistMustPark,
 }

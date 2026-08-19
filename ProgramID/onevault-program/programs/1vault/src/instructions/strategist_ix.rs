@@ -174,7 +174,7 @@ pub fn handle_unlock_license(ctx: Context<UnlockLicense>) -> Result<()> {
         };
         token::transfer(
             CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
+                ctx.accounts.token_program.key(),
                 cpi_accounts,
                 signer,
             ),
@@ -184,7 +184,7 @@ pub fn handle_unlock_license(ctx: Context<UnlockLicense>) -> Result<()> {
 
     if !ctx.accounts.license_token_vault.data_is_empty() {
         token::close_account(CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
+            ctx.accounts.token_program.key(),
             CloseAccount {
                 account: ctx.accounts.license_token_vault.to_account_info(),
                 destination: ctx.accounts.strategist.to_account_info(),

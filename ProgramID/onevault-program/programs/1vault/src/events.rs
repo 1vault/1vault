@@ -35,6 +35,15 @@ pub struct VaultClosed {
 }
 
 #[event]
+pub struct VaultClosePayout {
+    pub vault: Pubkey,
+    pub investor: Pubkey,
+    pub shares: u64,
+    pub amount: u64,
+    pub timestamp: i64,
+}
+
+#[event]
 pub struct InvestorDeposit {
     pub vault: Pubkey,
     pub investor: Pubkey,
@@ -100,6 +109,14 @@ pub struct PositionClosed {
     pub vault: Pubkey,
     pub position_id: u64,
     pub proceeds: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct PositionFollowersClosed {
+    pub vault: Pubkey,
+    pub position_id: u64,
+    pub follower_count: u8,
     pub timestamp: i64,
 }
 

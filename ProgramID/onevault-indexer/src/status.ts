@@ -1,29 +1,21 @@
 import { pool } from "./db.js";
 
 async function main(): Promise<void> {
-  const tables = await pool.query(
-    `SELECT COUNT(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public'`
-  );
-  const vaults = await pool.query(`SELECT COUNT(*)::int AS n FROM vaults`);
-  const demo = await pool.query(
-    `SELECT 1 FROM vaults WHERE pubkey = $1`,
-    ["CxUvVKea9nyv3a6EdHwaHVmjNMRXbA7X3D32LTWDmKLG"]
-  );
-  const txs = await pool.query(`SELECT COUNT(*)::int AS n FROM transactions`);
-  const deposits = await pool.query(`SELECT COUNT(*)::int AS n FROM deposits`);
-  console.log(
-    JSON.stringify(
-      {
-        publicTables: tables.rows[0].n,
-        vaults: vaults.rows[0].n,
-        demoVaultIndexed: (demo.rowCount ?? 0) > 0,
-        transactions: txs.rows[0].n,
-        deposits: deposits.rows[0].n,
-      },
-      null,
-      2
-    )
-  );
+  const { rows } = await pool.query(`
+    SELECT 'vaults' AS t, COUNT(*)::int AS n FROM vaults
+    UNION ALL SELECT 'deposits', COUNT(*)::int FROM deposits
+    UNION ALL SELECT 'withdrawals', COUNT(*)::int FROM withdrawals
+    UNION ALL SELECT 'vault_holdings', COUNT(*)::int FROM vault_holdings
+    UNION ALL SELECT 'vault_positions', COUNT(*)::int FROM vault_positions
+    UNION ALL SELECT 'investor_positions', COUNT(*)::int FROM investor_positions
+    UNION ALL SELECT 'follow_events', COUNT(*)::int FROM follow_events
+    UNION ALL SELECT 'fee_accruals', COUNT(*)::int FROM fee_accruals
+    UNION ALL SELECT 'close_payouts', COUNT(*)::int FROM close_payouts
+    UNION ALL SELECT 'investor_mandates', COUNT(*)::int FROM investor_mandates
+    UNION ALL SELECT 'deposit_intents', COUNT(*)::int FROM deposit_intents
+    UNION ALL SELECT 'transactions', COUNT(*)::int FROM transactions
+  `);
+  console.log(JSON.stringify(Object.fromEntries(rows.map((r) => [r.t, r.n])), null, 2));
   await pool.end();
 }
 

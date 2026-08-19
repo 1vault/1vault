@@ -65,6 +65,27 @@ impl Vault {
             .ok_or(error!(crate::OneVaultError::MathOverflow))
     }
 
+    /// Payout = this holder's remaining stake, weighted by their shares
+    /// (what they parked, plus/minus their share of vault PnL). Not an equal split.
+    /// The last holder receives leftover lamports so dust is not trapped.
+    pub fn close_payout(shares: u64, remaining_shares: u64, remaining_nav: u64) -> Result<u64> {
+        if shares == 0 || remaining_shares == 0 {
+            return Ok(0);
+        }
+        require!(
+            shares <= remaining_shares,
+            crate::OneVaultError::InsufficientShares
+        );
+        if shares == remaining_shares {
+            return Ok(remaining_nav);
+        }
+        (shares as u128)
+            .checked_mul(remaining_nav as u128)
+            .and_then(|v| v.checked_div(remaining_shares as u128))
+            .map(|v| v as u64)
+            .ok_or(error!(crate::OneVaultError::MathOverflow))
+    }
+
     pub fn is_operational(&self) -> bool {
         self.status == VaultStatus::Active
     }

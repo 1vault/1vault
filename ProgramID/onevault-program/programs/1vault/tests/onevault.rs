@@ -69,6 +69,28 @@ fn deposit_and_withdraw_use_same_nav_basis() {
 }
 
 #[test]
+fn close_payout_is_pro_rata_and_last_holder_gets_dust() {
+    use onevault::state::Vault;
+
+    let mut remaining_shares = 300u64;
+    let mut remaining_nav = 1_000u64;
+
+    let a = Vault::close_payout(100, remaining_shares, remaining_nav).unwrap();
+    remaining_shares -= 100;
+    remaining_nav -= a;
+    let b = Vault::close_payout(100, remaining_shares, remaining_nav).unwrap();
+    remaining_shares -= 100;
+    remaining_nav -= b;
+    let c = Vault::close_payout(100, remaining_shares, remaining_nav).unwrap();
+
+    assert_eq!(a, 333);
+    assert_eq!(b, 333);
+    assert_eq!(c, 334);
+    assert_eq!(a + b + c, 1_000);
+    assert_eq!(c, remaining_nav);
+}
+
+#[test]
 fn vault_closing_allows_retail_withdraw() {
     use onevault::state::{MevMode, StrategyType, Vault, VaultStatus};
 
@@ -146,6 +168,17 @@ fn tp_sl_triggers_at_threshold() {
     assert!(evaluate_tp_sl(&position, 1_299).unwrap().is_none());
     assert!(evaluate_tp_sl(&position, 1_300).unwrap().is_some());
     assert!(evaluate_tp_sl(&position, 900).unwrap().is_some());
+}
+
+#[test]
+fn investor_defaults_include_tp_sl_mandate() {
+    use onevault::state::InvestorVaultConfig;
+
+    let cfg = InvestorVaultConfig::default_settings(Pubkey::default(), Pubkey::default(), 1);
+    assert_eq!(cfg.take_profit_bps, 2_000);
+    assert_eq!(cfg.stop_loss_bps, 500);
+    assert!(cfg.auto_follow);
+    assert!(cfg.follow_tp_sl);
 }
 
 #[test]

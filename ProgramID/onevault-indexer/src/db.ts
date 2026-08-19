@@ -18,9 +18,15 @@ export const pool = new pg.Pool({
 });
 
 export async function migrate(): Promise<void> {
-  const schemaPath = path.join(__dirname, "..", "schema", "001_init.sql");
-  const sql = fs.readFileSync(schemaPath, "utf8");
-  await pool.query(sql);
+  const dir = path.join(__dirname, "..", "schema");
+  const files = fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith(".sql"))
+    .sort();
+  for (const file of files) {
+    const sql = fs.readFileSync(path.join(dir, file), "utf8");
+    await pool.query(sql);
+  }
 }
 
 export async function insertTransaction(row: {

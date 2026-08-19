@@ -90,15 +90,15 @@ export default function WalletNode({
             <Row label="wallet" value={`${slot.sol ?? "—"} SOL`} />
             {data.role === "degen" ? (
               <label className="nv-field nopan nodrag nowheel">
-                Trade SOL
+                Park SOL
                 <input
                   type="number"
-                  min={0}
+                  min={0.05}
                   max={5}
                   step={0.01}
                   value={ctx.settings.degenParkSol}
                   disabled={ctx.running}
-                  onChange={(e) => ctx.setSettings({ degenParkSol: Number(e.target.value) || 0 })}
+                  onChange={(e) => ctx.setSettings({ degenParkSol: Math.max(0.05, Number(e.target.value) || 0.1) })}
                 />
               </label>
             ) : null}

@@ -40,6 +40,8 @@ pub const BPS_DENOMINATOR: u64 = 10_000;
 
 pub const MAX_VAULT_NAME_LEN: usize = 64;
 pub const MAX_VAULT_DESC_LEN: usize = 128;
+/// Max investor share accounts passed as remaining_accounts on close_vault.
+pub const MAX_CLOSE_SHARE_HOLDERS: usize = 16;
 pub const MAX_ALLOWED_DEX: usize = 5;
 pub const MAX_ACCEPTED_MINTS: usize = 5;
 pub const MAX_STAKING_TIERS: usize = 5;

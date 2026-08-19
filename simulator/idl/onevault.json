@@ -1084,6 +1084,7 @@
       "accounts": [
         {
           "name": "strategist",
+          "writable": true,
           "signer": true
         },
         {
@@ -1160,6 +1161,10 @@
         {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -1242,7 +1247,61 @@
           }
         },
         {
-          "name": "vault_token_account"
+          "name": "vault_token_account",
+          "docs": [
+            "Remaining vault capital is unwrapped to native SOL for each share holder",
+            "via remaining_accounts triples: share ATA, unwrap PDA, destination wallet."
+          ],
+          "writable": true
+        },
+        {
+          "name": "vault_license_vault",
+          "docs": [
+            "created before per-vault licence escrow."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  108,
+                  105,
+                  99,
+                  101,
+                  110,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "strategist_license_tokens",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "native_mint",
+          "address": "So11111111111111111111111111111111111111112"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": []
@@ -1660,6 +1719,43 @@
           "name": "vault_token_account",
           "writable": true,
           "signer": true
+        },
+        {
+          "name": "strategist_license_tokens",
+          "writable": true
+        },
+        {
+          "name": "platform_token_mint"
+        },
+        {
+          "name": "vault_license_vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  108,
+                  105,
+                  99,
+                  101,
+                  110,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              }
+            ]
+          }
         },
         {
           "name": "token_program",
@@ -4324,6 +4420,12 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "strategist_share_account",
+          "docs": [
+            "Strategist must hold vault shares (same pool as retail)."
+          ]
         }
       ],
       "args": [
@@ -5392,6 +5494,7 @@
       "accounts": [
         {
           "name": "strategist",
+          "writable": true,
           "signer": true
         },
         {
@@ -5468,6 +5571,10 @@
         {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -5572,6 +5679,9 @@
         },
         {
           "name": "license_token_vault",
+          "docs": [
+            "`lock_license` can recreate it."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -5901,6 +6011,7 @@
       "accounts": [
         {
           "name": "investor",
+          "writable": true,
           "signer": true
         },
         {
@@ -5941,6 +6052,10 @@
               }
             ]
           }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
@@ -7194,6 +7309,19 @@
       ]
     },
     {
+      "name": "PositionFollowersClosed",
+      "discriminator": [
+        39,
+        9,
+        111,
+        104,
+        145,
+        223,
+        232,
+        171
+      ]
+    },
+    {
       "name": "PositionOpened",
       "discriminator": [
         237,
@@ -7363,6 +7491,19 @@
       ]
     },
     {
+      "name": "VaultClosePayout",
+      "discriminator": [
+        204,
+        120,
+        193,
+        125,
+        96,
+        93,
+        255,
+        2
+      ]
+    },
+    {
       "name": "VaultClosed",
       "discriminator": [
         238,
@@ -7482,7 +7623,7 @@
     {
       "code": 6010,
       "name": "VaultClosing",
-      "msg": "Vault is closing; finalize after all investors redeem"
+      "msg": "Vault is closing"
     },
     {
       "code": 6011,
@@ -7497,7 +7638,7 @@
     {
       "code": 6013,
       "name": "VaultHasShares",
-      "msg": "Vault still has outstanding shares"
+      "msg": "Close vault must include every remaining share holder"
     },
     {
       "code": 6014,
@@ -7748,6 +7889,11 @@
       "code": 6063,
       "name": "AlreadyApproved",
       "msg": "Member already approved this proposal"
+    },
+    {
+      "code": 6064,
+      "name": "StrategistMustPark",
+      "msg": "Strategist must park SOL in the vault before trading"
     }
   ],
   "types": [
@@ -7897,6 +8043,18 @@
           },
           {
             "name": "max_slippage_bps",
+            "type": {
+              "option": "u16"
+            }
+          },
+          {
+            "name": "take_profit_bps",
+            "type": {
+              "option": "u16"
+            }
+          },
+          {
+            "name": "stop_loss_bps",
             "type": {
               "option": "u16"
             }
@@ -8104,6 +8262,20 @@
           {
             "name": "bump",
             "type": "u8"
+          },
+          {
+            "name": "take_profit_bps",
+            "docs": [
+              "Retail mandate: take-profit in bps of entry. Degen still executes the close."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "stop_loss_bps",
+            "docs": [
+              "Retail mandate: stop-loss in bps of entry."
+            ],
+            "type": "u16"
           }
         ]
       }
@@ -8246,6 +8418,30 @@
           {
             "name": "proceeds",
             "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PositionFollowersClosed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "position_id",
+            "type": "u64"
+          },
+          {
+            "name": "follower_count",
+            "type": "u8"
           },
           {
             "name": "timestamp",
@@ -9354,6 +9550,34 @@
           {
             "name": "share_mint_bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultClosePayout",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "investor",
+            "type": "pubkey"
+          },
+          {
+            "name": "shares",
+            "type": "u64"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }

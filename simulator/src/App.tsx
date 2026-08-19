@@ -238,7 +238,7 @@ export default function App() {
             />
           </div>
           <div className="top-meta">
-            <span className="chip">devnet</span>
+            <span className="chip">{protocol?.cluster ?? "devnet"}</span>
             {activeVault ? (
               <span className="chip">vault #{activeVault.vaultId}</span>
             ) : (
@@ -283,7 +283,7 @@ export default function App() {
           <div className="logdock-head">Execution · drag up / down</div>
           <pre className="logdock-body">
             {log.length === 0
-              ? "1. Create vault — 1,000,000 1vault Licence locks inside that vault.  2. Degen Trade SOL + retail Park SOL deposit into the vault ($0 fee). Use + to add more retail wallets.  3. Open position — pooled vault SOL enters the market.  4. Withdraw returns native SOL ($0.50). Close vault returns the 1M 1VL to the degen wallet."
+              ? "1. Create vault.  2. Degen + retail park SOL (ledger first, then chain).  3. Retail sets TP/SL. Degen executes.  4. Degen close closes every retail book."
               : log.join("\n")}
           </pre>
         </footer>

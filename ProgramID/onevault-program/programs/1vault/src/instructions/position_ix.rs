@@ -3,8 +3,53 @@ use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
 use crate::constants::*;
 use crate::error::OneVaultError;
-use crate::state::{PositionStatus, Vault, VaultPosition};
+use crate::state::{InvestorPosition, InvestorVaultConfig, PositionStatus, Vault, VaultPosition};
 use crate::utils::evaluate_tp_sl;
+
+/// Remaining accounts: repeating pairs of (investor_config, investor_position).
+/// Degen close / TP-SL close also closes every mirrored retail book for this vault position.
+fn close_mirrored_followers<'info>(
+    remaining: &'info [AccountInfo<'info>],
+    vault_key: &Pubkey,
+    vault_position_id: u64,
+) -> Result<u8> {
+    require!(remaining.len() % 2 == 0, OneVaultError::InvalidAmount);
+    require!(
+        remaining.len() / 2 <= MAX_CLOSE_SHARE_HOLDERS,
+        OneVaultError::InvalidAmount
+    );
+
+    let mut n = 0u8;
+    for pair in remaining.chunks(2) {
+        let config_ai = &pair[0];
+        let pos_ai = &pair[1];
+        require!(config_ai.is_writable, OneVaultError::Unauthorized);
+        require!(pos_ai.is_writable, OneVaultError::Unauthorized);
+
+        let mut config = Account::<InvestorVaultConfig>::try_from(config_ai)?;
+        let mut pos = Account::<InvestorPosition>::try_from(pos_ai)?;
+        require!(config.vault == *vault_key, OneVaultError::Unauthorized);
+        require!(pos.vault == *vault_key, OneVaultError::Unauthorized);
+        require!(config.investor == pos.investor, OneVaultError::Unauthorized);
+        require!(
+            pos.vault_position_id == vault_position_id,
+            OneVaultError::PositionNotFound
+        );
+        require!(
+            pos.status != PositionStatus::Closed,
+            OneVaultError::PositionNotOpen
+        );
+
+        let exposure = pos.current_value;
+        config.open_positions_count = config.open_positions_count.saturating_sub(1);
+        config.total_exposure_value = config.total_exposure_value.saturating_sub(exposure);
+        pos.status = PositionStatus::Closed;
+        config.exit(&crate::ID)?;
+        pos.exit(&crate::ID)?;
+        n = n.saturating_add(1);
+    }
+    Ok(n)
+}
 
 #[derive(Accounts)]
 pub struct IncreasePosition<'info> {
@@ -78,6 +123,7 @@ pub fn handle_reduce_position(ctx: Context<ReducePosition>, reduce_bps: u16, pro
 
 #[derive(Accounts)]
 pub struct ClosePosition<'info> {
+    #[account(mut)]
     pub strategist: Signer<'info>,
     #[account(mut, seeds = [VAULT_SEED, strategist.key().as_ref(), &vault.vault_id.to_le_bytes()], bump = vault.bump,
         constraint = vault.strategist == strategist.key() @ OneVaultError::Unauthorized)]
@@ -92,10 +138,15 @@ pub struct ClosePosition<'info> {
     #[account(mut)]
     pub output_token_account: Box<Account<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
 }
 
-pub fn handle_close_position(ctx: Context<ClosePosition>, proceeds: u64) -> Result<()> {
+pub fn handle_close_position<'info>(
+    ctx: Context<'info, ClosePosition<'info>>,
+    proceeds: u64,
+) -> Result<()> {
     let pos_value = ctx.accounts.vault_position.current_value;
+    let position_id = ctx.accounts.vault_position.position_id;
     ctx.accounts.vault.position_value = ctx.accounts.vault.position_value.saturating_sub(pos_value);
     ctx.accounts.vault.open_positions_count = ctx.accounts.vault.open_positions_count.saturating_sub(1);
     ctx.accounts.vault.total_assets = ctx.accounts.vault.total_assets.saturating_add(proceeds);
@@ -121,10 +172,22 @@ pub fn handle_close_position(ctx: Context<ClosePosition>, proceeds: u64) -> Resu
         )?;
     }
 
+    let follower_count = close_mirrored_followers(
+        ctx.remaining_accounts,
+        &ctx.accounts.vault.key(),
+        position_id,
+    )?;
+
     emit!(crate::events::PositionClosed {
         vault: ctx.accounts.vault.key(),
-        position_id: ctx.accounts.vault_position.position_id,
+        position_id,
         proceeds,
+        timestamp: Clock::get()?.unix_timestamp,
+    });
+    emit!(crate::events::PositionFollowersClosed {
+        vault: ctx.accounts.vault.key(),
+        position_id,
+        follower_count,
         timestamp: Clock::get()?.unix_timestamp,
     });
 
@@ -155,6 +218,7 @@ pub fn handle_update_position_value(ctx: Context<UpdatePositionValue>, new_value
 
 #[derive(Accounts)]
 pub struct TriggerTpSlClose<'info> {
+    #[account(mut)]
     pub strategist: Signer<'info>,
 
     #[account(mut, seeds = [VAULT_SEED, strategist.key().as_ref(), &vault.vault_id.to_le_bytes()], bump = vault.bump,
@@ -174,10 +238,11 @@ pub struct TriggerTpSlClose<'info> {
     pub output_token_account: Account<'info, TokenAccount>,
 
     pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
 }
 
-pub fn handle_trigger_tp_sl_close(
-    ctx: Context<TriggerTpSlClose>,
+pub fn handle_trigger_tp_sl_close<'info>(
+    ctx: Context<'info, TriggerTpSlClose<'info>>,
     current_value: u64,
     proceeds: u64,
 ) -> Result<()> {
@@ -187,6 +252,7 @@ pub fn handle_trigger_tp_sl_close(
     );
 
     let pos_value = ctx.accounts.vault_position.current_value;
+    let position_id = ctx.accounts.vault_position.position_id;
     ctx.accounts.vault.position_value = ctx.accounts.vault.position_value.saturating_sub(pos_value);
     ctx.accounts.vault.open_positions_count = ctx.accounts.vault.open_positions_count.saturating_sub(1);
     ctx.accounts.vault.total_assets = ctx.accounts.vault.total_assets.saturating_add(proceeds);
@@ -211,6 +277,18 @@ pub fn handle_trigger_tp_sl_close(
             proceeds,
         )?;
     }
+
+    let follower_count = close_mirrored_followers(
+        ctx.remaining_accounts,
+        &ctx.accounts.vault.key(),
+        position_id,
+    )?;
+    emit!(crate::events::PositionFollowersClosed {
+        vault: ctx.accounts.vault.key(),
+        position_id,
+        follower_count,
+        timestamp: Clock::get()?.unix_timestamp,
+    });
 
     Ok(())
 }

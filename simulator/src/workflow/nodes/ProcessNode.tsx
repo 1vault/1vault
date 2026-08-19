@@ -11,12 +11,12 @@ const META: Record<string, { kicker: string; title: string; idle: string }> = {
   vault: {
     kicker: "create",
     title: "Create vault",
-    idle: "Locks 1M 1VL in this vault. Close vault returns it to degen.",
+    idle: "Locks 1M 1VL in this vault. Close vault returns each wallet their remaining SOL (by what they parked), then 1VL to degen.",
   },
   deposit: {
     kicker: "this vault",
     title: "Vault",
-    idle: "Degen + retail park SOL here before market entry",
+    idle: "Degen + retail park SOL here (ledger, then chain) before the trade",
   },
   ata: {
     kicker: "vault buy",
@@ -51,7 +51,7 @@ const META: Record<string, { kicker: string; title: string; idle: string }> = {
   closePos: {
     kicker: "pnl",
     title: "Realize PnL",
-    idle: "Close the position · fees cut from the vault",
+    idle: "Degen close · every retail book closes with it",
   },
   withdraw: {
     kicker: "locked",
@@ -77,13 +77,13 @@ const META: Record<string, { kicker: string; title: string; idle: string }> = {
 
 const KEYS: Record<string, string[]> = {
   license: ["license", "token", "required", "locked", "returned", "balance", "register", "strategistPda"],
-  vault: ["vaultId", "name", "licenseLocked", "status"],
+  vault: ["vaultId", "name", "licenseLocked", "payouts", "status"],
   deposit: ["vaultId", "shares"],
-  mirror: ["copy", "allocation", "auto"],
   ata: ["mint", "vaultAta"],
   request: ["tradeId", "action", "amount", "pair", "capital"],
-  execute: ["dex", "received"],
+  execute: ["dex", "received", "execution"],
   openPos: ["positionId", "entry", "tokens", "capital"],
+  mirror: ["followers", "tp", "sl", "auto"],
   mark: ["entry", "mark", "unrealized"],
   closePos: ["proceeds", "vaultAssets"],
   withdraw: ["shares", "parked", "vaultAssets", "platformFee"],
@@ -98,7 +98,7 @@ export default function ProcessNode({
   data: { kind: string; ports?: string[] };
 }) {
   const ctx = useWorkflow();
-  const { views, activeVault, running, start, degen } = ctx;
+  const { views, activeVault, running, start, degen, protocol } = ctx;
   const view = views[data.kind as keyof typeof views] ?? { status: "idle" as const };
   const meta = META[data.kind] ?? { kicker: "node", title: data.kind, idle: "" };
   const keys = KEYS[data.kind] ?? [];
@@ -155,7 +155,7 @@ export default function ProcessNode({
         {view.tx ? (
           <a
             className="nv-link"
-            href={`https://explorer.solana.com/tx/${view.tx}?cluster=devnet`}
+            href={`https://explorer.solana.com/tx/${view.tx}${protocol?.cluster === "mainnet-beta" ? "" : "?cluster=devnet"}`}
             target="_blank"
             rel="noreferrer"
           >
@@ -168,7 +168,7 @@ export default function ProcessNode({
           <button
             type="button"
             className="btn btn-sm"
-            title="Degen only — closes the vault and returns locked 1vault Licence"
+            title="Degen only — each wallet gets back their remaining SOL from what they parked (not split evenly), then 1VL returns to degen"
             disabled={running || !degen.pubkey || !ctx.retails.some((r) => r.pubkey) || !activeVault}
             onClick={() => start("close-vault")}
           >
@@ -182,16 +182,13 @@ export default function ProcessNode({
 }
 
 function VaultBook({ onChain }: { onChain?: string }) {
-  const { settings, retails, degen, views, activeVault } = useWorkflow();
+  const { settings, retails, degen, views } = useWorkflow();
   const loaded = retails.filter((r) => r.pubkey).length;
   const degenAmt = degen.pubkey ? Number(settings.degenParkSol) || 0 : 0;
   const retailEach = Number(settings.parkSol) || 0;
   const retailAmt = retailEach * loaded;
   const estimate = degenAmt + retailAmt;
-  const licenseLocked =
-    views.vault.fields?.licenseLocked ||
-    views.license.fields?.locked ||
-    (activeVault ? "1,000,000 1VL" : "—");
+  const licenseLocked = views.vault.fields?.licenseLocked || "—";
   return (
     <div className="nv-book">
       <div className="nv-row">

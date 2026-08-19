@@ -272,3 +272,14 @@ export function withdrawGrossAmount(
 ): bigint {
   return (shares * nav) / totalShares;
 }
+
+/** Last remaining holder receives leftover dust so the vault ATA can hit zero. */
+export function closePayout(
+  shares: bigint,
+  remainingShares: bigint,
+  remainingNav: bigint
+): bigint {
+  if (shares === 0n || remainingShares === 0n) return 0n;
+  if (shares === remainingShares) return remainingNav;
+  return (shares * remainingNav) / remainingShares;
+}

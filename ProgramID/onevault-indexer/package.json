@@ -11,7 +11,8 @@
     "migrate": "tsx src/migrate.ts",
     "backfill": "tsx src/backfill.ts",
     "ingest": "tsx src/ingest-one.ts",
-    "status": "tsx src/status.ts"
+    "status": "tsx src/status.ts",
+    "replay": "tsx src/replay.ts"
   },
   "dependencies": {
     "@coral-xyz/anchor": "^0.30.1",

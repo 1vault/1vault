@@ -1,15 +1,16 @@
 import express from "express";
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { INDEXER_API, PORT, RPC_URL } from "./env";
+import { CLUSTER_ADDR, explorerAddr } from "./cluster";
 import { loadCliKeypair, parseSecretKey } from "./keys";
 import { RpcPool } from "./rpc";
 import { runLiveFlow } from "./run-flow";
 import type { NodeUpdate, ProtocolInfo, SimMode, WalletPreview } from "../shared/events";
 
-const PROGRAM_ID = "2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP";
-const PROTOCOL_CONFIG = "2WXErzw6DEZsVQ2QD3oTcwumCknpzhLf99akKu7qweQR";
-const PLATFORM_WALLET = "9YajdkrkvyzDm57bPSijfy6sFNj9wuqQtYmuYUXZtPDx";
-const DEGEN_FEE_WALLET = "EXQCB3PJnza9oBNMupBQjVGSuQXaLvTyXNffCJ5zz286";
+const PROGRAM_ID = CLUSTER_ADDR.programId.toBase58();
+const PROTOCOL_CONFIG = CLUSTER_ADDR.protocolConfig.toBase58();
+const PLATFORM_WALLET = CLUSTER_ADDR.platformWallet.toBase58();
+const DEGEN_FEE_WALLET = CLUSTER_ADDR.degenFeeWallet.toBase58();
 
 const app = express();
 app.use(express.json({ limit: "1mb" }));
@@ -24,19 +25,25 @@ app.use((err: unknown, _req: express.Request, res: express.Response, next: expre
 let running = false;
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, rpc: RPC_URL.includes("helius") ? "helius-devnet" : "custom" });
+  res.json({
+    ok: true,
+    cluster: CLUSTER_ADDR.cluster,
+    tradeExecution: CLUSTER_ADDR.tradeExecution,
+    rpc: RPC_URL.includes("helius") ? "helius" : "custom",
+  });
 });
 
-const LICENSE_MINT = "4R9AHfF2wE8X8252Swra3ncvKVDe3m73k8EfP99zz6YK";
+const LICENSE_MINT = CLUSTER_ADDR.licenseMint.toBase58();
 
 app.get("/api/protocol", (_req, res) => {
   const info: ProtocolInfo = {
-    cluster: "devnet",
+    cluster: CLUSTER_ADDR.cluster,
+    tradeExecution: CLUSTER_ADDR.tradeExecution,
     programId: PROGRAM_ID,
     protocolConfig: PROTOCOL_CONFIG,
     platformWallet: PLATFORM_WALLET,
     degenFeeWallet: DEGEN_FEE_WALLET,
-    explorerProgram: `https://explorer.solana.com/address/${PROGRAM_ID}?cluster=devnet`,
+    explorerProgram: explorerAddr(PROGRAM_ID, CLUSTER_ADDR.cluster),
     licenseMint: LICENSE_MINT,
     licenseName: "1vault Licence",
     licenseLockTokens: "1000000",
@@ -152,5 +159,6 @@ app.post("/api/run", async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`1Vault simulator API  http://127.0.0.1:${PORT}`);
-  console.log(`RPC ${RPC_URL.includes("helius") ? "helius-devnet" : RPC_URL}`);
+  console.log(`cluster ${CLUSTER_ADDR.cluster} · fills ${CLUSTER_ADDR.tradeExecution}`);
+  console.log(`RPC ${RPC_URL.includes("helius") ? "helius" : RPC_URL}`);
 });

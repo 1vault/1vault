@@ -13,7 +13,7 @@ export default function ProtocolNode() {
         <div className="nv-id">
           <NodeIcon name="protocol" />
           <div>
-            <div className="nv-kicker">devnet</div>
+            <div className="nv-kicker">{protocol?.cluster ?? "devnet"}</div>
             <div className="nv-title">1Vault protocol</div>
           </div>
         </div>
@@ -37,7 +37,7 @@ export default function ProtocolNode() {
           value={shortAddr(protocol?.licenseMint)}
           href={
             protocol?.licenseMint
-              ? `https://explorer.solana.com/address/${protocol.licenseMint}?cluster=devnet`
+              ? `https://explorer.solana.com/address/${protocol.licenseMint}${protocol.cluster === "mainnet-beta" ? "" : "?cluster=devnet"}`
               : undefined
           }
         />

@@ -31,6 +31,8 @@ export type RetailSettings = {
   followTpSl: boolean;
   parkSol: number;
   degenParkSol: number;
+  takeProfitBps: number;
+  stopLossBps: number;
 };
 
 export type NodeUpdate = {
@@ -42,7 +44,8 @@ export type NodeUpdate = {
 };
 
 export type ProtocolInfo = {
-  cluster: "devnet";
+  cluster: "devnet" | "mainnet-beta";
+  tradeExecution: "demo" | "live";
   programId: string;
   protocolConfig: string;
   platformWallet: string;

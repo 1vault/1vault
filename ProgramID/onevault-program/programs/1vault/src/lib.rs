@@ -210,7 +210,7 @@ pub mod onevault {
         instructions::vault_ix::handle_initiate_vault_close(ctx)
     }
 
-    pub fn close_vault(ctx: Context<CloseVault>) -> Result<()> {
+    pub fn close_vault<'a>(ctx: Context<'a, CloseVault<'a>>) -> Result<()> {
         instructions::vault_ix::handle_close_vault(ctx)
     }
 
@@ -328,7 +328,7 @@ pub mod onevault {
         instructions::position_ix::handle_reduce_position(ctx, reduce_bps, proceeds)
     }
 
-    pub fn close_position(ctx: Context<ClosePosition>, proceeds: u64) -> Result<()> {
+    pub fn close_position<'info>(ctx: Context<'info, ClosePosition<'info>>, proceeds: u64) -> Result<()> {
         instructions::position_ix::handle_close_position(ctx, proceeds)
     }
 
@@ -339,8 +339,8 @@ pub mod onevault {
         instructions::position_ix::handle_update_position_value(ctx, new_value)
     }
 
-    pub fn trigger_tp_sl_close(
-        ctx: Context<TriggerTpSlClose>,
+    pub fn trigger_tp_sl_close<'info>(
+        ctx: Context<'info, TriggerTpSlClose<'info>>,
         current_value: u64,
         proceeds: u64,
     ) -> Result<()> {

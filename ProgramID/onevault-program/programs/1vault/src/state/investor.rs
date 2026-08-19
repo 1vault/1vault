@@ -23,6 +23,10 @@ pub struct InvestorVaultConfig {
     pub follow_tp_sl: bool,
     pub max_slippage_bps: u16,
     pub bump: u8,
+    /// Retail mandate: take-profit in bps of entry. Degen still executes the close.
+    pub take_profit_bps: u16,
+    /// Retail mandate: stop-loss in bps of entry.
+    pub stop_loss_bps: u16,
 }
 
 impl InvestorVaultConfig {
@@ -46,6 +50,8 @@ impl InvestorVaultConfig {
             follow_tp_sl: true,
             max_slippage_bps: 100,
             bump,
+            take_profit_bps: 2_000,
+            stop_loss_bps: 500,
         }
     }
 }
