@@ -124,7 +124,7 @@ export default function WalletNode({
               disabled={ctx.running}
               onClick={() => void importer("cli")}
             >
-              CLI
+              Use id.json
             </button>
           </div>
         ) : (

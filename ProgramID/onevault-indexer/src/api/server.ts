@@ -1,10 +1,10 @@
 import "dotenv/config";
 import cors from "cors";
 import express from "express";
-import { Connection } from "@solana/web3.js";
 import { config } from "../config.js";
 import { pool } from "../db.js";
 import { ingestSignature } from "../ingest.js";
+import { createRpcConnection } from "../rpc.js";
 import {
   createDepositIntent,
   failDepositIntent,
@@ -114,7 +114,7 @@ app.post("/api/ingest", asyncRoute(async (req, res) => {
     res.status(400).json({ error: "signature required" });
     return;
   }
-  const connection = new Connection(config.rpcUrl, "confirmed");
+  const connection = createRpcConnection();
   const events = await ingestSignature(connection, signature);
   res.json({ ok: true, signature, events });
 }));

@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 **/*-keypair.json
+**/id.json
 **/*.pem
 
 # Dependencies

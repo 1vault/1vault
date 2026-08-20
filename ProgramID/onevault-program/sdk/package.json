@@ -8,6 +8,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "bootstrap:devnet": "tsx bootstrap-devnet.ts",
+    "fund-1vl:devnet": "tsx fund-1vl-devnet.ts",
     "create-vault:devnet": "tsx create-vault-devnet.ts",
     "fee-demo:devnet": "tsx fee-demo-devnet.ts",
     "product-flow:devnet": "tsx product-flow-devnet.ts"

@@ -3,10 +3,17 @@ import { INDEXER_API } from "./env";
 export type DepositRole = "degen" | "retail";
 
 async function ledgerFetch(path: string, init?: RequestInit): Promise<Response> {
-  const res = await fetch(`${INDEXER_API}${path}`, {
-    ...init,
-    headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${INDEXER_API}${path}`, {
+      ...init,
+      headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+    });
+  } catch {
+    throw new Error(
+      `Indexer API unreachable at ${INDEXER_API}. In another terminal run: cd ProgramID/onevault-indexer && npm run api`
+    );
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`Ledger ${path} failed (${res.status}) ${body.slice(0, 180)}`);

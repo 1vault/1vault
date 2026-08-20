@@ -95,6 +95,7 @@ export async function ensureLicenseTokens(opts: {
   decimals: number;
   mintTx?: string;
   metadataTx?: string;
+  canMint: boolean;
 }> {
   const { rpc, payer, mint, lockRaw, sendAndPoll } = opts;
   const mintInfo = await rpc.retry((c) => getMint(c, mint));
@@ -147,6 +148,7 @@ export async function ensureLicenseTokens(opts: {
     decimals: mintInfo.decimals,
     mintTx,
     metadataTx,
+    canMint: Boolean(mintInfo.mintAuthority?.equals(payer.publicKey)),
   };
 }
 

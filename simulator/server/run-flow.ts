@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { AnchorProvider, BN, Program, Wallet, type Idl } from "@coral-xyz/anchor";
+import { AnchorProvider, Program, Wallet, type Idl } from "@coral-xyz/anchor";
+import BN from "bn.js";
 import {
   ComputeBudgetProgram,
   Keypair,
@@ -43,6 +44,7 @@ import {
   formatLicenseAmount,
 } from "./license-token";
 import { RpcPool, sleep } from "./rpc";
+import { explainTxError } from "./tx-error";
 
 const PROGRAM_ID = CLUSTER_ADDR.programId;
 const PROTOCOL_CONFIG = CLUSTER_ADDR.protocolConfig;
@@ -110,9 +112,14 @@ async function sendAndPoll(
   tx.recentBlockhash = blockhash;
   tx.feePayer = signers[0].publicKey;
   tx.sign(...signers);
-  const sig = await rpc.retry((c) =>
-    c.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 8 })
-  );
+  let sig: string;
+  try {
+    sig = await rpc.retry((c) =>
+      c.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 8 })
+    );
+  } catch (e) {
+    throw new Error(explainTxError(e));
+  }
   for (let i = 0; i < 50; i++) {
     const st = await rpc.retry((c) => c.getSignatureStatuses([sig]));
     const v = st.value[0];
@@ -122,8 +129,8 @@ async function sendAndPoll(
           c.getTransaction(sig, { maxSupportedTransactionVersion: 0, commitment: "confirmed" })
         )
         .catch(() => null);
-      const logs = parsed?.meta?.logMessages?.slice(-12).join(" | ");
-      throw new Error(logs || JSON.stringify(v.err));
+      const logs = parsed?.meta?.logMessages?.join("\n") ?? JSON.stringify(v.err);
+      throw new Error(explainTxError(new Error(logs)));
     }
     if (v?.confirmationStatus === "confirmed" || v?.confirmationStatus === "finalized") {
       void ingest(sig);
@@ -487,7 +494,7 @@ export async function runLiveFlow(opts: {
       fields: { license: "already active", strategistPda: strategistAccount.toBase58() },
     });
   } else {
-  emit({ id: "license", status: "running", detail: "Prepare 1,000,000 1vault Licence to lock inside the vault" });
+  emit({ id: "license", status: "running", detail: "Register strategist and activate licence record" });
   try {
     const fields: Record<string, string> = {
       strategistPda: strategistAccount.toBase58(),
@@ -503,29 +510,19 @@ export async function runLiveFlow(opts: {
     } else {
       fields.register = "already exists";
     }
+    const ready = await ensureLicenseTokens({
+      rpc,
+      payer: degen,
+      mint: platformMint,
+      lockRaw: licenseLockRaw,
+      sendAndPoll,
+    });
+    fields.token = LICENSE_NAME;
+    fields.mint = platformMint.toBase58();
+    fields.balance = formatLicenseAmount(ready.balance, ready.decimals);
+    if (ready.mintTx) fields.mintTx = explorerTx(ready.mintTx);
+    if (ready.metadataTx) fields.metadataTx = explorerTx(ready.metadataTx);
     if (!(await rpc.retry((c) => c.getAccountInfo(license)))) {
-      const ready = await ensureLicenseTokens({
-        rpc,
-        payer: degen,
-        mint: platformMint,
-        lockRaw: licenseLockRaw,
-        sendAndPoll,
-      });
-      fields.token = LICENSE_NAME;
-      fields.mint = platformMint.toBase58();
-      fields.required = formatLicenseAmount(licenseLockRaw, ready.decimals);
-      fields.balance = formatLicenseAmount(ready.balance, ready.decimals);
-      if (ready.mintTx) {
-        fields.mintTx = explorerTx(ready.mintTx);
-      }
-      if (ready.metadataTx) {
-        fields.metadataTx = explorerTx(ready.metadataTx);
-      }
-      if (ready.balance < licenseLockRaw) {
-        throw new Error(
-          `Degen wallet needs ${formatLicenseAmount(licenseLockRaw, ready.decimals)} to create a vault`
-        );
-      }
       const tx = await call(degenProg, "lock_license", "lockLicense")()
         .accounts({
           strategist: degen.publicKey,
@@ -540,33 +537,15 @@ export async function runLiveFlow(opts: {
       const sig = await sendAndPoll(rpc, tx, [degen]);
       fields.lockTx = sig;
       fields.lockExplorer = explorerTx(sig);
-      fields.locked = formatLicenseAmount(licenseLockRaw, ready.decimals);
     } else {
-      fields.license = "already locked";
-      fields.token = LICENSE_NAME;
-      const ready = await ensureLicenseTokens({
-        rpc,
-        payer: degen,
-        mint: platformMint,
-        lockRaw: licenseLockRaw,
-        sendAndPoll,
-      });
-      fields.mint = platformMint.toBase58();
-      fields.required = formatLicenseAmount(licenseLockRaw, ready.decimals);
-      fields.balance = formatLicenseAmount(ready.balance, ready.decimals);
-      if (ready.metadataTx) fields.metadataTx = explorerTx(ready.metadataTx);
-      if (ready.balance < licenseLockRaw) {
-        throw new Error(
-          `Degen wallet needs ${formatLicenseAmount(licenseLockRaw, ready.decimals)} to lock inside the vault`
-        );
-      }
+      fields.license = "already active";
     }
     emit({
       id: "license",
       status: fields.lockTx || fields.registerTx ? "success" : "skipped",
-      detail: fields.license === "already locked"
-        ? "Licence record already active — 1M 1VL locks into the vault on Create vault"
-        : `Licence ready — Create vault will lock ${fields.locked ?? "1,000,000 1VL"} inside the vault`,
+      detail: fields.license === "already active"
+        ? "Licence record already active — Create vault locks 1VL inside the vault"
+        : "Licence record active — Create vault locks 1VL inside the vault",
       tx: fields.lockTx ?? fields.registerTx,
       fields,
     });
@@ -642,6 +621,16 @@ export async function runLiveFlow(opts: {
       fields: { vaultId: String(vaultId), vault: vaultPk.toBase58() },
     });
     try {
+      const funded = await ensureLicenseTokens({
+        rpc,
+        payer: degen,
+        mint: platformMint,
+        lockRaw: licenseLockRaw,
+        sendAndPoll,
+      });
+      if (funded.balance < licenseLockRaw && funded.canMint) {
+        throw new Error("Failed to mint 1vault Licence for this vault");
+      }
       const vaultToken = Keypair.generate();
       const risk = {
         description: "Live presentation vault (wSOL)",

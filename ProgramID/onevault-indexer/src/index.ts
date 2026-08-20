@@ -1,31 +1,47 @@
-import { Connection, PublicKey } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import { config } from "./config.js";
 import { migrate, pool } from "./db.js";
 import { handleProgramLog } from "./parser.js";
+import {
+  createRpcConnection,
+  formatFetchError,
+  redactRpcUrl,
+  withRpcRetry,
+} from "./rpc.js";
 
 async function main(): Promise<void> {
   console.log("[1vault-indexer] migrating schema...");
   await migrate();
 
-  const connection = new Connection(config.rpcUrl, "confirmed");
+  const connection = createRpcConnection();
   const programId = new PublicKey(config.programId);
 
   const maxSlot = await pool.query(
     `SELECT COALESCE(MAX(slot), 0)::bigint AS s FROM transactions`
   );
   let lastSlot = Math.max(config.startSlot, Number(maxSlot.rows[0].s));
-  console.log(`[1vault-indexer] polling ${config.rpcUrl} for program ${programId.toBase58()} from slot ${lastSlot}`);
+  console.log(
+    `[1vault-indexer] polling ${redactRpcUrl(config.rpcUrl)} for program ${programId.toBase58()} from slot ${lastSlot}`
+  );
 
   for (;;) {
     try {
-      const sigs = await connection.getSignaturesForAddress(programId, { limit: 25 });
+      const sigs = await withRpcRetry("getSignaturesForAddress", () =>
+        connection.getSignaturesForAddress(programId, { limit: 25 })
+      );
+
       for (const sig of sigs.reverse()) {
         if (sig.slot <= lastSlot) continue;
-        await new Promise((r) => setTimeout(r, 350));
-        const tx = await connection.getTransaction(sig.signature, {
-          maxSupportedTransactionVersion: 0,
-        });
-        if (!tx?.meta?.logMessages) continue;
+        await sleep(350);
+        const tx = await withRpcRetry(`getTransaction ${sig.signature.slice(0, 8)}…`, () =>
+          connection.getTransaction(sig.signature, {
+            maxSupportedTransactionVersion: 0,
+          })
+        );
+        if (!tx?.meta?.logMessages) {
+          lastSlot = Math.max(lastSlot, sig.slot);
+          continue;
+        }
         for (const line of tx.meta.logMessages) {
           if (line.includes("Program data:")) {
             await handleProgramLog(
@@ -39,22 +55,28 @@ async function main(): Promise<void> {
         lastSlot = Math.max(lastSlot, sig.slot);
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("403")) {
+      const msg = formatFetchError(err);
+      if (/403/.test(msg)) {
         console.error(
-          "[1vault-indexer] RPC 403 — ganti RPC_URL ke Helius Devnet JSON-RPC"
+          "[1vault-indexer] RPC 403 — set RPC_URL to a valid Helius Devnet JSON-RPC endpoint in .env"
         );
-        await new Promise((r) => setTimeout(r, Math.max(config.pollIntervalMs, 30000)));
+        await sleep(Math.max(config.pollIntervalMs, 30_000));
         continue;
       }
       console.error("[1vault-indexer] poll error:", msg);
+      await sleep(Math.max(config.pollIntervalMs, 5_000));
+      continue;
     }
-    await new Promise((r) => setTimeout(r, config.pollIntervalMs));
+    await sleep(config.pollIntervalMs);
   }
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 main().catch(async (err) => {
-  console.error(err);
+  console.error(formatFetchError(err));
   await pool.end();
   process.exit(1);
 });
