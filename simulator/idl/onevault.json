@@ -777,6 +777,48 @@
       ]
     },
     {
+      "name": "close_legacy_protocol_config",
+      "discriminator": [
+        211,
+        0,
+        194,
+        239,
+        130,
+        91,
+        50,
+        241
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "protocol_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "close_position",
       "discriminator": [
         123,

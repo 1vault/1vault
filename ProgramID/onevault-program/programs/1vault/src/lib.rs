@@ -55,6 +55,12 @@ pub mod onevault {
         instructions::protocol_ix::handle_pause_protocol(ctx, paused)
     }
 
+    pub fn close_legacy_protocol_config(
+        ctx: Context<CloseLegacyProtocolConfig>,
+    ) -> Result<()> {
+        instructions::protocol_ix::handle_close_legacy_protocol_config(ctx)
+    }
+
     pub fn update_allowed_dex(
         ctx: Context<UpdateAllowedDex>,
         allowed_dex_programs: Vec<Pubkey>,

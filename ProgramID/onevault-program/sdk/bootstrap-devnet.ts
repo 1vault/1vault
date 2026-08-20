@@ -129,7 +129,28 @@ async function main() {
   }
 
   const protocolInfo = await connection.getAccountInfo(protocolConfig);
-  if (!protocolInfo) {
+  let needsInit = !protocolInfo;
+  if (protocolInfo) {
+    try {
+      await (program.account as any).protocolConfig.fetch(protocolConfig);
+      console.log("initialize_protocol: MVP config already valid, skip");
+    } catch {
+      console.log("Legacy protocol config detected — closing for MVP re-init...");
+      const closeSig = await method(
+        program,
+        "close_legacy_protocol_config",
+        "closeLegacyProtocolConfig"
+      )()
+        .accounts({
+          authority: payer.publicKey,
+          protocolConfig,
+        })
+        .rpc();
+      console.log("close_legacy_protocol_config:", closeSig);
+      needsInit = true;
+    }
+  }
+  if (needsInit) {
     const sig = await method(
       program,
       "initialize_protocol",
@@ -147,8 +168,6 @@ async function main() {
       })
       .rpc();
     console.log("initialize_protocol:", sig);
-  } else {
-    console.log("initialize_protocol: already exists, skip");
   }
 
   const treasuryMints = [

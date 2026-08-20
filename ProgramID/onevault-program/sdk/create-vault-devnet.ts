@@ -19,8 +19,8 @@ const PROGRAM_ID = new PublicKey(
   "2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP"
 );
 const WSOL = new PublicKey("So11111111111111111111111111111111111111112");
-const VAULT_ID = 1;
-const VAULT_NAME = "Demo Vault";
+const VAULT_ID = 50;
+const VAULT_NAME = "MVP Demo Vault";
 const PERFORMANCE_FEE_BPS = 2000;
 
 function loadKeypair(): Keypair {

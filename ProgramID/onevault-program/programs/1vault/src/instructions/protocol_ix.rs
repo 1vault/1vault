@@ -292,3 +292,47 @@ pub fn handle_sweep_treasury_sol(ctx: Context<SweepTreasurySol>) -> Result<()> {
     )?;
     Ok(())
 }
+
+/// Devnet migration: close pre-MVP `ProtocolConfig` (legacy layout) so `initialize_protocol` can run again.
+#[derive(Accounts)]
+pub struct CloseLegacyProtocolConfig<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+
+    /// CHECK: legacy account; authority verified from raw bytes before close.
+    #[account(
+        mut,
+        seeds = [PROTOCOL_SEED],
+        bump,
+    )]
+    pub protocol_config: UncheckedAccount<'info>,
+}
+
+pub fn handle_close_legacy_protocol_config(ctx: Context<CloseLegacyProtocolConfig>) -> Result<()> {
+    require_keys_eq!(
+        *ctx.accounts.protocol_config.owner,
+        crate::ID,
+        OneVaultError::Unauthorized
+    );
+    let data = ctx.accounts.protocol_config.try_borrow_data()?;
+    require!(data.len() >= 40, OneVaultError::InvalidAmount);
+    let stored_authority = Pubkey::try_from(&data[8..40]).map_err(|_| OneVaultError::InvalidAmount)?;
+    require_keys_eq!(
+        stored_authority,
+        ctx.accounts.authority.key(),
+        OneVaultError::Unauthorized
+    );
+    drop(data);
+
+    let dest = ctx.accounts.authority.to_account_info();
+    let src = ctx.accounts.protocol_config.to_account_info();
+    let lamports = src.lamports();
+    **dest.lamports.borrow_mut() = dest
+        .lamports()
+        .checked_add(lamports)
+        .ok_or(OneVaultError::MathOverflow)?;
+    **src.lamports.borrow_mut() = 0;
+    src.data.borrow_mut().fill(0);
+    src.assign(&anchor_lang::system_program::ID);
+    Ok(())
+}
