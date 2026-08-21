@@ -1,37 +1,37 @@
-import Image from "next/image";
+import CallToAction from "@/components/landing/CallToAction";
+import Hero from "@/components/landing/Hero";
+import HowItWorks from "@/components/landing/HowItWorks";
+import LandingBackground from "@/components/landing/LandingBackground";
+import SiteFooter from "@/components/landing/SiteFooter";
+import SiteHeader from "@/components/landing/SiteHeader";
+import VaultRules from "@/components/landing/VaultRules";
+import LiquidGlassInit from "@/components/liquid/LiquidGlassInit";
 
+/*
+ * liquidGL appends its shared canvas to <body> as position: fixed with
+ * z-index 19 (highest lens z-index minus one). Nothing between <body> and a
+ * glass pane may create a stacking context, otherwise the canvas paints over
+ * the panes. So sections carry no z-index and the background sits at -z-10
+ * instead: a positioned z-index 0 background would paint over the in-flow
+ * section content, which is never positioned.
+ */
 export default function Home() {
   return (
-    <div className="flex flex-1 flex-col">
-      <header className="border-b border-vault-blue/30 bg-vault-blue-dark/40 px-6 py-4">
-        <Image
-          src="/1vault-logo.png"
-          alt="1Vault"
-          width={140}
-          height={32}
-          priority
-        />
-      </header>
+    <div className="relative flex flex-1 flex-col">
+      <LandingBackground />
 
-      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col items-center justify-center gap-8 px-6 py-16 text-center">
-        <Image
-          src="/1vault-logo-stacked.png"
-          alt="1Vault"
-          width={180}
-          height={180}
-          priority
-        />
+      <SiteHeader />
 
-        <div className="flex flex-col gap-4">
-          <h1 className="text-3xl font-semibold tracking-tight text-vault-sky sm:text-4xl">
-            Pooled Solana trading vaults
-          </h1>
-          <p className="mx-auto max-w-lg text-lg leading-8 text-muted">
-            One vault, one pooled book. Degen signs trades; retail parks SOL
-            with take-profit and stop-loss.
-          </p>
-        </div>
+      <main className="flex flex-1 flex-col">
+        <Hero />
+        <HowItWorks />
+        <VaultRules />
+        <CallToAction />
       </main>
+
+      <SiteFooter />
+
+      <LiquidGlassInit />
     </div>
   );
 }

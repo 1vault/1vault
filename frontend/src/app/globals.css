@@ -5,12 +5,17 @@
   --vault-blue-dark: #1c4d8d;
   --vault-blue: #4988c4;
   --vault-sky: #bde8f5;
+  --vault-brand: #093c5d;
 
   --background: var(--vault-navy);
   --foreground: var(--vault-sky);
   --surface: var(--vault-blue-dark);
   --accent: var(--vault-blue);
   --muted: color-mix(in srgb, var(--vault-sky) 70%, var(--vault-blue) 30%);
+
+  --glass-border: color-mix(in srgb, var(--vault-sky) 26%, transparent);
+  --glass-tint: color-mix(in srgb, var(--vault-sky) 9%, transparent);
+  --glass-highlight: color-mix(in srgb, var(--vault-sky) 42%, transparent);
 }
 
 @theme inline {
@@ -18,6 +23,7 @@
   --color-vault-blue-dark: var(--vault-blue-dark);
   --color-vault-blue: var(--vault-blue);
   --color-vault-sky: var(--vault-sky);
+  --color-vault-brand: var(--vault-brand);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-surface: var(--surface);
@@ -31,4 +37,63 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+@layer components {
+  /*
+   * liquidGL strips background, background-image and backdrop-filter from every
+   * target once the WebGL lens takes over, so these declarations double as the
+   * pre-init and no-WebGL appearance. The border survives and keeps the edge.
+   */
+  .liquidGL {
+    position: relative;
+    z-index: 20;
+    border: 1px solid var(--glass-border);
+    border-radius: 1.5rem;
+    background: var(--glass-tint);
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    transition: border-color 220ms ease;
+  }
+
+  /*
+   * The lens sets pointer-events: none on the pane and owns its inline
+   * box-shadow, so the hover cue is read from the content layer and limited to
+   * the border. The refraction itself is animated in LiquidGlassInit.
+   */
+  .liquidGL:has(.glass-content:hover) {
+    border-color: var(--glass-highlight);
+  }
+
+  /* The lens sets pointer-events: none on the target; content must opt back in. */
+  .liquidGL > .glass-content {
+    position: relative;
+    z-index: 3;
+    pointer-events: auto;
+  }
+
+  .glass-edge {
+    box-shadow: inset 0 1px 0 0 var(--glass-highlight);
+  }
+
+  .bg-grid {
+    background-image:
+      linear-gradient(
+        to right,
+        color-mix(in srgb, var(--vault-sky) 7%, transparent) 1px,
+        transparent 1px
+      ),
+      linear-gradient(
+        to bottom,
+        color-mix(in srgb, var(--vault-sky) 7%, transparent) 1px,
+        transparent 1px
+      );
+    background-size: 72px 72px;
+    mask-image: radial-gradient(ellipse 90% 60% at 50% 30%, black, transparent);
+    -webkit-mask-image: radial-gradient(
+      ellipse 90% 60% at 50% 30%,
+      black,
+      transparent
+    );
+  }
 }
