@@ -114,4 +114,8 @@ pub enum OneVaultError {
     InvalidBookMode,
     #[msg("Vault position is not open")]
     VaultPositionNotOpen,
+    #[msg("Investor has open mirrored positions")]
+    InvestorHasOpenPositions,
+    #[msg("Reported investor capital does not match on-chain shares")]
+    InvestorCapitalMismatch,
 }

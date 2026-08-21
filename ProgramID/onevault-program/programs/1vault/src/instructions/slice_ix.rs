@@ -65,6 +65,7 @@ pub struct ExitInvestorSlice<'info> {
     #[account(
         mut,
         constraint = proceeds_token_account.mint == vault.base_mint @ OneVaultError::InvalidMint,
+        constraint = proceeds_token_account.owner == vault.key() @ OneVaultError::Unauthorized,
     )]
     pub proceeds_token_account: Box<Account<'info, TokenAccount>>,
 
@@ -115,6 +116,11 @@ pub fn handle_exit_investor_slice(
 ) -> Result<()> {
     require!(proceeds > 0, OneVaultError::InvalidAmount);
     require!(current_value > 0, OneVaultError::InvalidAmount);
+    ctx.accounts.proceeds_token_account.reload()?;
+    require!(
+        proceeds <= ctx.accounts.proceeds_token_account.amount,
+        OneVaultError::InvalidAmount
+    );
 
     let investor_position = &ctx.accounts.investor_position;
     let vault_position = &ctx.accounts.vault_position;

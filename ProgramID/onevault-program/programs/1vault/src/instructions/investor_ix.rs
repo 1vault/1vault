@@ -362,6 +362,13 @@ pub struct Withdraw<'info> {
     )]
     pub share_mint: Box<Account<'info, Mint>>,
 
+    /// Optional — when initialized, open mirrored positions block withdraw.
+    #[account(
+        seeds = [INVESTOR_CONFIG_SEED, vault.key().as_ref(), investor.key().as_ref()],
+        bump,
+    )]
+    pub investor_config: Option<Account<'info, InvestorVaultConfig>>,
+
     pub token_program: Program<'info, Token>,
 }
 
@@ -371,6 +378,12 @@ pub fn handle_withdraw(ctx: Context<Withdraw>, shares: u64) -> Result<()> {
         ctx.accounts.investor_share_account.amount >= shares,
         OneVaultError::InsufficientShares
     );
+    if let Some(config) = &ctx.accounts.investor_config {
+        require!(
+            config.open_positions_count == 0,
+            OneVaultError::InvestorHasOpenPositions
+        );
+    }
 
     let total_shares = ctx.accounts.vault.total_shares;
     let nav = ctx.accounts.vault.nav()?;

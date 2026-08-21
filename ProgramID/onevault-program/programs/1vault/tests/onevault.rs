@@ -141,6 +141,24 @@ fn investor_defaults_include_tp_sl_mandate() {
 }
 
 #[test]
+fn investor_capital_from_shares_matches_nav_share() {
+    use onevault::utils::investor_capital_from_shares;
+
+    let vault = sample_vault(Pubkey::default());
+    let capital = investor_capital_from_shares(&vault, 500).unwrap();
+    assert_eq!(capital, 500);
+}
+
+#[test]
+fn investor_capital_from_shares_zero_when_no_shares() {
+    use onevault::utils::investor_capital_from_shares;
+
+    let mut vault = sample_vault(Pubkey::default());
+    vault.total_shares = 0;
+    assert_eq!(investor_capital_from_shares(&vault, 100).unwrap(), 0);
+}
+
+#[test]
 fn trade_mints_allow_any_launchpad_token() {
     use onevault::state::TradeAction;
     use onevault::utils::validate_trade_mints;

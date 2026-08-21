@@ -6,22 +6,22 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { AnchorProvider, BN, Program, Wallet, type Idl } from "@coral-xyz/anchor";
+import { AnchorProvider, BN, Program, Wallet } from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { RPC_URL } from "./rpc";
+import { loadOneVaultIdl } from "./idl";
 import { indexTx, registerVault, type VaultRegisterMeta } from "./index-tx.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const IDL_PATH = path.join(ROOT, "target", "idl", "onevault.json");
 const OUT_PATH = path.join(ROOT, "scripts", "devnet-addresses.json");
 
 const PROGRAM_ID = new PublicKey(
   "2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP"
 );
 const WSOL = new PublicKey("So11111111111111111111111111111111111111112");
-const VAULT_ID = 52;
-const VAULT_NAME = "Sliced Vault Demo 2";
+const VAULT_ID = Number(process.env.VAULT_ID ?? 53);
+const VAULT_NAME = process.env.VAULT_NAME ?? "Sliced Vault Demo 3";
 const PERFORMANCE_FEE_BPS = 2000;
 /** Anchor enum: { pooledVault: {} } | { slicedVault: {} } */
 const BOOK_MODE = { slicedVault: {} } as const;
@@ -67,7 +67,7 @@ async function main() {
     commitment: "confirmed",
     preflightCommitment: "confirmed",
   });
-  const idl = JSON.parse(fs.readFileSync(IDL_PATH, "utf8")) as Idl;
+  const idl = loadOneVaultIdl();
   const program = new Program(idl, provider);
 
   const protocolConfig = new PublicKey(addresses.protocolConfig);

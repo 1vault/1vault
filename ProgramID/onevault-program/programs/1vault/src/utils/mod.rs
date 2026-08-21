@@ -8,6 +8,19 @@ use crate::state::{
 use crate::OneVaultError;
 use anchor_spl::token::{self, CloseAccount, InitializeAccount3, Transfer};
 
+/// NAV-backed capital for an investor's vault shares (used for mirror risk limits).
+pub fn investor_capital_from_shares(vault: &Vault, share_amount: u64) -> Result<u64> {
+    if share_amount == 0 || vault.total_shares == 0 {
+        return Ok(0);
+    }
+    let nav = vault.nav()?;
+    (share_amount as u128)
+        .checked_mul(nav as u128)
+        .and_then(|v| v.checked_div(vault.total_shares as u128))
+        .map(|v| v as u64)
+        .ok_or(OneVaultError::MathOverflow.into())
+}
+
 pub fn apply_bps(amount: u64, bps: u16) -> Result<u64> {
     (amount as u128)
         .checked_mul(bps as u128)
