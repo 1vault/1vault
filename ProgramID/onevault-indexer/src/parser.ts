@@ -1,4 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
+import { config } from "./config.js";
 import { pool } from "./db.js";
 import { parseEventName, readI64, readPubkey, readString, readU64 } from "./events.js";
 
@@ -42,17 +43,41 @@ export async function handleProgramLog(
       const baseMint = pk(readPubkey(buf, offset));
       offset += 32;
       const performanceFeeBps = buf.readUInt16LE(offset);
+      offset += 2;
+      let bookMode: string | null = null;
+      let earlyExitFeeBps: number | null = null;
+      if (buf.length >= offset + 3) {
+        bookMode = buf.readUInt8(offset) === 1 ? "sliced_vault" : "pooled_vault";
+        offset += 1;
+        earlyExitFeeBps = buf.readUInt16LE(offset);
+      }
       await pool.query(
-        `INSERT INTO vaults (pubkey, strategist, vault_id, base_mint, performance_fee_bps, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,NOW())
+        `INSERT INTO vaults (
+           pubkey, strategist, vault_id, base_mint, performance_fee_bps,
+           book_mode, early_exit_fee_bps, cluster, status, created_at, updated_at
+         )
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'active',$9,NOW())
          ON CONFLICT (pubkey) DO UPDATE SET
            strategist = EXCLUDED.strategist,
            vault_id = EXCLUDED.vault_id,
            base_mint = EXCLUDED.base_mint,
            performance_fee_bps = EXCLUDED.performance_fee_bps,
+           book_mode = COALESCE(EXCLUDED.book_mode, vaults.book_mode),
+           early_exit_fee_bps = COALESCE(EXCLUDED.early_exit_fee_bps, vaults.early_exit_fee_bps),
+           cluster = EXCLUDED.cluster,
            status = 'active',
            updated_at = NOW()`,
-        [vault, strategist, vaultId.toString(), baseMint, performanceFeeBps, ts]
+        [
+          vault,
+          strategist,
+          vaultId.toString(),
+          baseMint,
+          performanceFeeBps,
+          bookMode,
+          earlyExitFeeBps,
+          config.cluster,
+          ts,
+        ]
       );
       await pool.query(
         `INSERT INTO strategists (pubkey, updated_at) VALUES ($1, NOW())

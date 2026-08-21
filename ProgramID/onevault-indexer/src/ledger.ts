@@ -108,3 +108,49 @@ export async function upsertInvestorMandate(row: {
     ]
   );
 }
+
+export async function upsertVaultRecord(row: {
+  pubkey: string;
+  strategist: string;
+  vaultId: number | string;
+  name?: string | null;
+  baseMint: string;
+  performanceFeeBps: number;
+  bookMode?: string | null;
+  earlyExitFeeBps?: number | null;
+}): Promise<void> {
+  await pool.query(
+    `INSERT INTO vaults (
+       pubkey, strategist, vault_id, name, base_mint, performance_fee_bps,
+       book_mode, early_exit_fee_bps, cluster, status, created_at, updated_at
+     )
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'active',NOW(),NOW())
+     ON CONFLICT (pubkey) DO UPDATE SET
+       strategist = EXCLUDED.strategist,
+       vault_id = EXCLUDED.vault_id,
+       name = COALESCE(EXCLUDED.name, vaults.name),
+       base_mint = EXCLUDED.base_mint,
+       performance_fee_bps = EXCLUDED.performance_fee_bps,
+       book_mode = COALESCE(EXCLUDED.book_mode, vaults.book_mode),
+       early_exit_fee_bps = COALESCE(EXCLUDED.early_exit_fee_bps, vaults.early_exit_fee_bps),
+       cluster = EXCLUDED.cluster,
+       status = 'active',
+       updated_at = NOW()`,
+    [
+      row.pubkey,
+      row.strategist,
+      String(row.vaultId),
+      row.name ?? null,
+      row.baseMint,
+      row.performanceFeeBps,
+      row.bookMode ?? null,
+      row.earlyExitFeeBps ?? null,
+      config.cluster,
+    ]
+  );
+  await pool.query(
+    `INSERT INTO strategists (pubkey, updated_at) VALUES ($1, NOW())
+     ON CONFLICT (pubkey) DO UPDATE SET updated_at = NOW()`,
+    [row.strategist]
+  );
+}

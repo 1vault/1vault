@@ -10,13 +10,13 @@
   "wsolMint": "So11111111111111111111111111111111111111112",
   "licenseLockAmount": "1000000000000",
   "explorer": "https://explorer.solana.com/address/2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP?cluster=devnet",
-  "vaultId": 51,
-  "vaultName": "Sliced Vault Demo",
-  "vault": "GV8Exs9pWVn5fiaE6fvEPpyyp8rV1pXiqd4jbH6Y9nJM",
-  "shareMint": "DPfVZNEDYwqB92H1cksY2zSh2n7PXbJuGcMGPD7NhFVc",
+  "vaultId": 52,
+  "vaultName": "Sliced Vault Demo 2",
+  "vault": "8sxkR8u6rGAmXa4HicRD5RX95nPnysyyTJQ89Pdrigeh",
+  "shareMint": "GvpKZJQ3hZeuZXH75gZrvrCQFgUbd9S17uDC93vjMuJT",
   "baseMint": "So11111111111111111111111111111111111111112",
   "performanceFeeBps": 2000,
-  "vaultExplorer": "https://explorer.solana.com/address/GV8Exs9pWVn5fiaE6fvEPpyyp8rV1pXiqd4jbH6Y9nJM?cluster=devnet",
+  "vaultExplorer": "https://explorer.solana.com/address/8sxkR8u6rGAmXa4HicRD5RX95nPnysyyTJQ89Pdrigeh?cluster=devnet",
   "bookMode": {
     "slicedVault": {}
   },

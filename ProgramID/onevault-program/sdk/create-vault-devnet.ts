@@ -10,6 +10,7 @@ import { AnchorProvider, BN, Program, Wallet, type Idl } from "@coral-xyz/anchor
 import { Connection, Keypair, PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { RPC_URL } from "./rpc";
+import { indexTx, registerVault, type VaultRegisterMeta } from "./index-tx.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const IDL_PATH = path.join(ROOT, "target", "idl", "onevault.json");
@@ -19,8 +20,8 @@ const PROGRAM_ID = new PublicKey(
   "2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP"
 );
 const WSOL = new PublicKey("So11111111111111111111111111111111111111112");
-const VAULT_ID = 51;
-const VAULT_NAME = "Sliced Vault Demo";
+const VAULT_ID = 52;
+const VAULT_NAME = "Sliced Vault Demo 2";
 const PERFORMANCE_FEE_BPS = 2000;
 /** Anchor enum: { pooledVault: {} } | { slicedVault: {} } */
 const BOOK_MODE = { slicedVault: {} } as const;
@@ -111,8 +112,20 @@ async function main() {
     console.log("lock_license: already exists, skip");
   }
 
+  const vaultMeta = (): VaultRegisterMeta => ({
+    pubkey: vault.toBase58(),
+    strategist: payer.publicKey.toBase58(),
+    vaultId: VAULT_ID,
+    name: VAULT_NAME,
+    baseMint: WSOL.toBase58(),
+    performanceFeeBps: PERFORMANCE_FEE_BPS,
+    bookMode: "slicedVault" in BOOK_MODE ? "sliced_vault" : "pooled_vault",
+    earlyExitFeeBps: EARLY_EXIT_FEE_BPS,
+  });
+
   if (await connection.getAccountInfo(vault)) {
     console.log("create_vault: already exists, skip");
+    await registerVault(vaultMeta());
   } else {
     const vaultToken = Keypair.generate();
     const risk = {
@@ -149,6 +162,7 @@ async function main() {
       .rpc();
     console.log("create_vault:", sig);
     console.log("vault_token_account:", vaultToken.publicKey.toBase58());
+    await indexTx(sig, vaultMeta());
   }
 
   const [shareMint] = PublicKey.findProgramAddressSync(

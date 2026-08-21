@@ -10,6 +10,7 @@ import {
   failDepositIntent,
   submitDepositIntent,
   upsertInvestorMandate,
+  upsertVaultRecord,
 } from "../ledger.js";
 
 const app = express();
@@ -116,7 +117,46 @@ app.post("/api/ingest", asyncRoute(async (req, res) => {
   }
   const connection = createRpcConnection();
   const events = await ingestSignature(connection, signature);
+
+  const vaultMeta = req.body?.vault;
+  if (vaultMeta?.pubkey) {
+    await upsertVaultRecord({
+      pubkey: String(vaultMeta.pubkey),
+      strategist: String(vaultMeta.strategist ?? ""),
+      vaultId: vaultMeta.vaultId ?? 0,
+      name: vaultMeta.name ?? null,
+      baseMint: String(vaultMeta.baseMint ?? ""),
+      performanceFeeBps: Number(vaultMeta.performanceFeeBps ?? 0),
+      bookMode: vaultMeta.bookMode ?? null,
+      earlyExitFeeBps:
+        vaultMeta.earlyExitFeeBps == null ? null : Number(vaultMeta.earlyExitFeeBps),
+    });
+  }
+
   res.json({ ok: true, signature, events });
+}));
+
+/** Upsert vault row without on-chain replay (e.g. after create_vault script). */
+app.post("/api/vaults/register", asyncRoute(async (req, res) => {
+  const pubkey = String(req.body?.pubkey ?? "").trim();
+  const strategist = String(req.body?.strategist ?? "").trim();
+  const baseMint = String(req.body?.baseMint ?? "").trim();
+  if (!pubkey || !strategist || !baseMint) {
+    res.status(400).json({ error: "pubkey, strategist, baseMint required" });
+    return;
+  }
+  await upsertVaultRecord({
+    pubkey,
+    strategist,
+    vaultId: req.body?.vaultId ?? 0,
+    name: req.body?.name ?? null,
+    baseMint,
+    performanceFeeBps: Number(req.body?.performanceFeeBps ?? 0),
+    bookMode: req.body?.bookMode ?? null,
+    earlyExitFeeBps:
+      req.body?.earlyExitFeeBps == null ? null : Number(req.body.earlyExitFeeBps),
+  });
+  res.json({ ok: true, pubkey });
 }));
 
 /** Leaderboard — vaults ranked by return % */
