@@ -19,9 +19,12 @@ const PROGRAM_ID = new PublicKey(
   "2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP"
 );
 const WSOL = new PublicKey("So11111111111111111111111111111111111111112");
-const VAULT_ID = 50;
-const VAULT_NAME = "MVP Demo Vault";
+const VAULT_ID = 51;
+const VAULT_NAME = "Sliced Vault Demo";
 const PERFORMANCE_FEE_BPS = 2000;
+/** Anchor enum: { pooledVault: {} } | { slicedVault: {} } */
+const BOOK_MODE = { slicedVault: {} } as const;
+const EARLY_EXIT_FEE_BPS = 1000;
 
 function loadKeypair(): Keypair {
   const p = path.join(os.homedir(), ".config", "solana", "id.json");
@@ -122,6 +125,8 @@ async function main() {
       new BN(VAULT_ID),
       VAULT_NAME,
       PERFORMANCE_FEE_BPS,
+      BOOK_MODE,
+      EARLY_EXIT_FEE_BPS,
       risk
     )
       .accounts({
@@ -159,6 +164,8 @@ async function main() {
     shareMint: shareMint.toBase58(),
     baseMint: WSOL.toBase58(),
     performanceFeeBps: PERFORMANCE_FEE_BPS,
+    bookMode: BOOK_MODE,
+    earlyExitFeeBps: EARLY_EXIT_FEE_BPS,
     vaultExplorer: `https://explorer.solana.com/address/${vault.toBase58()}?cluster=devnet`,
   };
   fs.writeFileSync(OUT_PATH, JSON.stringify(out, null, 2) + "\n");

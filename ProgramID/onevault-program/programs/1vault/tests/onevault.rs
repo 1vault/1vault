@@ -20,6 +20,8 @@ fn sample_vault(base_mint: Pubkey) -> onevault::state::Vault {
         position_value: 400,
         high_water_mark: onevault::SHARE_PRICE_SCALE,
         performance_fee_bps: 2_000,
+        book_mode: onevault::state::VaultBookMode::PooledVault,
+        early_exit_fee_bps: 0,
         status: VaultStatus::Active,
         max_slippage_bps: 100,
         open_positions_count: 0,

@@ -641,6 +641,8 @@ export async function runLiveFlow(opts: {
         new BN(vaultId),
         vaultName,
         PERFORMANCE_FEE_BPS,
+        0,
+        0,
         risk
       )
         .accounts({

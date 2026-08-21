@@ -3,7 +3,7 @@ use anchor_spl::token::{self, CloseAccount, Mint, Token, TokenAccount, Transfer}
 
 use crate::constants::*;
 use crate::error::OneVaultError;
-use crate::state::{License, ProtocolConfig, Strategist, Vault, VaultFeeState, VaultStatus};
+use crate::state::{License, ProtocolConfig, Strategist, Vault, VaultBookMode, VaultFeeState, VaultStatus};
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct VaultRiskParams {
@@ -118,6 +118,8 @@ pub fn handle_create_vault(
     vault_id: u64,
     name: String,
     performance_fee_bps: u16,
+    book_mode: VaultBookMode,
+    early_exit_fee_bps: u16,
     risk: VaultRiskParams,
 ) -> Result<()> {
     require!(!name.is_empty() && name.len() <= MAX_VAULT_NAME_LEN, OneVaultError::InvalidVaultName);
@@ -126,6 +128,14 @@ pub fn handle_create_vault(
         performance_fee_bps <= BPS_DENOMINATOR as u16,
         OneVaultError::InvalidFeeConfig
     );
+    require!(
+        early_exit_fee_bps <= BPS_DENOMINATOR as u16,
+        OneVaultError::InvalidFeeConfig
+    );
+    match book_mode {
+        VaultBookMode::PooledVault => require!(early_exit_fee_bps == 0, OneVaultError::InvalidBookMode),
+        VaultBookMode::SlicedVault => {}
+    }
     require!(
         risk.accepted_mints.len() <= MAX_ACCEPTED_MINTS,
         OneVaultError::InvalidAmount
@@ -162,6 +172,8 @@ pub fn handle_create_vault(
     vault.position_value = 0;
     vault.high_water_mark = SHARE_PRICE_SCALE;
     vault.performance_fee_bps = performance_fee_bps;
+    vault.book_mode = book_mode;
+    vault.early_exit_fee_bps = early_exit_fee_bps;
     vault.status = VaultStatus::Active;
     vault.max_slippage_bps = risk.max_slippage_bps;
     vault.open_positions_count = 0;
@@ -183,6 +195,8 @@ pub fn handle_create_vault(
         vault_id,
         base_mint,
         performance_fee_bps,
+        book_mode,
+        early_exit_fee_bps,
         timestamp: Clock::get()?.unix_timestamp,
     });
 

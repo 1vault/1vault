@@ -3,7 +3,8 @@ use anchor_lang::prelude::*;
 use crate::constants::*;
 use crate::error::OneVaultError;
 use crate::state::{
-    InvestorPosition, InvestorVaultConfig, PositionStatus, ProtocolConfig, Vault, VaultPosition,
+    InvestorPosition, InvestorVaultConfig, PositionStatus, ProtocolConfig, Vault, VaultBookMode,
+    VaultPosition,
 };
 use crate::utils::calc_investor_allocation;
 
@@ -101,7 +102,18 @@ pub fn handle_mirror_position(
     pos.vault_position_id = vault_position.position_id;
     pos.entry_value = allocation;
     pos.current_value = allocation;
-    pos.output_amount = 0;
+    pos.output_amount = if vault.book_mode == VaultBookMode::SlicedVault
+        && vault_position.output_amount > 0
+        && vault_position.entry_value > 0
+    {
+        (allocation as u128)
+            .checked_mul(vault_position.output_amount as u128)
+            .and_then(|v| v.checked_div(vault_position.entry_value as u128))
+            .map(|v| v as u64)
+            .unwrap_or(0)
+    } else {
+        0
+    };
     pos.status = PositionStatus::Open;
     pos.bump = ctx.bumps.investor_position;
 
@@ -182,7 +194,18 @@ pub fn handle_auto_mirror_position(
     pos.vault_position_id = vault_position.position_id;
     pos.entry_value = allocation;
     pos.current_value = allocation;
-    pos.output_amount = 0;
+    pos.output_amount = if vault.book_mode == VaultBookMode::SlicedVault
+        && vault_position.output_amount > 0
+        && vault_position.entry_value > 0
+    {
+        (allocation as u128)
+            .checked_mul(vault_position.output_amount as u128)
+            .and_then(|v| v.checked_div(vault_position.entry_value as u128))
+            .map(|v| v as u64)
+            .unwrap_or(0)
+    } else {
+        0
+    };
     pos.status = PositionStatus::Open;
     pos.bump = ctx.bumps.investor_position;
 
@@ -221,6 +244,11 @@ pub struct CloseInvestorPosition<'info> {
 }
 
 pub fn handle_close_investor_position(ctx: Context<CloseInvestorPosition>, is_full_exit: bool) -> Result<()> {
+    require!(
+        ctx.accounts.vault.book_mode == VaultBookMode::PooledVault,
+        OneVaultError::SlicedVaultRequiresSliceExit
+    );
+
     let config = &ctx.accounts.investor_config;
     if is_full_exit && !config.follow_full_exit {
         return Err(OneVaultError::AutoFollowDisabled.into());

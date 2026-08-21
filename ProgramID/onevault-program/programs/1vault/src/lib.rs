@@ -159,9 +159,19 @@ pub mod onevault {
         vault_id: u64,
         name: String,
         performance_fee_bps: u16,
+        book_mode: VaultBookMode,
+        early_exit_fee_bps: u16,
         risk: VaultRiskParams,
     ) -> Result<()> {
-        instructions::vault_ix::handle_create_vault(ctx, vault_id, name, performance_fee_bps, risk)
+        instructions::vault_ix::handle_create_vault(
+            ctx,
+            vault_id,
+            name,
+            performance_fee_bps,
+            book_mode,
+            early_exit_fee_bps,
+            risk,
+        )
     }
 
     pub fn update_vault(
@@ -360,6 +370,22 @@ pub mod onevault {
 
     pub fn sync_investor_tp_sl(ctx: Context<SyncInvestorTpSl>) -> Result<()> {
         instructions::follow_ix::handle_sync_investor_tp_sl(ctx)
+    }
+
+    pub fn exit_investor_slice(
+        ctx: Context<ExitInvestorSlice>,
+        current_value: u64,
+        proceeds: u64,
+        output_sold: u64,
+        force_exit: bool,
+    ) -> Result<()> {
+        instructions::slice_ix::handle_exit_investor_slice(
+            ctx,
+            current_value,
+            proceeds,
+            output_sold,
+            force_exit,
+        )
     }
 
     // ── Accounting ──
