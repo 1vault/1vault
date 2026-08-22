@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 
 use crate::constants::MAX_ACCEPTED_MINTS;
 
-use super::VaultStatus;
+use super::{VaultBookMode, VaultStatus};
 
 #[account]
 #[derive(InitSpace)]
@@ -23,6 +23,8 @@ pub struct Vault {
     pub position_value: u64,
     pub high_water_mark: u64,
     pub performance_fee_bps: u16,
+    pub book_mode: VaultBookMode,
+    pub early_exit_fee_bps: u16,
     pub status: VaultStatus,
     pub max_slippage_bps: u16,
     pub open_positions_count: u8,

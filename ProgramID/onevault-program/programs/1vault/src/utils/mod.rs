@@ -2,10 +2,24 @@ use anchor_lang::prelude::*;
 
 use crate::constants::BPS_DENOMINATOR;
 use crate::state::{
-    AllocationMode, PositionMode, TpSlTrigger, TradeAction, Vault, VaultPosition,
+    AllocationMode, InvestorPosition, InvestorVaultConfig, PositionMode, TpSlTrigger, TradeAction,
+    Vault, VaultPosition,
 };
 use crate::OneVaultError;
 use anchor_spl::token::{self, CloseAccount, InitializeAccount3, Transfer};
+
+/// NAV-backed capital for an investor's vault shares (used for mirror risk limits).
+pub fn investor_capital_from_shares(vault: &Vault, share_amount: u64) -> Result<u64> {
+    if share_amount == 0 || vault.total_shares == 0 {
+        return Ok(0);
+    }
+    let nav = vault.nav()?;
+    (share_amount as u128)
+        .checked_mul(nav as u128)
+        .and_then(|v| v.checked_div(vault.total_shares as u128))
+        .map(|v| v as u64)
+        .ok_or(OneVaultError::MathOverflow.into())
+}
 
 pub fn apply_bps(amount: u64, bps: u16) -> Result<u64> {
     (amount as u128)
@@ -188,4 +202,50 @@ pub fn unwrap_wsol_to_wallet<'info>(
 
 pub fn calc_proportional_value(total_value: u64, reduce_bps: u16) -> Result<u64> {
     apply_bps(total_value, reduce_bps)
+}
+
+pub fn evaluate_investor_tp_sl(
+    position: &InvestorPosition,
+    config: &InvestorVaultConfig,
+    current_value: u64,
+) -> Result<Option<TpSlTrigger>> {
+    if position.entry_value == 0 {
+        return Ok(None);
+    }
+    if config.take_profit_bps > 0 && current_value > position.entry_value {
+        let gain_bps = ((current_value - position.entry_value) as u128)
+            .checked_mul(BPS_DENOMINATOR as u128)
+            .and_then(|v| v.checked_div(position.entry_value as u128))
+            .ok_or(OneVaultError::MathOverflow)? as u16;
+        if gain_bps >= config.take_profit_bps {
+            return Ok(Some(TpSlTrigger::TakeProfit));
+        }
+    }
+    if config.stop_loss_bps > 0 && current_value < position.entry_value {
+        let loss_bps = ((position.entry_value - current_value) as u128)
+            .checked_mul(BPS_DENOMINATOR as u128)
+            .and_then(|v| v.checked_div(position.entry_value as u128))
+            .ok_or(OneVaultError::MathOverflow)? as u16;
+        if loss_bps >= config.stop_loss_bps {
+            return Ok(Some(TpSlTrigger::StopLoss));
+        }
+    }
+    Ok(None)
+}
+
+pub fn investor_slice_output(
+    investor_position: &InvestorPosition,
+    vault_position: &VaultPosition,
+) -> Result<u64> {
+    if investor_position.output_amount > 0 {
+        return Ok(investor_position.output_amount);
+    }
+    if vault_position.output_amount == 0 || vault_position.current_value == 0 {
+        return Ok(0);
+    }
+    (investor_position.current_value as u128)
+        .checked_mul(vault_position.output_amount as u128)
+        .and_then(|v| v.checked_div(vault_position.current_value as u128))
+        .map(|v| v as u64)
+        .ok_or(OneVaultError::MathOverflow.into())
 }

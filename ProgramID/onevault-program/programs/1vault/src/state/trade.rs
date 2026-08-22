@@ -20,6 +20,10 @@ pub struct TradeRequest {
     pub stop_loss_bps: u16,
     pub linked_position_id: u64,
     pub status: TradeStatus,
+    /// Input spent (buy) or sold (sell) recorded at execution.
+    pub executed_input: u64,
+    /// Output received at execution.
+    pub executed_output: u64,
     pub created_at: i64,
     pub bump: u8,
 }

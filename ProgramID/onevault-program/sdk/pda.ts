@@ -230,3 +230,22 @@ export function closePayout(
   if (shares === remainingShares) return remainingNav;
   return (shares * remainingNav) / remainingShares;
 }
+
+/** Mirror risk limits: capital implied by an investor's vault shares (matches on-chain). */
+export function investorCapitalFromShares(
+  vault: {
+    totalAssets: bigint | number | { toString(): string };
+    positionValue: bigint | number | { toString(): string };
+    totalShares: bigint | number | { toString(): string };
+  },
+  shareAmount: bigint | number | { toString(): string }
+): bigint {
+  const shares = BigInt(shareAmount.toString());
+  const totalShares = BigInt(vault.totalShares.toString());
+  if (shares === 0n || totalShares === 0n) return 0n;
+  const nav = calculateNav({
+    totalAssets: BigInt(vault.totalAssets.toString()),
+    positionValue: BigInt(vault.positionValue.toString()),
+  });
+  return (shares * nav) / totalShares;
+}

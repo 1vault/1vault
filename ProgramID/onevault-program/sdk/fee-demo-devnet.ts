@@ -6,7 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { AnchorProvider, BN, Program, Wallet, type Idl } from "@coral-xyz/anchor";
+import { AnchorProvider, BN, Program, Wallet } from "@coral-xyz/anchor";
 import {
   Connection,
   Keypair,
@@ -18,6 +18,8 @@ import {
 } from "@solana/web3.js";
 import { RPC_URL } from "./rpc";
 import { FEE_WALLETS, SEEDS } from "./constants";
+import { loadOneVaultIdl } from "./idl";
+import { investorConfigPda } from "./pda";
 import {
   NATIVE_MINT,
   TOKEN_PROGRAM_ID,
@@ -29,7 +31,6 @@ import {
 import { indexTx } from "./index-tx";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const IDL_PATH = path.join(ROOT, "target", "idl", "onevault.json");
 const ADDR_PATH = path.join(ROOT, "scripts", "devnet-addresses.json");
 
 function loadKeypair(): Keypair {
@@ -118,7 +119,7 @@ async function main() {
   const payer = loadKeypair();
   const connection = new Connection(RPC_URL, "confirmed");
   const program = new Program(
-    JSON.parse(fs.readFileSync(IDL_PATH, "utf8")) as Idl,
+    loadOneVaultIdl(),
     new AnchorProvider(connection, new Wallet(payer), {
       commitment: "confirmed",
       preflightCommitment: "confirmed",
@@ -247,6 +248,14 @@ async function main() {
   );
 
   const shares = (await getAccount(connection, investorShares)).amount;
+  const [investorConfig] = investorConfigPda(vaultPk, payer.publicKey, program.programId);
+  let investorConfigPk: PublicKey | undefined;
+  try {
+    await (program.account as any).investorVaultConfig.fetch(investorConfig);
+    investorConfigPk = investorConfig;
+  } catch {
+    investorConfigPk = undefined;
+  }
   const wdTx = await call(program, "withdraw", "withdraw")(new BN(shares.toString()))
     .accounts({
       investor: payer.publicKey,
@@ -256,6 +265,7 @@ async function main() {
       investorTokenAccount: investorWsol,
       vaultTokenAccount: vault.vaultTokenAccount,
       shareMint,
+      ...(investorConfigPk ? { investorConfig: investorConfigPk } : {}),
       tokenProgram: TOKEN_PROGRAM_ID,
     })
     .transaction();

@@ -15,6 +15,8 @@ pub struct VaultCreated {
     pub vault_id: u64,
     pub base_mint: Pubkey,
     pub performance_fee_bps: u16,
+    pub book_mode: crate::state::VaultBookMode,
+    pub early_exit_fee_bps: u16,
     pub timestamp: i64,
 }
 
@@ -182,6 +184,19 @@ pub struct UpgradeProposalCancelled {
     pub multisig: Pubkey,
     pub proposal_id: u64,
     pub cancelled_by: Pubkey,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct InvestorSliceExited {
+    pub vault: Pubkey,
+    pub investor: Pubkey,
+    pub position_id: u64,
+    pub vault_position_id: u64,
+    pub proceeds: u64,
+    pub early_exit_fee: u64,
+    pub net_to_investor: u64,
+    pub output_sold: u64,
     pub timestamp: i64,
 }
 

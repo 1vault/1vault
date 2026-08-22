@@ -129,13 +129,25 @@ Do not call this **1VAULT** in current product copy. Older sections still say 1V
 | **IN PROGRAM, not current UX** | Auto Follow, investor allocation modes, investor DCA, mirror/copy ix, launchpad + DEX allowlist |
 | **STRIPPED from MVP program** | Referral PDAs, risk engine (`VaultRiskState`), platform staking, vault SOL validator stake, flat withdraw fee, DCA flags, on-chain MEV mode, `StrategyType`, protocol 5% performance split, follower stats ix, vault-wide position caps |
 | **SUPERSEDED by §0** | Isolated copy-trading model in §1 / §9--14 / §18; 0.5% withdrawal fee in §43; flat ~$0.50 redeem fee; staking fee discounts; "1VAULT" token name; close-as-equal-split; NAV staked component |
-| **FUTURE / not launch** | Early Exit Fee at the end of this file; management fee; platform 0.1% trade fee; per-investor HWM; guaranteed same-price copy |
+| **FUTURE / not launch** | **Sliced Vault** (V2) + Early Exit Fee at the end of this file; management fee; platform 0.1% trade fee; per-investor HWM; guaranteed same-price copy |
 
 ## 0.12 MVP on-chain (instruction summary)
 
 **In contract (~47 ix):** `lock_license`, park/deposit, **free** withdraw, trade + TP/SL + launchpad allowlist, follow/copy, `accrue_fees` / `claim_fees` (degen wallet), `keeper_refresh_vault`, upgrade multisig.
 
 **Breaking:** `ProtocolConfig` and `Vault` layouts changed — re-run `npm run bootstrap:devnet` and create **new vaults** after program upgrade.
+
+## 0.13 Vault book modes (product names)
+
+| Mode | Code / enum (future) | Status | One line |
+|------|----------------------|--------|----------|
+| **Pooled Vault** | `pooled_vault` | **V1 — shipping (Devnet MVP)** | One shared book: degen signs, vault pays, retail rides via shares. Investor TP/SL updates mirror accounting; token sell happens at **vault position** level. Retail exits economically via **withdraw shares** or vault close. |
+| **Sliced Vault** | `sliced_vault` | **V2 — not built** | Retail can **TP / exit early** while degen position stays open: vault **sells that investor's slice** of the position and settles (optional early-exit fee to degen). Requires new on-chain settlement ix. |
+
+**UI badges:** `POOLED` · `SLICED`  
+**Do not** label V1/V2 alone in user-facing copy — use **Pooled Vault** / **Sliced Vault**.
+
+Current on-chain build implements **Pooled Vault** only. `close_investor_position` closes mirror records; it does **not** sell meme tokens per investor (that is **Sliced Vault** behaviour).
 
 ------------------------------------------------------------------------
 

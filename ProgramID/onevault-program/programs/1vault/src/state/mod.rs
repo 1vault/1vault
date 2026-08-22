@@ -28,6 +28,14 @@ pub enum VaultStatus {
     Closed,
 }
 
+/// V1 pooled book vs V2 per-investor slice exits.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Default)]
+pub enum VaultBookMode {
+    #[default]
+    PooledVault,
+    SlicedVault,
+}
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace)]
 pub enum AllocationMode {
     Fixed,

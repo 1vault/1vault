@@ -3,7 +3,7 @@ use anchor_spl::token::{self, Token, TokenAccount, Transfer};
 
 use crate::constants::*;
 use crate::error::OneVaultError;
-use crate::state::{InvestorPosition, InvestorVaultConfig, PositionStatus, Vault, VaultPosition};
+use crate::state::{InvestorPosition, InvestorVaultConfig, PositionStatus, Vault, VaultBookMode, VaultPosition};
 use crate::utils::evaluate_tp_sl;
 
 /// Remaining accounts: repeating pairs of (investor_config, investor_position).
@@ -12,7 +12,13 @@ fn close_mirrored_followers<'info>(
     remaining: &'info [AccountInfo<'info>],
     vault_key: &Pubkey,
     vault_position_id: u64,
+    book_mode: VaultBookMode,
 ) -> Result<u8> {
+    if book_mode == VaultBookMode::SlicedVault {
+        require!(remaining.is_empty(), OneVaultError::SlicedVaultRequiresSliceExit);
+        return Ok(0);
+    }
+
     require!(remaining.len() % 2 == 0, OneVaultError::InvalidAmount);
     require!(
         remaining.len() / 2 <= MAX_CLOSE_SHARE_HOLDERS,
@@ -175,6 +181,7 @@ pub fn handle_close_position<'info>(
         ctx.remaining_accounts,
         &ctx.accounts.vault.key(),
         position_id,
+        ctx.accounts.vault.book_mode,
     )?;
 
     emit!(crate::events::PositionClosed {
@@ -281,6 +288,7 @@ pub fn handle_trigger_tp_sl_close<'info>(
         ctx.remaining_accounts,
         &ctx.accounts.vault.key(),
         position_id,
+        ctx.accounts.vault.book_mode,
     )?;
     emit!(crate::events::PositionFollowersClosed {
         vault: ctx.accounts.vault.key(),

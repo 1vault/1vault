@@ -6,22 +6,26 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { AnchorProvider, BN, Program, Wallet, type Idl } from "@coral-xyz/anchor";
+import { AnchorProvider, BN, Program, Wallet } from "@coral-xyz/anchor";
 import { Connection, Keypair, PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { RPC_URL } from "./rpc";
+import { loadOneVaultIdl } from "./idl";
+import { indexTx, registerVault, type VaultRegisterMeta } from "./index-tx.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const IDL_PATH = path.join(ROOT, "target", "idl", "onevault.json");
 const OUT_PATH = path.join(ROOT, "scripts", "devnet-addresses.json");
 
 const PROGRAM_ID = new PublicKey(
   "2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP"
 );
 const WSOL = new PublicKey("So11111111111111111111111111111111111111112");
-const VAULT_ID = 50;
-const VAULT_NAME = "MVP Demo Vault";
+const VAULT_ID = Number(process.env.VAULT_ID ?? 53);
+const VAULT_NAME = process.env.VAULT_NAME ?? "Sliced Vault Demo 3";
 const PERFORMANCE_FEE_BPS = 2000;
+/** Anchor enum: { pooledVault: {} } | { slicedVault: {} } */
+const BOOK_MODE = { slicedVault: {} } as const;
+const EARLY_EXIT_FEE_BPS = 1000;
 
 function loadKeypair(): Keypair {
   const p = path.join(os.homedir(), ".config", "solana", "id.json");
@@ -63,7 +67,7 @@ async function main() {
     commitment: "confirmed",
     preflightCommitment: "confirmed",
   });
-  const idl = JSON.parse(fs.readFileSync(IDL_PATH, "utf8")) as Idl;
+  const idl = loadOneVaultIdl();
   const program = new Program(idl, provider);
 
   const protocolConfig = new PublicKey(addresses.protocolConfig);
@@ -108,8 +112,20 @@ async function main() {
     console.log("lock_license: already exists, skip");
   }
 
+  const vaultMeta = (): VaultRegisterMeta => ({
+    pubkey: vault.toBase58(),
+    strategist: payer.publicKey.toBase58(),
+    vaultId: VAULT_ID,
+    name: VAULT_NAME,
+    baseMint: WSOL.toBase58(),
+    performanceFeeBps: PERFORMANCE_FEE_BPS,
+    bookMode: "slicedVault" in BOOK_MODE ? "sliced_vault" : "pooled_vault",
+    earlyExitFeeBps: EARLY_EXIT_FEE_BPS,
+  });
+
   if (await connection.getAccountInfo(vault)) {
     console.log("create_vault: already exists, skip");
+    await registerVault(vaultMeta());
   } else {
     const vaultToken = Keypair.generate();
     const risk = {
@@ -122,6 +138,8 @@ async function main() {
       new BN(VAULT_ID),
       VAULT_NAME,
       PERFORMANCE_FEE_BPS,
+      BOOK_MODE,
+      EARLY_EXIT_FEE_BPS,
       risk
     )
       .accounts({
@@ -144,6 +162,7 @@ async function main() {
       .rpc();
     console.log("create_vault:", sig);
     console.log("vault_token_account:", vaultToken.publicKey.toBase58());
+    await indexTx(sig, vaultMeta());
   }
 
   const [shareMint] = PublicKey.findProgramAddressSync(
@@ -159,6 +178,8 @@ async function main() {
     shareMint: shareMint.toBase58(),
     baseMint: WSOL.toBase58(),
     performanceFeeBps: PERFORMANCE_FEE_BPS,
+    bookMode: BOOK_MODE,
+    earlyExitFeeBps: EARLY_EXIT_FEE_BPS,
     vaultExplorer: `https://explorer.solana.com/address/${vault.toBase58()}?cluster=devnet`,
   };
   fs.writeFileSync(OUT_PATH, JSON.stringify(out, null, 2) + "\n");

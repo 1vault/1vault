@@ -92,6 +92,8 @@ pub fn handle_request_trade(
     trade.stop_loss_bps = stop_loss_bps;
     trade.linked_position_id = linked_position_id;
     trade.status = TradeStatus::Pending;
+    trade.executed_input = 0;
+    trade.executed_output = 0;
     trade.created_at = Clock::get()?.unix_timestamp;
     trade.bump = ctx.bumps.trade_request;
 
@@ -238,6 +240,8 @@ pub fn handle_execute_trade(ctx: Context<ExecuteTrade>, swap_data: Vec<u8>) -> R
 
     let trade_id = trade.trade_id;
     let received_amount = received;
+    ctx.accounts.trade_request.executed_input = input_before.saturating_sub(ctx.accounts.vault_input_token.amount);
+    ctx.accounts.trade_request.executed_output = received_amount;
     ctx.accounts.trade_request.status = TradeStatus::Executed;
 
     emit!(crate::events::TradeExecuted {
@@ -279,6 +283,11 @@ pub fn handle_open_position(ctx: Context<OpenPosition>, position_id: u64, entry_
     require!(position_id == vault.next_position_id, OneVaultError::InvalidTrade);
 
     let trade = &ctx.accounts.trade_request;
+    require!(trade.action == TradeAction::Buy, OneVaultError::InvalidTrade);
+    require!(trade.executed_input > 0, OneVaultError::InvalidTrade);
+    require!(entry_value == trade.executed_input, OneVaultError::InvalidAmount);
+    require!(output_amount == trade.executed_output, OneVaultError::InvalidAmount);
+
     let position = &mut ctx.accounts.vault_position;
     position.vault = vault.key();
     position.position_id = position_id;

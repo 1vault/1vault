@@ -106,4 +106,16 @@ pub enum OneVaultError {
     AlreadyApproved,
     #[msg("Strategist must park SOL in the vault before trading")]
     StrategistMustPark,
+    #[msg("Sliced vault requires exit_investor_slice instead of close_investor_position")]
+    SlicedVaultRequiresSliceExit,
+    #[msg("Instruction only valid for sliced vaults")]
+    PooledVaultOnly,
+    #[msg("Invalid vault book mode")]
+    InvalidBookMode,
+    #[msg("Vault position is not open")]
+    VaultPositionNotOpen,
+    #[msg("Investor has open mirrored positions")]
+    InvestorHasOpenPositions,
+    #[msg("Reported investor capital does not match on-chain shares")]
+    InvestorCapitalMismatch,
 }

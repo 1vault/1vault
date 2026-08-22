@@ -20,6 +20,8 @@ fn sample_vault(base_mint: Pubkey) -> onevault::state::Vault {
         position_value: 400,
         high_water_mark: onevault::SHARE_PRICE_SCALE,
         performance_fee_bps: 2_000,
+        book_mode: onevault::state::VaultBookMode::PooledVault,
+        early_exit_fee_bps: 0,
         status: VaultStatus::Active,
         max_slippage_bps: 100,
         open_positions_count: 0,
@@ -136,6 +138,24 @@ fn investor_defaults_include_tp_sl_mandate() {
     assert_eq!(cfg.stop_loss_bps, 500);
     assert!(cfg.auto_follow);
     assert!(cfg.follow_tp_sl);
+}
+
+#[test]
+fn investor_capital_from_shares_matches_nav_share() {
+    use onevault::utils::investor_capital_from_shares;
+
+    let vault = sample_vault(Pubkey::default());
+    let capital = investor_capital_from_shares(&vault, 500).unwrap();
+    assert_eq!(capital, 500);
+}
+
+#[test]
+fn investor_capital_from_shares_zero_when_no_shares() {
+    use onevault::utils::investor_capital_from_shares;
+
+    let mut vault = sample_vault(Pubkey::default());
+    vault.total_shares = 0;
+    assert_eq!(investor_capital_from_shares(&vault, 100).unwrap(), 0);
 }
 
 #[test]

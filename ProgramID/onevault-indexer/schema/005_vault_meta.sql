@@ -1,0 +1,2 @@
+ALTER TABLE vaults ADD COLUMN IF NOT EXISTS book_mode TEXT;
+ALTER TABLE vaults ADD COLUMN IF NOT EXISTS early_exit_fee_bps INT;

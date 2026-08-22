@@ -5,12 +5,22 @@
   --vault-blue-dark: #1c4d8d;
   --vault-blue: #4988c4;
   --vault-sky: #bde8f5;
+  --vault-brand: #093c5d;
 
-  --background: var(--vault-navy);
-  --foreground: var(--vault-sky);
-  --surface: var(--vault-blue-dark);
-  --accent: var(--vault-blue);
-  --muted: color-mix(in srgb, var(--vault-sky) 70%, var(--vault-blue) 30%);
+  --ink: #000000;
+  --ink-raised: #0a0b0d;
+  --ink-card: #101215;
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.22);
+  --text: #ffffff;
+  --text-dim: rgba(255, 255, 255, 0.52);
+  --text-faint: rgba(255, 255, 255, 0.32);
+  --accent: #3aa8f0;
+  --accent-bright: #7fe4ff;
+  --accent-deep: #0b5f9e;
+
+  --background: var(--ink);
+  --foreground: var(--text);
 }
 
 @theme inline {
@@ -18,17 +28,177 @@
   --color-vault-blue-dark: var(--vault-blue-dark);
   --color-vault-blue: var(--vault-blue);
   --color-vault-sky: var(--vault-sky);
+  --color-vault-brand: var(--vault-brand);
+
+  --color-ink: var(--ink);
+  --color-ink-raised: var(--ink-raised);
+  --color-ink-card: var(--ink-card);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-dim: var(--text-dim);
+  --color-faint: var(--text-faint);
+  --color-accent: var(--accent);
+  --color-accent-bright: var(--accent-bright);
+  --color-accent-deep: var(--accent-deep);
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-surface: var(--surface);
-  --color-accent: var(--accent);
-  --color-muted: var(--muted);
+
   --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-mono: var(--font-roboto-mono);
+  --font-display: var(--font-space-grotesk);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  overflow-x: hidden;
+}
+
+::selection {
+  background: var(--accent);
+  color: #000;
+}
+
+/* Mono eyebrow labels used across every section, matching the reference's
+   14px uppercase tracking. */
+.mono-label {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.display {
+  font-family: var(--font-display), var(--font-geist-sans), sans-serif;
+  letter-spacing: -0.03em;
+  line-height: 0.95;
+}
+
+@keyframes marquee-x {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+@keyframes marquee-x-reverse {
+  from {
+    transform: translate3d(-50%, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes aurora-drift {
+  0%,
+  100% {
+    transform: translate3d(-6%, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(6%, -3%, 0) scale(1.12);
+  }
+}
+
+@keyframes spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(58, 168, 240, 0.6);
+  }
+  50% {
+    opacity: 0.7;
+    box-shadow: 0 0 0 6px rgba(58, 168, 240, 0);
+  }
+}
+
+.marquee-track {
+  display: flex;
+  width: max-content;
+  animation: marquee-x var(--marquee-duration, 40s) linear infinite;
+}
+
+.marquee-track-reverse {
+  animation-name: marquee-x-reverse;
+}
+
+.marquee-mask {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 12%,
+    #000 88%,
+    transparent
+  );
+}
+
+.aurora {
+  animation: aurora-drift 18s ease-in-out infinite;
+}
+
+.spin-slow {
+  animation: spin-slow 26s linear infinite;
+}
+
+.live-dot {
+  animation: pulse-dot 2.2s ease-in-out infinite;
+}
+
+/* Perspective floor grid from the reference hero art. */
+.grid-floor {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.14) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.14) 1px, transparent 1px);
+  background-size: 72px 72px;
+  transform: perspective(340px) rotateX(62deg);
+  transform-origin: bottom center;
+  mask-image: linear-gradient(to top, #000, transparent 78%);
+}
+
+.grid-faint {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 96px 96px;
+}
+
+/* Scroll reveal — elements start hidden and are released by the Reveal
+   observer adding data-shown. */
+[data-reveal] {
+  opacity: 0;
+  transform: translate3d(0, 24px, 0);
+  transition:
+    opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+[data-reveal][data-shown="true"] {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track,
+  .aurora,
+  .spin-slow,
+  .live-dot {
+    animation: none;
+  }
+
+  [data-reveal] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
 }

@@ -66,9 +66,25 @@ const program = createOneVaultProgram(connection, wallet, idl);
 const vault = await fetchVault(program, strategist, 1);
 ```
 
-`withdraw` accounts (devnet): `investor`, `protocolConfig`, `vault`, `investorShareAccount`, `investorTokenAccount`, `vaultTokenAccount`, `shareMint`, `investorConfig`, `tokenProgram` — free redeem, no treasury/platform fee accounts on MVP.
+`withdraw` accounts (devnet): `investor`, `protocolConfig`, `vault`, `investorShareAccount`, `investorTokenAccount`, `vaultTokenAccount`, `shareMint`, optional `investorConfig`, `tokenProgram` — free redeem, no treasury/platform fee accounts on MVP.
 
-`request_trade` (MVP): no `dcaEnabled` / `dcaIndex`; no `vaultRiskState` account.
+`mirror_position` / `auto_mirror_position`: pass `investorShareAccount`; `investorCapital` must equal `investorCapitalFromShares(vault, shareBalance)` (see `investorCapitalBn`).
+
+`open_position`: `entryValue` / `outputAmount` must match `tradeRequest.executedInput` / `executedOutput` after `execute_trade`.
+
+`request_trade`: requires `strategistShareAccount` (strategist must hold vault shares).
+
+## Security upgrade helpers (2026-08)
+
+```typescript
+import {
+  investorCapitalBn,
+  buildMirrorPositionIx,
+  buildWithdrawIx,
+  openPositionAmountsFromTrade,
+  fetchTradeRequest,
+} from "@1vault/sdk";
+```
 
 ## Files
 
@@ -76,6 +92,8 @@ const vault = await fetchVault(program, strategist, 1);
 |------|---------|
 | `constants.ts` | Program ID, seeds, enums, fee wallets |
 | `pda.ts` | PDA derivations + NAV math |
+| `idl.ts` | Load IDL from target or sdk/idl |
+| `accounts.ts` | Share ATA helpers |
 | `client.ts` | Anchor Program factory + tx builders |
 | `bootstrap-devnet.ts` | Protocol + treasury bootstrap |
 | `idl/onevault.json` | IDL copy (sync from `anchor build`) |

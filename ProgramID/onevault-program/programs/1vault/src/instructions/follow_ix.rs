@@ -1,11 +1,34 @@
 use anchor_lang::prelude::*;
+use anchor_spl::token::TokenAccount;
 
 use crate::constants::*;
 use crate::error::OneVaultError;
 use crate::state::{
-    InvestorPosition, InvestorVaultConfig, PositionStatus, ProtocolConfig, Vault, VaultPosition,
+    InvestorPosition, InvestorVaultConfig, PositionStatus, ProtocolConfig, Vault, VaultBookMode,
+    VaultPosition,
 };
-use crate::utils::calc_investor_allocation;
+use crate::utils::{calc_investor_allocation, investor_capital_from_shares};
+
+fn resolve_investor_capital(
+    vault: &Vault,
+    share_amount: u64,
+    reported_capital: u64,
+) -> Result<u64> {
+    let derived = investor_capital_from_shares(vault, share_amount)?;
+    require!(
+        reported_capital == derived,
+        OneVaultError::InvestorCapitalMismatch
+    );
+    Ok(derived)
+}
+
+fn require_pooled_book(vault: &Vault) -> Result<()> {
+    require!(
+        vault.book_mode == VaultBookMode::PooledVault,
+        OneVaultError::SlicedVaultRequiresSliceExit
+    );
+    Ok(())
+}
 
 fn apply_mirror_allocation(
     config: &InvestorVaultConfig,
@@ -68,6 +91,12 @@ pub struct MirrorPosition<'info> {
         constraint = vault_position.status == PositionStatus::Open @ OneVaultError::PositionNotOpen)]
     pub vault_position: Box<Account<'info, VaultPosition>>,
 
+    #[account(
+        constraint = investor_share_account.mint == vault.share_mint @ OneVaultError::InvalidMint,
+        constraint = investor_share_account.owner == investor.key() @ OneVaultError::Unauthorized,
+    )]
+    pub investor_share_account: Box<Account<'info, TokenAccount>>,
+
     #[account(init, payer = investor, space = 8 + InvestorPosition::INIT_SPACE,
         seeds = [INVESTOR_POSITION_SEED, vault.key().as_ref(), investor.key().as_ref(), &position_id.to_le_bytes()],
         bump)]
@@ -85,6 +114,11 @@ pub fn handle_mirror_position(
     let config = &ctx.accounts.investor_config;
     let vault = &ctx.accounts.vault;
     let vault_position = &ctx.accounts.vault_position;
+    let investor_capital = resolve_investor_capital(
+        vault,
+        ctx.accounts.investor_share_account.amount,
+        investor_capital,
+    )?;
 
     let allocation = apply_mirror_allocation(
         config,
@@ -101,7 +135,18 @@ pub fn handle_mirror_position(
     pos.vault_position_id = vault_position.position_id;
     pos.entry_value = allocation;
     pos.current_value = allocation;
-    pos.output_amount = 0;
+    pos.output_amount = if vault.book_mode == VaultBookMode::SlicedVault
+        && vault_position.output_amount > 0
+        && vault_position.entry_value > 0
+    {
+        (allocation as u128)
+            .checked_mul(vault_position.output_amount as u128)
+            .and_then(|v| v.checked_div(vault_position.entry_value as u128))
+            .map(|v| v as u64)
+            .unwrap_or(0)
+    } else {
+        0
+    };
     pos.status = PositionStatus::Open;
     pos.bump = ctx.bumps.investor_position;
 
@@ -132,6 +177,9 @@ pub struct AutoMirrorPosition<'info> {
         constraint = !protocol_config.is_paused @ OneVaultError::ProtocolPaused)]
     pub protocol_config: Box<Account<'info, ProtocolConfig>>,
 
+    #[account(
+        constraint = payer.key() == vault.strategist @ OneVaultError::Unauthorized,
+    )]
     pub vault: Box<Account<'info, Vault>>,
 
     /// CHECK: investor being mirrored
@@ -146,6 +194,12 @@ pub struct AutoMirrorPosition<'info> {
         bump = vault_position.bump, constraint = vault_position.vault == vault.key(),
         constraint = vault_position.status == PositionStatus::Open @ OneVaultError::PositionNotOpen)]
     pub vault_position: Box<Account<'info, VaultPosition>>,
+
+    #[account(
+        constraint = investor_share_account.mint == vault.share_mint @ OneVaultError::InvalidMint,
+        constraint = investor_share_account.owner == investor.key() @ OneVaultError::Unauthorized,
+    )]
+    pub investor_share_account: Box<Account<'info, TokenAccount>>,
 
     #[account(init, payer = payer, space = 8 + InvestorPosition::INIT_SPACE,
         seeds = [INVESTOR_POSITION_SEED, vault.key().as_ref(), investor.key().as_ref(), &position_id.to_le_bytes()],
@@ -164,6 +218,11 @@ pub fn handle_auto_mirror_position(
     let config = &ctx.accounts.investor_config;
     let vault = &ctx.accounts.vault;
     let vault_position = &ctx.accounts.vault_position;
+    let investor_capital = resolve_investor_capital(
+        vault,
+        ctx.accounts.investor_share_account.amount,
+        investor_capital,
+    )?;
 
     let allocation = apply_mirror_allocation(
         config,
@@ -182,7 +241,18 @@ pub fn handle_auto_mirror_position(
     pos.vault_position_id = vault_position.position_id;
     pos.entry_value = allocation;
     pos.current_value = allocation;
-    pos.output_amount = 0;
+    pos.output_amount = if vault.book_mode == VaultBookMode::SlicedVault
+        && vault_position.output_amount > 0
+        && vault_position.entry_value > 0
+    {
+        (allocation as u128)
+            .checked_mul(vault_position.output_amount as u128)
+            .and_then(|v| v.checked_div(vault_position.entry_value as u128))
+            .map(|v| v as u64)
+            .unwrap_or(0)
+    } else {
+        0
+    };
     pos.status = PositionStatus::Open;
     pos.bump = ctx.bumps.investor_position;
 
@@ -221,6 +291,11 @@ pub struct CloseInvestorPosition<'info> {
 }
 
 pub fn handle_close_investor_position(ctx: Context<CloseInvestorPosition>, is_full_exit: bool) -> Result<()> {
+    require!(
+        ctx.accounts.vault.book_mode == VaultBookMode::PooledVault,
+        OneVaultError::SlicedVaultRequiresSliceExit
+    );
+
     let config = &ctx.accounts.investor_config;
     if is_full_exit && !config.follow_full_exit {
         return Err(OneVaultError::AutoFollowDisabled.into());
@@ -241,6 +316,9 @@ pub fn handle_close_investor_position(ctx: Context<CloseInvestorPosition>, is_fu
 pub struct SyncInvestorPositionReduce<'info> {
     pub payer: Signer<'info>,
 
+    #[account(
+        constraint = payer.key() == vault.strategist @ OneVaultError::Unauthorized,
+    )]
     pub vault: Account<'info, Vault>,
 
     /// CHECK: mirrored investor
@@ -261,6 +339,7 @@ pub fn handle_sync_investor_position_reduce(
     ctx: Context<SyncInvestorPositionReduce>,
     reduce_bps: u16,
 ) -> Result<()> {
+    require_pooled_book(&ctx.accounts.vault)?;
     let config = &ctx.accounts.investor_config;
     require!(config.follow_partial_exit, OneVaultError::AutoFollowDisabled);
 
@@ -283,6 +362,9 @@ pub fn handle_sync_investor_position_reduce(
 pub struct SyncInvestorPositionClose<'info> {
     pub payer: Signer<'info>,
 
+    #[account(
+        constraint = payer.key() == vault.strategist @ OneVaultError::Unauthorized,
+    )]
     pub vault: Account<'info, Vault>,
 
     /// CHECK: mirrored investor
@@ -301,6 +383,7 @@ pub struct SyncInvestorPositionClose<'info> {
 }
 
 pub fn handle_sync_investor_position_close(ctx: Context<SyncInvestorPositionClose>) -> Result<()> {
+    require_pooled_book(&ctx.accounts.vault)?;
     let config = &ctx.accounts.investor_config;
     require!(config.follow_full_exit, OneVaultError::AutoFollowDisabled);
 
@@ -316,6 +399,9 @@ pub fn handle_sync_investor_position_close(ctx: Context<SyncInvestorPositionClos
 pub struct SyncInvestorTpSl<'info> {
     pub payer: Signer<'info>,
 
+    #[account(
+        constraint = payer.key() == vault.strategist @ OneVaultError::Unauthorized,
+    )]
     pub vault: Account<'info, Vault>,
 
     /// CHECK: mirrored investor
@@ -338,6 +424,7 @@ pub struct SyncInvestorTpSl<'info> {
 }
 
 pub fn handle_sync_investor_tp_sl(ctx: Context<SyncInvestorTpSl>) -> Result<()> {
+    require_pooled_book(&ctx.accounts.vault)?;
     let config = &ctx.accounts.investor_config;
     require!(config.follow_tp_sl, OneVaultError::AutoFollowDisabled);
 

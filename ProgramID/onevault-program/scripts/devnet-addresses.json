@@ -10,11 +10,15 @@
   "wsolMint": "So11111111111111111111111111111111111111112",
   "licenseLockAmount": "1000000000000",
   "explorer": "https://explorer.solana.com/address/2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP?cluster=devnet",
-  "vaultId": 50,
-  "vaultName": "MVP Demo Vault",
-  "vault": "9NV8NczozWFB4cNKxvQESJbwnXkaqaUseWeo1PMDrUp1",
-  "shareMint": "4jUJiDkR82Z3bm8bFeovNX5nqDX117bt6JV5Sbb6d9on",
+  "vaultId": 53,
+  "vaultName": "Sliced Vault Demo 3",
+  "vault": "9cX11t7MsncsLdVwKwBbS8T5RQXvmZd6mHroF9YpR8gz",
+  "shareMint": "6zyTxnxBb6mFMAstTSzhk72jeRGnxNDM2svbRavJcKUp",
   "baseMint": "So11111111111111111111111111111111111111112",
   "performanceFeeBps": 2000,
-  "vaultExplorer": "https://explorer.solana.com/address/9NV8NczozWFB4cNKxvQESJbwnXkaqaUseWeo1PMDrUp1?cluster=devnet"
+  "vaultExplorer": "https://explorer.solana.com/address/9cX11t7MsncsLdVwKwBbS8T5RQXvmZd6mHroF9YpR8gz?cluster=devnet",
+  "bookMode": {
+    "slicedVault": {}
+  },
+  "earlyExitFeeBps": 1000
 }
