@@ -262,11 +262,14 @@ async function main() {
       followFullExit: true,
       followTpSl: true,
       maxSlippageBps: 100,
+      takeProfitBps: null,
+      stopLossBps: null,
     };
     const sig = await call(program, "update_investor_config", "updateInvestorConfig")(params)
       .accounts({
         investor: retail.publicKey,
         vault: vaultPk,
+        systemProgram: SystemProgram.programId,
       })
       .signers([retail])
       .rpc();
@@ -288,6 +291,60 @@ async function main() {
 
   const memeMint = Keypair.generate().publicKey;
   const strategistShares = strategistShareAta(shareMint, deployer.publicKey);
+  const degenWsol = getAssociatedTokenAddressSync(NATIVE_MINT, deployer.publicKey);
+  const parkLamports = 10_000_000;
+
+  try {
+    const setupTx = new Transaction().add(
+      createAssociatedTokenAccountIdempotentInstruction(
+        deployer.publicKey,
+        degenWsol,
+        deployer.publicKey,
+        NATIVE_MINT
+      ),
+      SystemProgram.transfer({
+        fromPubkey: deployer.publicKey,
+        toPubkey: degenWsol,
+        lamports: parkLamports,
+      }),
+      createSyncNativeInstruction(degenWsol),
+      createAssociatedTokenAccountIdempotentInstruction(
+        deployer.publicKey,
+        strategistShares,
+        deployer.publicKey,
+        shareMint
+      )
+    );
+    const setupSig = await sendAndConfirmTransaction(connection, setupTx, [deployer]);
+    const vaultFresh: any = await (program.account as any).vault.fetch(vaultPk);
+    const parkSig = await call(program, "deposit", "deposit")(new BN(parkLamports))
+      .accounts({
+        investor: deployer.publicKey,
+        protocolConfig,
+        vault: vaultPk,
+        investorTokenAccount: degenWsol,
+        vaultTokenAccount: vaultFresh.vaultTokenAccount,
+        shareMint,
+        investorShareAccount: strategistShares,
+      })
+      .rpc();
+    add({
+      id: "P6b",
+      title: "Degen park wSOL (share ATA for request_trade)",
+      status: "PASS",
+      detail: `deposited ${parkLamports} lamports; strategistShareAccount initialized`,
+      tx: parkSig,
+    });
+    void setupSig;
+  } catch (e) {
+    add({
+      id: "P6b",
+      title: "Degen park wSOL (share ATA for request_trade)",
+      status: "FAIL",
+      detail: errText(e),
+    });
+  }
+
   try {
     const sig = await call(program, "request_trade", "requestTrade")(
       new BN(1),
@@ -298,8 +355,6 @@ async function main() {
       new BN(1_000_000),
       100,
       new BN(1),
-      false,
-      0,
       3_000,
       1_000,
       new BN(0),

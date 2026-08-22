@@ -3,17 +3,17 @@
   "programId": "2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP",
   "vault": "9cX11t7MsncsLdVwKwBbS8T5RQXvmZd6mHroF9YpR8gz",
   "degen": "9WDdee1AwqRCJ2WSr9dDAcaoCXPkfd19vR5RQdc2zcan",
-  "retail": "BbT76FnfwBfyq3LuTcNmtEjju7PS98wuDjTG41BLPnei",
+  "retail": "HAGKxdznfBkmRvg8T4SL7JjTPfZ83bohqrJsTK27nbu4",
   "unitTests": {
     "passed": 7,
     "failed": 0
   },
   "summary": {
-    "passed": 7,
-    "failed": 2,
+    "passed": 10,
+    "failed": 0,
     "blocked": 2,
     "skipped": 1,
-    "total": 12
+    "total": 13
   },
   "cases": [
     {
@@ -26,48 +26,57 @@
       "id": "P1",
       "title": "Fund retail wallet",
       "status": "PASS",
-      "detail": "retail=BbT76FnfwBfyq3LuTcNmtEjju7PS98wuDjTG41BLPnei",
-      "tx": "383jdiN1nR4Q4kS5SUAvG9S4afjdQzdRKXcL4vfDdCQ1r5CGTxjJnJgXddwdz83ErWZM7uJoQz9UPGkcKHSQoK1y"
+      "detail": "retail=HAGKxdznfBkmRvg8T4SL7JjTPfZ83bohqrJsTK27nbu4",
+      "tx": "3hanUNsVZ9YHUm4UHs7vMHHqv2xzeCHx5w2phaYD6YkKJidRkjayv7Wziw5dEktL4StyL45kahcr5q8ydNmqKSJV"
     },
     {
       "id": "P2",
       "title": "Retail wrap SOL to wSOL + create share ATA",
       "status": "PASS",
-      "detail": "wsolAta=38oWJUnXzUL6SBtoAfjkPcVkdBVtcogVNfjrMmwymEVB shareAta=GQ4ZxqpZeA556kVuNhBfSDjgWstyHyunT7yNNmuPvjs1",
-      "tx": "3paSWNfRteyJeFXgnToiTH5bEqZPa7Jb6Tns7kGLae6ADNvJG7RpmzAU2Z13p2q7hf6Es1zLSU2xNWVQs2aaqSzm"
+      "detail": "wsolAta=3XSLRQR4XcVQbFaP6o9hJU6w92SBg9wURNGfyErzMRxc shareAta=6qTTdtTQd7fqWfesuHWRW9WE1CZhRZnPJADB9N3eRnMT",
+      "tx": "2v1MLK6TWBt8GBSe5KpV5htNkphxp4EYvkh76PrkXSaRWA6axpocxLWQmQabcDrrhDNyTQ9jqVdUQGi3zifo6qvX"
     },
     {
       "id": "P3",
       "title": "Retail join vault (deposit)",
       "status": "PASS",
       "detail": "deposited 0.05 wSOL; shares=50000000",
-      "tx": "5UieDpKyeCNNiYZXR1pE29kJcq5ced8pcCqW722P1Rx87EURPuCy4tLFLB7xHysRn33qibWyyPDygvEWSrtKycME"
+      "tx": "36vEuN91YEqrDWEAn7fgPJTkeRLtTzozkimZqWC8VSzvuVyjL3WtNA1mz6GiqgA5QxzFuqxWEgij1TNdprVGrjrk"
     },
     {
       "id": "P4",
       "title": "Retail create investor config (auto-follow default ON)",
       "status": "PASS",
       "detail": "InvestorVaultConfig PDA created; default auto_follow=true, follow_tp_sl=true",
-      "tx": "5H5uvWfxQzkESQkvR3pYFjZH9cNjzkvdCZ7mCcKRjpF6XJqyZbHDupgAR3JRLQ5GoZ5whoQ9NcY8b9peM56YYLsb"
+      "tx": "5RKw7nAp4iqKdjXca7zPZgVxL4i4M5zeEz6YGJ1Ta82YbjpoJ6ocBteT5DNaVU2EGyn9rp1WMxRXaiRwtzWqxXFd"
     },
     {
       "id": "P5",
       "title": "Retail follow ON",
       "status": "PASS",
       "detail": "auto_follow set true",
-      "tx": "5r7eX2kqbDB4PMaQtAreT196n4iVs67BpNenrUK4BFg2eQvtTz7DCLAnNrJsxgpoXXr99ahgHBrFjLX2fC3xUPht"
+      "tx": "2XJgdX2nNv6bHCFT45cpnNNDTb7umjmEpmYW7vRhxyd9rkpq83Ffg7ov29qhHtNKd8dwYLP5qNTinud4ep1tZ4KY"
     },
     {
       "id": "P6",
-      "title": "Retail set copy size 50%",
-      "status": "FAIL",
-      "detail": "AnchorError occurred. Error Code: InstructionDidNotDeserialize. Error Number: 102. Error Message: The program could not deserialize the given instruction. | Program log: AnchorError occurred. Error Code: InstructionDidNotDeserialize. Error Number: 102. Error Message: The program could not deserialize the given instruction."
+      "title": "Retail set copy size 50% (fix default position_size=0)",
+      "status": "PASS",
+      "detail": "Default Percentage+position_size=0 would allocate 0 and block mirror_position",
+      "tx": "2vvULaX2nSAC3vyptiN2oxxH6hrLP26m9f8r2YUh9y3xd7dWgjdFxRdLtsLFbpKkXA3rS9ozdjAxVDBhJYtRE45D"
+    },
+    {
+      "id": "P6b",
+      "title": "Degen park wSOL (share ATA for request_trade)",
+      "status": "PASS",
+      "detail": "deposited 10000000 lamports; strategistShareAccount initialized",
+      "tx": "2h77aH1BiPdiULMPvKLXzRuYXpjAXMEdqpnZCSxyK9LudPC3yF5J5CzpoYZieoM6mc8k64ZrhbsGhfpEB1qnFoxV"
     },
     {
       "id": "P7",
       "title": "Degen request_trade (buy + TP 30% / SL 10%)",
-      "status": "FAIL",
-      "detail": "provided too many arguments 1,[object Object],So11111111111111111111111111111111111111112,GSvLthscxBKfmMyQmbLeJmUuwpZwVupY156Rbwv7NrSC,[object Object],1000000,100,1,false,0,3000,1000,0,[object Object],[object Object] to instruction requestTrade expecting: tradeId,action,inputMint,outputMint,positionMode,amount,maxSlippageBps,minAmountOut,takeProfitBps,stopLossBps,linkedPositionId,tradeVenue"
+      "status": "PASS",
+      "detail": "trade_id=1 output_mint=79ZudEEt53egUwkTFhpuibQJGUpJMQhugj2RAZhY8VHe",
+      "tx": "35YYQ8mQf2Vwd1ogxCthpPZY7fmEXQJ6Vg6aMLBkiRer2x7pg5wDqTLyTRgLNfqeiJ1obpJdMimfVjGH1oUWpPsD"
     },
     {
       "id": "P8",
@@ -92,7 +101,7 @@
       "title": "Retail withdraw shares (real money TP / exit vault)",
       "status": "PASS",
       "detail": "burned 50000000 shares; this exits pooled capital even if degen still holds the trade",
-      "tx": "3teUzvwFtParrE5Sa2TthC7m1xULKmaWLhpVp1ee1LKfAD2RaJSrBfjTn4QZCHqXubJ4KZUFicazVV3NN8EhyF7U"
+      "tx": "3Kp8y2cm5prBzoY3pVbwHh8QVFqhRkXjdSD6cDU9yXNbfrxaQX9gfncnUoAbpXxLTwND4Pe4Q8irDTzAMmjkHm7D"
     }
   ]
 }
