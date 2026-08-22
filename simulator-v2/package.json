@@ -1,0 +1,33 @@
+{
+  "name": "1vault-simulator-v2",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "1Vault workflow simulator UI — routes to Go backend /v1/flows",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.31.1",
+    "@solana/spl-token": "^0.4.15",
+    "@solana/web3.js": "^1.98.4",
+    "@types/bn.js": "^5.2.0",
+    "@xyflow/react": "^12.11.3",
+    "bn.js": "^5.2.1",
+    "bs58": "^6.0.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tweetnacl": "^1.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1",
+    "vite-plugin-node-polyfills": "^0.28.0"
+  }
+}

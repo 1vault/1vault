@@ -11,6 +11,7 @@ import {
   submitDepositIntent,
   upsertInvestorMandate,
 } from "../ledger.js";
+import { componentStatus, touchHeartbeat } from "../heartbeat.js";
 
 const app = express();
 app.use(cors());
@@ -28,9 +29,19 @@ function asyncRoute(
   };
 }
 
-app.get("/health", (_req, res) => {
-  res.json({ ok: true, service: "onevault-indexer-api", cluster: config.cluster });
-});
+app.get("/health", asyncRoute(async (_req, res) => {
+  await touchHeartbeat("api");
+  const dev = await componentStatus("poller");
+  res.json({
+    ok: true,
+    service: "onevault-indexer-api",
+    cluster: config.cluster,
+    components: {
+      api: { ok: true },
+      dev,
+    },
+  });
+}));
 
 /** Record a deposit before it is sent on-chain. */
 app.post("/api/ledger/deposits", asyncRoute(async (req, res) => {

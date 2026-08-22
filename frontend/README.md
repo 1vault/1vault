@@ -1,36 +1,52 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 1Vault — Production frontend (Next.js)
 
-## Getting Started
+Next.js app for the 1Vault product UI.
 
-First, run the development server:
+## Getting started
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Backend integration
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Do **not** guess tx account order or flow steps from the on-chain IDL alone — use the Go backend as the source of truth for unsigned transactions.
 
-## Learn More
+| Resource | What you need |
+|----------|----------------|
+| **[backend/docs/FRONTEND_GUIDE.md](../backend/docs/FRONTEND_GUIDE.md)** | **Start here** — roles, licence (1VL), vault types, withdraw, flows, errors |
+| [backend/docs/openapi.yaml](../backend/docs/openapi.yaml) | OpenAPI / Swagger (`http://localhost:3090/v1/docs`) |
+| [backend/README.md](../backend/README.md) | Run API, smoke test, tx examples |
+| [simulator-v2/README.md](../simulator-v2/README.md) | Reference canvas UI (working integration) |
+| [ProgramID/onevault-program/docs/FRONTEND_BACKEND_INTEGRATION.md](../ProgramID/onevault-program/docs/FRONTEND_BACKEND_INTEGRATION.md) | Direct Anchor / PDA (advanced) |
 
-To learn more about Next.js, take a look at the following resources:
+## Key product rules (MVP)
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **Strategist** (`strategies` / degen): register → lock licence → create vault (**1M 1VL** locked per vault).
+- **Investor** (`investors` / retail): park SOL, auto-follow, **free withdraw** (redeem shares → native SOL).
+- **Vault type:** `pooled` (shared book) or `sliced` (slice books + management fee bps) — pass on create vault.
+- **Withdraw:** investor signs one bundled tx per vault; cap by liquid wSOL; 9-account `withdraw` layout includes `investor_config`.
+- **Wallet kind:** `eoa` (personal) vs `pda` (vault pubkey) on analytics endpoints.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Environment
 
-## Deploy on Vercel
+Use cluster-scoped backend URL and Solana RPC. See `FRONTEND_GUIDE.md` §2 and program docs for `NEXT_PUBLIC_*` variables.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Local stack
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+# Terminal 1 — backend
+cd backend && go run ./cmd/api
+
+# Terminal 2 — indexer (for vault list / holdings cache)
+cd ProgramID/onevault-indexer && npm run api && npm run dev
+
+# Terminal 3 — this app
+cd frontend && npm run dev
+
+# Optional — integration reference UI
+cd simulator-v2 && npm run dev   # :5174
+```

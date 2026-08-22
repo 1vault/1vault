@@ -10,8 +10,10 @@ Pooled Solana trading vaults. A **degen** and **retail** park SOL into the **sam
 |------|------|
 | [`ProgramID/onevault-program/`](./ProgramID/onevault-program/) | Anchor program (MVP) + TypeScript SDK / Devnet scripts |
 | [`ProgramID/onevault-indexer/`](./ProgramID/onevault-indexer/) | Postgres indexer, deposit ledger, REST API |
+| [`backend/`](./backend/) | Production REST API v1 in **Go** (Twitter auth, Swagger, `/v1`) |
 | [`frontend/`](./frontend/) | Production Next.js web app |
 | [`simulator/`](./simulator/) | Devnet workflow UI (reference, not production app) |
+| [`simulator-v2/`](./simulator-v2/) | Devnet canvas UI → Go backend `/v1/flows` (recommended for integration testing) |
 
 ## MVP on-chain (current program)
 
@@ -64,6 +66,13 @@ npm install && npm run dev
 cd simulator
 cp .env.example .env
 npm install && npm run dev
+
+# Simulator v2 (Go backend flows — see simulator-v2/README.md)
+cd simulator-v2
+cp .env.example .env
+npm install && npm run dev   # http://localhost:5174
 ```
+
+**Frontend integration:** [backend/docs/FRONTEND_GUIDE.md](./backend/docs/FRONTEND_GUIDE.md) — vault types, licence (1VL), withdraw, flows, simulator-v2 mapping.
 
 Do not commit private keys, `.env`, or RPC API keys.

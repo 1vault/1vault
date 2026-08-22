@@ -2,6 +2,10 @@
 
 How to connect web apps, mobile clients, and backend services to the **1Vault** program.
 
+> **REST-first (recommended):** Production app and simulator-v2 use the **Go backend** for unsigned tx prep and flows.
+> See [backend/docs/FRONTEND_GUIDE.md](../../../backend/docs/FRONTEND_GUIDE.md) for vault types, 1vault Licence (1VL), withdraw bundles, and flow modes.
+> This document covers **direct Anchor / PDA** usage when bypassing the backend.
+
 ---
 
 ## Quick reference

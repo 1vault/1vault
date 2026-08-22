@@ -66,7 +66,7 @@ const program = createOneVaultProgram(connection, wallet, idl);
 const vault = await fetchVault(program, strategist, 1);
 ```
 
-`withdraw` accounts (MVP): `investor`, `protocolConfig`, `vault`, share + token ATAs, `shareMint`, `tokenProgram` — no treasury, platform wallet, staker, or referral.
+`withdraw` accounts (devnet): `investor`, `protocolConfig`, `vault`, `investorShareAccount`, `investorTokenAccount`, `vaultTokenAccount`, `shareMint`, `investorConfig`, `tokenProgram` — free redeem, no treasury/platform fee accounts on MVP.
 
 `request_trade` (MVP): no `dcaEnabled` / `dcaIndex`; no `vaultRiskState` account.
 

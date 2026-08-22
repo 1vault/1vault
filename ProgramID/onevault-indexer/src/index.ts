@@ -8,6 +8,7 @@ import {
   redactRpcUrl,
   withRpcRetry,
 } from "./rpc.js";
+import { touchHeartbeat } from "./heartbeat.js";
 
 async function main(): Promise<void> {
   console.log("[1vault-indexer] migrating schema...");
@@ -24,8 +25,11 @@ async function main(): Promise<void> {
     `[1vault-indexer] polling ${redactRpcUrl(config.rpcUrl)} for program ${programId.toBase58()} from slot ${lastSlot}`
   );
 
+  await touchHeartbeat("poller");
+
   for (;;) {
     try {
+      await touchHeartbeat("poller");
       const sigs = await withRpcRetry("getSignaturesForAddress", () =>
         connection.getSignaturesForAddress(programId, { limit: 25 })
       );

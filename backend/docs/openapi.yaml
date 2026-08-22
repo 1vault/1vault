@@ -1,0 +1,2889 @@
+openapi: 3.0.3
+info:
+  title: 1Vault Backend API
+  version: 1.2.2
+  description: |
+    REST API for 1Vault (Solana vaults). Pass `cluster=devnet|mainnet-beta` or header `X-1Vault-Cluster`.
+
+    **Frontend integration guide:** `backend/docs/FRONTEND_GUIDE.md` (vault types, 1vault Licence / 1VL,
+    withdraw account layout, flow modes, simulator-v2 canvas mapping).
+
+    **Groups**
+    - **Token · Market** — spot price / kline chart
+    - **Token · Research** — token info / security / pool / holders / traders / holder analysis
+    - **Wallet · Analytics** — portfolio, activity, stats, created tokens, copy-trade score
+    - **Discover** — trending profiles, boosts, metas, pair search
+    - **Live · Stream** — WebSocket live feeds (profiles / boosts / takeovers / ads)
+    - **Account · Wallets** — bind Solana wallet to logged-in user
+    - **Tx · *** — unsigned tx prep (client signs → `/v1/tx/submit`)
+    - **Flows** — multi-step async jobs
+
+    Token market, research, and wallet analytics require market data to be configured.
+    Token metadata (`name` / `symbol` / links) is untrusted user-facing data.
+
+    **Wallet kind:** `walletKind=eoa` (individual/personal) vs `walletKind=pda` (vault wallet).
+    See Wallet · Analytics tag and `GET /v1/wallets/{walletAddress}/kind`.
+
+    **Roles:** `strategies` (formerly degen) and `investors` (formerly retail). Legacy `degen`/`retail` still accepted on write.
+
+    Expand any endpoint in Swagger to read **description** — what it does and when to use it.
+servers:
+  - url: http://localhost:3090
+    description: Local
+tags:
+  - name: System
+    description: Health, docs, ingest
+  - name: Auth
+    description: Twitter OAuth + JWT session
+  - name: Account · Wallets
+    description: |
+      Bind a Solana **EOA** (individual / personal) wallet to the logged-in user (nonce + signature).
+      Bound wallets always have `walletKind=eoa`. Vault PDAs are not account-bind wallets.
+  - name: Protocol
+    description: |
+      On-chain program addresses & config (`GET /v1/protocol`).
+
+      **1vault Licence (1VL):** `licenseMint`, `licenseLockAmount` (raw units; default 1_000_000 = 1M tokens per vault on `create_vault`).
+      Strategist path: `register-strategist` → `lock-license` → `create-vault` (locks 1VL into vault `vault_license` PDA).
+      Derive PDAs: `POST /v1/tx/resolve-accounts` with `strategist`. See **Tx · Setup** and FRONTEND_GUIDE.md.
+  - name: Vaults
+    description: |
+      Indexed vault reads. Vault pubkeys are **PDA** wallets (`walletKind=pda`).
+
+      **Vault type (product classification, off-chain):**
+      - `pooled` — Pooled Vault: all capital in one pool, same strategy; P&L by ownership share
+      - `sliced` — Sliced Vault: capital split into slices with different strategy/risk/exposure
+
+      Responses include `vaultType`, `vaultTypeLabel`, `vaultTypeMeaning`.
+      Filter list with `?vaultType=pooled|sliced`. Also encoded into create_vault as on-chain book mode.
+  - name: Actors
+    description: Strategies (strategists), Investors, trades, leaderboard
+  - name: Token · Market
+    description: |
+      Token market data — **always Solana mainnet**, independent of `?cluster=` (vault program cluster).
+      Price, kline, short analyze.
+  - name: Token · Research
+    description: |
+      Token research — **always Solana mainnet**. Info, security, pool, holders, traders, research, holder analysis.
+  - name: Discover
+    description: |
+      Market discovery — **Solana only**. Latest token profiles, boosts, community takeovers, ads, trending metas, and pair search.
+      Each item with a `tokenAddress` is enriched with `tokenMetadata` (full token detail).
+  - name: Live · Stream
+    description: |
+      WebSocket live streams for profiles, boosts, takeovers, and ads. Connect with a WS client (no cluster query required).
+  - name: Wallet · Analytics
+    description: |
+      Analyze any Solana wallet — holdings, activity, P&L stats, created tokens, and copy-trade score.
+      Market data always uses Solana mainnet (independent of `?cluster=`).
+
+      **`walletKind` flag (EOA vs PDA):**
+      - `eoa` — individual / personal wallet
+      - `pda` — vault wallet (program-derived / 1Vault vault)
+      Optional query `walletKind=eoa|pda` forces classification; otherwise known vault pubkeys → `pda`.
+      Responses include `walletKind`, `walletKindLabel` (`individual`|`vault`), and `walletKindMeaning`.
+  - name: Flows
+    description: |
+      Async multi-step on-chain jobs. Start with `POST /v1/flows` (`FlowStartParams`), poll `GET /v1/flows/{id}`,
+      sign each awaiting step, submit via `POST /v1/flows/{id}/submit`. See mode-specific required fields on `FlowStartParams`.
+
+      **Modes:** `create-vault` (incl. `vaultType` pooled|sliced), `deposit`, `configure-follow`, `withdraw` (single bundled step),
+      `open-position`, `exit-position`, `claim-fees`, `close-vault`.
+
+      **simulator-v2:** UI `withdraw-wallet` → backend `mode=withdraw` once per vault with on-chain shares.
+      Full mapping: `backend/docs/FRONTEND_GUIDE.md` §7.
+  - name: Tx · Setup
+    description: |
+      Strategist bootstrap — `resolve-accounts`, `register-strategist`, `lock-license`, `create-vault` (includes `vaultType`).
+  - name: Tx · Capital
+    description: |
+      Investor capital — `park` / `park-guest` (deposit) and `withdraw` (redeem shares → native SOL).
+      Withdraw bundles `update_nav`, creates wSOL + share ATAs, optional `create_investor_config`, then burns shares.
+      Cap redeem amount by liquid wSOL in the vault ATA (not locked in open positions).
+  - name: Tx · Follow
+    description: |
+      Investor follow path — create/update investor config, `follow-on` / `follow-off`.
+  - name: Tx · Trade
+    description: |
+      Trading lifecycle — `request-trade`, `execute-trade`, `open-position`, `reduce-position`, `exit-position`, `close-position`.
+      DEX program auto-picked from `PROGRAM_IDS`.
+  - name: Tx · Fees
+    description: |
+      Fee & NAV maintenance — `accrue-fees`, `claim-fees`, `update-nav`, `keeper-refresh`.
+  - name: Tx · Close
+    description: |
+      Vault wind-down — `initiate-close`, `close-vault`, `unlock-license`.
+  - name: Tx · Submit
+    description: |
+      Broadcast signed base64 tx (`signedTransaction`) and poll confirmation by signature.
+  - name: Ledger
+    description: |
+      Off-chain deposit intents & investor mandates (auth required). Complements on-chain park/withdraw.
+  - name: Features
+    description: |
+      Future product features. Write stubs return `501 FEATURE_NOT_ON_CHAIN`. Read endpoints return indexer cache when available.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    ClusterQuery:
+      name: cluster
+      in: query
+      required: true
+      description: |
+        Vault program cluster (`devnet` or `mainnet-beta`). Selects on-chain program addresses.
+        Token/wallet market analytics still use Solana mainnet market data regardless of this value.
+      schema:
+        type: string
+        enum: [devnet, mainnet-beta]
+    ClusterHeader:
+      name: X-1Vault-Cluster
+      in: header
+      required: false
+      schema:
+        type: string
+        enum: [devnet, mainnet-beta]
+      description: Alternative to cluster query param
+    WalletKindQuery:
+      name: walletKind
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [eoa, pda]
+      description: |
+        Wallet account kind.
+        - `eoa` — individual / personal wallet
+        - `pda` — vault wallet (program-derived)
+        Aliases: `individual`/`personal` → eoa, `vault` → pda.
+        If omitted, the API auto-detects: known vault pubkeys → `pda`, otherwise `eoa`.
+    VaultTypeQuery:
+      name: vaultType
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [pooled, sliced]
+      description: |
+        Product vault type filter.
+        - `pooled` — Pooled Vault (single pool / shared strategy)
+        - `sliced` — Sliced Vault (capital split across slices)
+    WalletAddressPath:
+      name: walletAddress
+      in: path
+      required: true
+      schema: { type: string }
+      description: Solana wallet address (EOA individual or vault PDA)
+  schemas:
+    WalletKindFields:
+      type: object
+      properties:
+        walletKind:
+          type: string
+          enum: [eoa, pda]
+          description: eoa = individual wallet; pda = vault wallet
+        walletKindLabel:
+          type: string
+          enum: [individual, vault]
+        walletKindMeaning:
+          type: string
+          example: Individual wallet (EOA)
+    VaultTypeFields:
+      type: object
+      properties:
+        vaultType:
+          type: string
+          enum: [pooled, sliced]
+          description: |
+            Product vault classification (off-chain metadata until the program supports slices).
+            - `pooled` — all investor capital in one pool
+            - `sliced` — capital split into slices
+        vaultTypeLabel:
+          type: string
+          enum: [Pooled Vault, Sliced Vault]
+        vaultTypeMeaning:
+          type: string
+          example: All investor capital is combined in one pool and run with the same strategy.
+    LicenseFields:
+      type: object
+      description: 1vault Licence (1VL) — platform token required to create vaults
+      properties:
+        licenseMint:
+          type: string
+          description: SPL mint pubkey (6 decimals on devnet)
+        licenseLockAmount:
+          type: string
+          description: Raw token units locked into vault_license on create_vault (default 1000000)
+        licenseName:
+          type: string
+          example: 1vault Licence
+        license:
+          type: string
+          description: Strategist licence PDA (from resolve-accounts)
+        licenseVault:
+          type: string
+          description: Token account holding locked 1VL for strategist licence record
+        strategistLicenseAta:
+          type: string
+          description: Strategist ATA for licence mint
+        licenseLocked:
+          type: string
+          example: "1000000 1VL"
+          description: Human-readable lock amount returned on create_vault prep accounts
+    RolePreference:
+      type: string
+      enum: [strategies, investors]
+      description: |
+        Product role language:
+        - `strategies` — Strategies side (formerly degen)
+        - `investors` — Investors side (formerly retail)
+        Legacy values `degen` / `retail` are still accepted on write and mapped automatically.
+    PreparedTx:
+      type: object
+      description: Unsigned prepared transaction returned by /v1/tx prep endpoints
+      properties:
+        transaction:
+          type: string
+          description: Base64 unsigned transaction
+        recentBlockhash:
+          type: string
+        feePayer:
+          type: string
+          description: Fee-payer pubkey
+        requiredSigners:
+          type: array
+          items:
+            type: string
+          description: Pubkeys that must sign before submit
+        message:
+          type: string
+        accounts:
+          type: object
+          additionalProperties:
+            type: string
+          description: Derived or related account pubkeys
+        signerDetails:
+          type: array
+          items:
+            $ref: "#/components/schemas/SignerDetail"
+          description: Who must sign — EOA in wallet vs server co-sign (ephemeral/keeper)
+        signingMode:
+          type: string
+          enum: [full, partial, server]
+          description: |
+            `full` — client signs all required signers.
+            `partial` — client signs EOA only; backend co-signs ephemeral on submit.
+            `server` — keeper-only step; backend auto-submits when KEEPER_KEYPAIR is set.
+    SignerDetail:
+      type: object
+      properties:
+        pubkey: { type: string }
+        signerKind:
+          type: string
+          enum: [eoa, ephemeral, keeper]
+        userMustSign:
+          type: boolean
+          description: True for strategist/investor EOA wallets; false for server-controlled signers
+    IndexerComponentHealth:
+      type: object
+      properties:
+        ok: { type: boolean }
+        lastSeenAt:
+          type: string
+          format: date-time
+          description: Last heartbeat from poller or api process
+        ageMs:
+          type: integer
+          format: int64
+          description: Milliseconds since lastSeenAt
+    IndexerHealthStatus:
+      type: object
+      description: |
+        `onevault-indexer` liveness. Requires `INDEXER_INGEST_URL` in backend `.env`.
+        - `api` — REST server (`npm run api`, default :3001)
+        - `dev` — polling indexer (`npm run dev`); heartbeat stale after ~30s without updates
+      properties:
+        configured:
+          type: boolean
+          description: False when INDEXER_INGEST_URL is unset
+        ok:
+          type: boolean
+          description: True only when both api and dev are up
+        api:
+          type: string
+          enum: [up, down, disabled, unknown]
+        dev:
+          type: string
+          enum: [up, down, disabled, unknown]
+        error:
+          type: string
+          description: Probe error when api is down
+        components:
+          type: object
+          properties:
+            api:
+              $ref: "#/components/schemas/IndexerComponentHealth"
+            dev:
+              $ref: "#/components/schemas/IndexerComponentHealth"
+    IngestInfo:
+      type: object
+      properties:
+        ok: { type: boolean }
+        events:
+          type: integer
+          description: Event rows indexed for the signature
+        error: { type: string }
+    HealthData:
+      type: object
+      properties:
+        ok:
+          type: boolean
+          description: Backend process + database reachable
+        service: { type: string, example: 1vault-backend }
+        version: { type: string, example: v1 }
+        runtime: { type: string, example: go }
+        defaultCluster: { type: string, example: devnet }
+        database:
+          type: string
+          enum: [up, down]
+        indexer:
+          $ref: "#/components/schemas/IndexerHealthStatus"
+        clusterHint: { type: string }
+    TxSubmitResponseData:
+      type: object
+      properties:
+        signature: { type: string }
+        status:
+          type: string
+          enum: [submitted]
+        ingest:
+          allOf:
+            - $ref: "#/components/schemas/IngestInfo"
+          nullable: true
+          description: Populated after async confirm+ingest completes; poll `/v1/tx/status/{signature}`
+    TxStatusResponseData:
+      type: object
+      properties:
+        signature: { type: string }
+        status:
+          type: string
+          enum: [unknown, processed, confirmed, finalized, failed, timeout]
+        slot: { type: integer, format: int64 }
+        err: {}
+        ingest:
+          allOf:
+            - $ref: "#/components/schemas/IngestInfo"
+          nullable: true
+    VaultResolveFields:
+      type: object
+      description: |
+        Resolve vault as either `vault` pubkey OR `strategist` + `vaultId` (>0).
+      properties:
+        vault:
+          type: string
+          description: Vault PDA pubkey
+        strategist:
+          type: string
+          description: Strategist wallet (also used to derive vault)
+        vaultId:
+          type: integer
+          format: int64
+          description: Vault id seed when deriving PDA
+    DexProgramEntry:
+      type: object
+      properties:
+        rank:
+          type: integer
+        programId:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+    PriceQuote:
+      type: object
+      properties:
+        mint: { type: string }
+        chain: { type: string }
+        symbol: { type: string }
+        name: { type: string }
+        decimals: { type: integer }
+        priceUsd: { type: number }
+        liquidityUsd: { type: number }
+        source: { type: string }
+        solPriceUsd: { type: number }
+    FlowInvestorIn:
+      type: object
+      properties:
+        pubkey: { type: string }
+        role:
+          $ref: "#/components/schemas/RolePreference"
+        lamports:
+          type: integer
+          format: int64
+          description: Deposit amount (required for deposit / create-vault park steps)
+        shares:
+          type: integer
+          format: int64
+          description: |
+            Share units to redeem (required for `withdraw` on investors[0]). Verify on-chain share ATA;
+            cap by vault liquid wSOL before starting the flow.
+        takeProfitBps: { type: integer }
+        stopLossBps: { type: integer }
+        autoFollow:
+          type: boolean
+          default: true
+        copyBps:
+          type: integer
+          format: int64
+    FlowStartParams:
+      type: object
+      required: [mode, strategist]
+      properties:
+        mode:
+          type: string
+          enum: [create-vault, deposit, configure-follow, withdraw, open-position, exit-position, claim-fees, close-vault]
+        strategist: { type: string }
+        vault: { type: string }
+        vaultId: { type: integer, format: int64 }
+        vaultTokenAccount:
+          type: string
+          description: Required for create-vault (fresh keypair pubkey)
+        name: { type: string }
+        performanceFeeBps: { type: integer }
+        vaultType:
+          type: string
+          enum: [pooled, sliced]
+          default: pooled
+          description: |
+            Book mode for new vault. `pooled` = shared book (on-chain mode 0).
+            `sliced` = slice books (on-chain mode 1; demo management fee 1000 bps).
+        investors:
+          type: array
+          items:
+            $ref: "#/components/schemas/FlowInvestorIn"
+        outputMint:
+          type: string
+          description: Required for open-position
+        tradeId: { type: integer, format: int64 }
+        positionId: { type: integer, format: int64 }
+        amount:
+          type: integer
+          format: int64
+          description: Required for open-position
+        entryValue: { type: integer, format: int64 }
+        outputAmount: { type: integer, format: int64 }
+        proceeds: { type: integer, format: int64 }
+        outputTokenAccount: { type: string }
+        takeProfitBps: { type: integer }
+        stopLossBps: { type: integer }
+        feeWallet: { type: string }
+        skipClosePosition: { type: boolean, default: false }
+        skipClaimFees: { type: boolean, default: false }
+        exitPercent:
+          type: number
+          description: 0-100 for exit-position
+        exitBps:
+          type: integer
+          description: 1-10000 overrides exitPercent
+        slippageBps: { type: integer }
+        minAmountOut: { type: integer, format: int64 }
+        baseAmount: { type: integer, format: int64 }
+        inputMint:
+          type: string
+          description: Required for exit-position
+        priorityFeeMicroLamports: { type: integer, format: int64 }
+        computeUnitLimit: { type: integer }
+        vaultInputToken: { type: string }
+        vaultOutputToken: { type: string }
+        holders:
+          type: array
+          items: { type: string }
+          description: Optional close-vault holder override
+    FlowStep:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        flowId: { type: string, format: uuid }
+        seq: { type: integer }
+        name: { type: string }
+        signerRole: { type: string }
+        signerPubkey: { type: string }
+        status:
+          type: string
+          enum: [pending, awaiting_signature, submitted, confirmed, skipped, failed]
+        prepared: { type: object }
+        requiredSigners:
+          type: array
+          items: { type: string }
+        signerDetails:
+          type: array
+          items:
+            $ref: "#/components/schemas/SignerDetail"
+        signature: { type: string }
+        error: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    FlowJob:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        cluster: { type: string }
+        mode: { type: string }
+        status:
+          type: string
+          enum: [pending, awaiting_signature, confirming, completed, failed, cancelled]
+        actorPubkey: { type: string }
+        params: { type: object }
+        context: { type: object }
+        error: { type: string }
+        currentStep: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/FlowStep"
+    TxParkBody:
+      allOf:
+        - $ref: "#/components/schemas/VaultResolveFields"
+        - type: object
+          required: [investor, vaultTokenAccount, lamports]
+          properties:
+            investor: { type: string }
+            vaultTokenAccount: { type: string }
+            lamports:
+              type: integer
+              format: int64
+              description: Must be greater than 0
+            role:
+              $ref: "#/components/schemas/RolePreference"
+            recordIntent:
+              type: boolean
+              default: false
+              description: When true and authenticated owner, also inserts deposit_intents row
+    TxWithdrawBody:
+      allOf:
+        - $ref: "#/components/schemas/VaultResolveFields"
+        - type: object
+          required: [investor, vaultTokenAccount, shares]
+          properties:
+            investor: { type: string }
+            vaultTokenAccount: { type: string }
+            shares:
+              type: integer
+              format: int64
+              description: |
+                Share units to burn (must be > 0). Use on-chain share ATA balance as source of truth;
+                cap by vault liquid wSOL before calling.
+    TxInvestorConfigBody:
+      allOf:
+        - $ref: "#/components/schemas/VaultResolveFields"
+        - type: object
+          required: [investor]
+          properties:
+            investor: { type: string }
+    TxUpdateInvestorConfigBody:
+      allOf:
+        - $ref: "#/components/schemas/VaultResolveFields"
+        - type: object
+          required: [investor]
+          properties:
+            investor: { type: string }
+            autoFollow: { type: boolean }
+            allocationMode: { type: integer }
+            positionSize: { type: integer, format: int64 }
+            maxPositionBps: { type: integer }
+            takeProfitBps: { type: integer }
+            stopLossBps: { type: integer }
+            followTpSl: { type: boolean }
+    TxFollowBody:
+      allOf:
+        - $ref: "#/components/schemas/VaultResolveFields"
+        - type: object
+          required: [investor]
+          properties:
+            investor: { type: string }
+    TxRequestTradeBody:
+      allOf:
+        - $ref: "#/components/schemas/VaultResolveFields"
+        - type: object
+          required: [strategist, outputMint, tradeId, amount]
+          properties:
+            strategist: { type: string }
+            shareAta: { type: string }
+            inputMint:
+              type: string
+              description: Required for sell when auto-prepping executeTrade
+            outputMint: { type: string }
+            tradeId: { type: integer, format: int64 }
+            amount: { type: integer, format: int64 }
+            action:
+              type: string
+              enum: [buy, sell]
+              default: buy
+            positionMode: { type: string }
+            slippageBps: { type: integer }
+            minAmountOut: { type: integer, format: int64 }
+            takeProfitBps: { type: integer }
+            stopLossBps: { type: integer }
+            linkedPositionId: { type: integer, format: int64 }
+            priorityFeeMicroLamports: { type: integer, format: int64 }
+            computeUnitLimit: { type: integer }
+            vaultTokenAccount:
+              type: string
+              description: Required for buy auto executeTrade
+            skipExecuteTrade:
+              type: boolean
+              default: false
+    TxExecuteTradeBody:
+      allOf:
+        - $ref: "#/components/schemas/VaultResolveFields"
+        - type: object
+          required: [strategist, tradeId]
+          properties:
+            strategist: { type: string }
+            tradeId: { type: integer, format: int64 }
+            vaultInputToken: { type: string }
+            vaultOutputToken: { type: string }
+            inputMint: { type: string }
+            outputMint: { type: string }
+            vaultTokenAccount: { type: string }
+            action:
+              type: string
+              enum: [buy, sell]
+            priorityFeeMicroLamports: { type: integer, format: int64 }
+            computeUnitLimit: { type: integer }
+    TxExitPositionBody:
+      allOf:
+        - $ref: "#/components/schemas/VaultResolveFields"
+        - type: object
+          required: [strategist, vaultTokenAccount, outputTokenAccount, positionId]
+          properties:
+            strategist: { type: string }
+            vaultTokenAccount: { type: string }
+            outputTokenAccount: { type: string }
+            positionId: { type: integer, format: int64 }
+            proceeds:
+              type: integer
+              format: int64
+              description: 0 means auto from market quote
+            exitPercent:
+              type: number
+              description: 0-100 used when exitBps omitted
+            exitBps:
+              type: integer
+              description: 1-10000 default 10000 full if both zero
+            priorityFeeMicroLamports: { type: integer, format: int64 }
+            computeUnitLimit: { type: integer }
+            alsoRequestSell:
+              type: boolean
+              default: false
+            tradeId:
+              type: integer
+              format: int64
+              description: Required when alsoRequestSell
+            inputMint: { type: string }
+            outputMint:
+              type: string
+              description: Default WSOL
+            baseAmount:
+              type: integer
+              format: int64
+              description: Required when alsoRequestSell
+            slippageBps: { type: integer }
+            minAmountOut: { type: integer, format: int64 }
+            takeProfitBps: { type: integer }
+            stopLossBps: { type: integer }
+    TxReducePositionBody:
+      allOf:
+        - $ref: "#/components/schemas/VaultResolveFields"
+        - type: object
+          required: [strategist, vaultTokenAccount, outputTokenAccount]
+          properties:
+            strategist: { type: string }
+            vaultTokenAccount: { type: string }
+            outputTokenAccount: { type: string }
+            positionId: { type: integer, format: int64 }
+            proceeds: { type: integer, format: int64 }
+            exitPercent: { type: number }
+            exitBps:
+              type: integer
+              description: 1-10000 required or derive from exitPercent
+            inputMint: { type: string }
+            baseAmount: { type: integer, format: int64 }
+            priorityFeeMicroLamports: { type: integer, format: int64 }
+            computeUnitLimit: { type: integer }
+    TxOpenPositionBody:
+      allOf:
+        - $ref: "#/components/schemas/VaultResolveFields"
+        - type: object
+          required: [strategist, tradeId, positionId]
+          properties:
+            strategist: { type: string }
+            tradeId: { type: integer, format: int64 }
+            positionId: { type: integer, format: int64 }
+            entryValue: { type: integer, format: int64 }
+            outputAmount: { type: integer, format: int64 }
+    TxClosePositionBody:
+      allOf:
+        - $ref: "#/components/schemas/VaultResolveFields"
+        - type: object
+          required: [strategist, vaultTokenAccount, outputTokenAccount]
+          properties:
+            strategist: { type: string }
+            vaultTokenAccount: { type: string }
+            outputTokenAccount: { type: string }
+            positionId: { type: integer, format: int64 }
+            proceeds: { type: integer, format: int64 }
+            inputMint: { type: string }
+            baseAmount: { type: integer, format: int64 }
+    TxAccrueFeesBody:
+      allOf:
+        - $ref: "#/components/schemas/VaultResolveFields"
+        - type: object
+          required: [payer]
+          properties:
+            payer: { type: string }
+    TxClaimFeesBody:
+      allOf:
+        - $ref: "#/components/schemas/VaultResolveFields"
+        - type: object
+          required: [strategist, vaultTokenAccount]
+          properties:
+            strategist: { type: string }
+            vaultTokenAccount: { type: string }
+            feeWallet:
+              type: string
+              description: Defaults to cluster strategiesFeeWallet
+    TxNavKeeperBody:
+      allOf:
+        - $ref: "#/components/schemas/VaultResolveFields"
+        - type: object
+          required: [payer, vaultTokenAccount]
+          properties:
+            payer: { type: string }
+            vaultTokenAccount: { type: string }
+    TxInitiateCloseBody:
+      allOf:
+        - $ref: "#/components/schemas/VaultResolveFields"
+        - type: object
+          required: [strategist]
+          properties:
+            strategist: { type: string }
+    TxCloseVaultBody:
+      allOf:
+        - $ref: "#/components/schemas/VaultResolveFields"
+        - type: object
+          required: [strategist, vaultTokenAccount]
+          properties:
+            strategist: { type: string }
+            vaultTokenAccount: { type: string }
+            holders:
+              type: array
+              items: { type: string }
+              description: Optional default investors with shares greater than 0 from vault_holdings
+    TxStrategistOnlyBody:
+      type: object
+      required: [strategist]
+      properties:
+        strategist: { type: string }
+    TxCreateVaultBody:
+      type: object
+      required: [strategist, vaultTokenAccount, vaultId]
+      properties:
+        strategist: { type: string }
+        vaultTokenAccount: { type: string }
+        vaultId: { type: integer, format: int64 }
+        name: { type: string }
+        performanceFeeBps: { type: integer }
+        description: { type: string }
+        maxSlippageBps: { type: integer }
+        baseMint: { type: string }
+        allowedMints:
+          type: array
+          items: { type: string }
+        vaultType:
+          type: string
+          enum: [pooled, sliced]
+          default: pooled
+    TxResolveAccountsBody:
+      type: object
+      properties:
+        strategist: { type: string }
+        investor: { type: string }
+        vault: { type: string }
+        vaultId: { type: integer, format: int64 }
+    TxSubmitBody:
+      type: object
+      required: [signedTransaction]
+      properties:
+        signedTransaction:
+          type: string
+          description: Base64 signed transaction
+        depositIntentId:
+          type: integer
+          description: Optional marks ledger deposit intent submitted
+        ingest:
+          type: boolean
+          default: true
+          description: When indexer is configured, async confirm then ingest (set false to skip)
+        signerDetails:
+          type: array
+          items:
+            $ref: "#/components/schemas/SignerDetail"
+        serverSigners:
+          type: object
+          additionalProperties: { type: string }
+          description: Optional pubkey to base58 secret for ephemeral co-sign
+    LedgerDepositCreateBody:
+      type: object
+      required: [vault, investor, role, amount]
+      properties:
+        vault: { type: string }
+        investor:
+          type: string
+          description: Must be a bound EOA wallet of the caller
+        role:
+          $ref: "#/components/schemas/RolePreference"
+        amount:
+          type: string
+          description: Lamports as decimal digit string
+        takeProfitBps: { type: integer }
+        stopLossBps: { type: integer }
+    LedgerDepositSubmitBody:
+      type: object
+      required: [signature]
+      properties:
+        signature:
+          type: string
+          description: On-chain tx signature length at least 32
+    LedgerDepositFailBody:
+      type: object
+      properties:
+        error:
+          type: string
+          default: failed
+          description: Truncated to 500 chars
+    LedgerMandateBody:
+      type: object
+      required: [vault, investor]
+      properties:
+        vault: { type: string }
+        investor: { type: string }
+        role:
+          $ref: "#/components/schemas/RolePreference"
+        parkAmount:
+          type: string
+          default: "0"
+        takeProfitBps: { type: integer }
+        stopLossBps: { type: integer }
+        autoFollow:
+          type: boolean
+          default: true
+    IngestBody:
+      type: object
+      required: [signature]
+      properties:
+        signature: { type: string }
+    FeatureNotOnChain:
+      type: object
+      description: 501 stub until program supports the feature
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: FEATURE_NOT_ON_CHAIN
+            message: { type: string }
+            details:
+              type: object
+              properties:
+                feature: { type: string }
+
+paths:
+  /v1/health:
+    get:
+      tags: [System]
+      summary: Health check
+      description: |
+        Liveness probe for the backend API and dependencies.
+
+        **`indexer` object** (when `INDEXER_INGEST_URL` is set):
+        - `api` — `onevault-indexer` REST (`npm run api`)
+        - `dev` — polling worker (`npm run dev`); uses DB heartbeat, stale after ~30s
+        - `ok` — `true` only when both `api` and `dev` are `up`
+
+        Returns `503` when PostgreSQL is unreachable.
+      responses:
+        "200":
+          description: Backend healthy (database up)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data:
+                    $ref: "#/components/schemas/HealthData"
+                  meta: { type: object }
+                  error: { nullable: true }
+              example:
+                success: true
+                data:
+                  ok: true
+                  service: 1vault-backend
+                  version: v1
+                  runtime: go
+                  defaultCluster: devnet
+                  database: up
+                  indexer:
+                    configured: true
+                    ok: true
+                    api: up
+                    dev: up
+                    components:
+                      api: { ok: true }
+                      dev: { ok: true, lastSeenAt: "2026-08-22T13:20:00.000Z", ageMs: 1200 }
+                  clusterHint: devnet
+        "503":
+          description: Database unreachable
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean, example: true }
+                  data:
+                    $ref: "#/components/schemas/HealthData"
+  /v1/protocol:
+    get:
+      tags: [Protocol]
+      summary: Protocol addresses & DEX program IDs
+      description: |
+        Returns on-chain program IDs, PDAs, licence mint, and configured DEX programs for the selected cluster.
+
+        **Licence (1VL):** `licenseMint`, `licenseLockAmount` (per-vault lock on create_vault).
+        Display as **1vault Licence** — default lock 1,000,000 tokens. See `LicenseFields` schema and FRONTEND_GUIDE.md §3.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      responses:
+        "200":
+          description: Protocol addresses
+  /v1/protocol/state:
+    get:
+      tags: [Protocol]
+      summary: Protocol on-chain / DB state snapshot
+      description: |
+        Snapshot of protocol-level state from DB/indexer for the selected cluster. Useful for dashboards and ops checks.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      responses:
+        "200":
+          description: Protocol state
+  /v1/tokens/{mint}/price:
+    get:
+      tags: [Token · Market]
+      summary: Get real-time USD spot price
+      description: |
+        Returns the current USD price for a token mint (Solana mainnet market data). Optionally pass `amount` + `exitBps` to estimate sell notional in USD and SOL proceeds (lamports) — used to auto-fill exit/reduce proceeds.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: mint
+          in: path
+          required: true
+          schema: { type: string }
+          description: Token mint address (Solana)
+        - name: amount
+          in: query
+          schema: { type: integer }
+          description: Raw token units — returns notionalUsd + proceedsLamports
+        - name: exitBps
+          in: query
+          schema: { type: integer }
+          description: "1-10000 portion when amount is set (default 10000)"
+      responses:
+        "200":
+          description: Quote (+ optional proceeds estimate)
+        "429":
+          description: Market data rate limited
+        "503":
+          description: Market data not configured
+  /v1/tokens/{mint}/kline:
+    get:
+      tags: [Token · Market]
+      summary: Get OHLCV price candles (chart)
+      description: |
+        Returns candlestick/OHLCV data for charting. Choose `resolution` and optional `from`/`to` (unix seconds). Also returns `lastClose` for a quick last price.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: mint
+          in: path
+          required: true
+          schema: { type: string }
+          description: Token mint address (Solana)
+        - name: resolution
+          in: query
+          schema: { type: string, enum: [30s, 1m, 5m, 15m, 1h, 4h, 1d], default: 1m }
+        - name: from
+          in: query
+          schema: { type: integer }
+          description: Unix seconds
+        - name: to
+          in: query
+          schema: { type: integer }
+          description: Unix seconds
+      responses:
+        "200":
+          description: Candles + lastClose
+  /v1/tokens/{mint}/analyze:
+    get:
+      tags: [Token · Market]
+      summary: Quick 1h price move analysis
+      description: |
+        Combines spot quote with roughly the last hour of kline data: open/close, % change, and volume. Use for a fast “is it pumping/dumping?” check.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: mint
+          in: path
+          required: true
+          schema: { type: string }
+          description: Token mint address (Solana)
+      responses:
+        "200":
+          description: Analyze summary
+  /v1/tokens/{mint}/info:
+    get:
+      tags: [Token · Research]
+      summary: Token profile + market cap
+      description: |
+        Full token profile: name/symbol/decimals, liquidity, holders, supply, price, launchpad fields, and derived `marketCapUsd`.
+        Also attaches DEX `pairs` / `bestPair` / `media` when available. Metadata fields are untrusted.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: mint
+          in: path
+          required: true
+          schema: { type: string }
+          description: Token mint address (Solana)
+      responses:
+        "200":
+          description: Token info (metadata fields are untrusted)
+  /v1/tokens/{mint}/security:
+    get:
+      tags: [Token · Research]
+      summary: Token security / rug-risk metrics
+      description: |
+        Security audit-style fields (honeypot flags, renounce/mint/freeze status, and related risk signals). Use before buying to screen obvious rug/honeypot risks.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: mint
+          in: path
+          required: true
+          schema: { type: string }
+          description: Token mint address (Solana)
+      responses:
+        "200":
+          description: Security payload
+  /v1/tokens/{mint}/pool:
+    get:
+      tags: [Token · Research]
+      summary: Liquidity pool details
+      description: |
+        Returns the main liquidity pool info for the token (pool address, reserves/liquidity context). Use when you need pool-level detail beyond the summary in `/info`.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: mint
+          in: path
+          required: true
+          schema: { type: string }
+          description: Token mint address (Solana)
+      responses:
+        "200":
+          description: Pool payload
+  /v1/tokens/{mint}/holders:
+    get:
+      tags: [Token · Research]
+      summary: List top token holders
+      description: |
+        Paged/sorted list of top holders. Filter with `tag` (e.g. `dev`, `sniper`, `bundler`, `smart_degen`). Use to inspect who owns the supply.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: mint
+          in: path
+          required: true
+          schema: { type: string }
+          description: Token mint address (Solana)
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+        - name: orderBy
+          in: query
+          schema: { type: string, default: amount_percentage }
+        - name: direction
+          in: query
+          schema: { type: string, enum: [asc, desc], default: desc }
+        - name: tag
+          in: query
+          schema: { type: string, description: "smart_degen|renowned|dev|sniper|bundler|…" }
+      responses:
+        "200":
+          description: Holders list
+  /v1/tokens/{mint}/traders:
+    get:
+      tags: [Token · Research]
+      summary: List top traders on this token
+      description: |
+        Top traders by activity/profit for the token. Use to see who is actively buying/selling, not just who currently holds.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: mint
+          in: path
+          required: true
+          schema: { type: string }
+          description: Token mint address (Solana)
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+        - name: orderBy
+          in: query
+          schema: { type: string, default: amount_percentage }
+        - name: direction
+          in: query
+          schema: { type: string, enum: [asc, desc], default: desc }
+        - name: tag
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Traders list
+  /v1/tokens/{mint}/research:
+    get:
+      tags: [Token · Research]
+      summary: One-shot due-diligence bundle
+      description: |
+        Convenience bundle: token info + security + pool, plus DEX `pairs` / `bestPair` when available. Prefer `/detail` for the fullest merged payload.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: mint
+          in: path
+          required: true
+          schema: { type: string }
+          description: Token mint address (Solana)
+      responses:
+        "200":
+          description: Research summary
+  /v1/tokens/{mint}/holder-analysis:
+    get:
+      tags: [Token · Research]
+      summary: Holder chip-structure analysis + rating
+      description: |
+        Deep holder analysis: concentration (top10/20), burn/DEX vs normal supply, airdrop & risk wallets (bundler/sniper/rat), related/sybil funding clusters, smart money/KOL/whale signals, Dev holding, buying-power buckets, and an overall buy-rating (`normal` / `light` / `caution` / `not_recommended`). Use to judge if holder structure looks healthy before entering.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: mint
+          in: path
+          required: true
+          schema: { type: string }
+          description: Token mint address (Solana)
+      responses:
+        "200":
+          description: Concentration, risk, related wallets, rating
+  /v1/tokens/{mint}/detail:
+    get:
+      tags: [Token · Research]
+      summary: Full token detail (research + pairs merged)
+      description: |
+        Combined token detail: research profile/security/pool plus all DEX pairs, best pair, media, and paid listing orders.
+        Use this for a complete token page in one call.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: mint
+          in: path
+          required: true
+          schema: { type: string }
+          description: Token mint address (Solana)
+      responses:
+        "200":
+          description: Merged token detail
+  /v1/tokens/{mint}/pairs:
+    get:
+      tags: [Token · Research]
+      summary: All DEX pairs for a token
+      description: |
+        Lists liquidity pairs for the mint (price, volume, liquidity, txns). Includes `bestPair` by liquidity.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: mint
+          in: path
+          required: true
+          schema: { type: string }
+          description: Token mint address (Solana)
+        - name: chainId
+          in: query
+          schema: { type: string, default: solana }
+      responses:
+        "200":
+          description: Pairs + bestPair
+  /v1/tokens/{mint}/orders:
+    get:
+      tags: [Token · Research]
+      summary: Token listing / boost orders
+      description: |
+        Paid listing or boost orders associated with the token (if any).
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: mint
+          in: path
+          required: true
+          schema: { type: string }
+          description: Token mint address (Solana)
+        - name: chainId
+          in: query
+          schema: { type: string, default: solana }
+      responses:
+        "200":
+          description: Orders payload
+  /v1/discover/profiles/latest:
+    get:
+      tags: [Discover]
+      summary: Latest token profiles
+      description: |
+        Newest curated Solana token profiles. Each item includes `tokenMetadata` from token detail when available.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      responses:
+        "200":
+          description: Profile list
+  /v1/discover/profiles/recent:
+    get:
+      tags: [Discover]
+      summary: Recently updated token profiles
+      description: |
+        Token profiles that were recently edited/updated.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      responses:
+        "200":
+          description: Profile list
+  /v1/discover/takeovers/latest:
+    get:
+      tags: [Discover]
+      summary: Latest community takeovers
+      description: |
+        Tokens with recent community takeover claims.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      responses:
+        "200":
+          description: Takeover list
+  /v1/discover/ads/latest:
+    get:
+      tags: [Discover]
+      summary: Latest ads
+      description: |
+        Latest Solana promoted token ads. Each ad includes `tokenMetadata` for its `tokenAddress`.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      responses:
+        "200":
+          description: Ads list
+  /v1/discover/boosts/latest:
+    get:
+      tags: [Discover]
+      summary: Latest boosted tokens
+      description: |
+        Recently boosted tokens (amount / totalAmount).
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      responses:
+        "200":
+          description: Boost list
+  /v1/discover/boosts/top:
+    get:
+      tags: [Discover]
+      summary: Top actively boosted tokens
+      description: |
+        Tokens with the most active boosts right now.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      responses:
+        "200":
+          description: Boost list
+  /v1/discover/search:
+    get:
+      tags: [Discover]
+      summary: Search pairs by name/symbol/address
+      description: |
+        Full-text style pair search. Pass `q` (token name, symbol, or address).
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: q
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Matching pairs
+  /v1/discover/metas/trending:
+    get:
+      tags: [Discover]
+      summary: Trending metas / narratives
+      description: |
+        Trending market metas (narratives) with marketCap, liquidity, volume, and tokenCount.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      responses:
+        "200":
+          description: Meta list
+  /v1/discover/metas/{slug}:
+    get:
+      tags: [Discover]
+      summary: Meta detail + pairs
+      description: |
+        One meta/narrative by slug, including related pairs.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: slug
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Meta with pairs
+  /v1/discover/pairs/{chainId}/{pairId}:
+    get:
+      tags: [Discover]
+      summary: Get one pair by chain + pair address
+      description: |
+        Returns pair market data (price, volume, liquidity, txns) for a specific pool.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: chainId
+          in: path
+          required: true
+          schema: { type: string, example: solana }
+        - name: pairId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Pair payload
+  /v1/stream/profiles/latest:
+    get:
+      tags: [Live · Stream]
+      summary: Live stream — latest profiles (WebSocket)
+      description: |
+        **WebSocket endpoint** — connect with `ws://` / `wss://` (Swagger "Try it out" uses plain HTTP and returns a JSON guide + snapshot).
+        No `cluster` query required. Live updates require a WebSocket client.
+      responses:
+        "101":
+          description: Switching Protocols (WebSocket)
+        "200":
+          description: JSON guide + optional snapshot when called without WebSocket Upgrade
+  /v1/stream/profiles/recent:
+    get:
+      tags: [Live · Stream]
+      summary: Live stream — recent profile updates (WebSocket)
+      description: |
+        **WebSocket** — use `ws://` / `wss://`. Plain HTTP returns a JSON guide + snapshot.
+      responses:
+        "101":
+          description: Switching Protocols (WebSocket)
+        "200":
+          description: JSON guide + optional snapshot when called without WebSocket Upgrade
+  /v1/stream/takeovers/latest:
+    get:
+      tags: [Live · Stream]
+      summary: Live stream — community takeovers (WebSocket)
+      description: |
+        **WebSocket** — use `ws://` / `wss://`. Plain HTTP returns a JSON guide + snapshot.
+      responses:
+        "101":
+          description: Switching Protocols (WebSocket)
+        "200":
+          description: JSON guide + optional snapshot when called without WebSocket Upgrade
+  /v1/stream/ads/latest:
+    get:
+      tags: [Live · Stream]
+      summary: Live stream — ads (WebSocket)
+      description: |
+        **WebSocket** — use `ws://` / `wss://`. Plain HTTP returns a JSON guide + snapshot.
+      responses:
+        "101":
+          description: Switching Protocols (WebSocket)
+        "200":
+          description: JSON guide + optional snapshot when called without WebSocket Upgrade
+  /v1/stream/boosts/latest:
+    get:
+      tags: [Live · Stream]
+      summary: Live stream — latest boosts (WebSocket)
+      description: |
+        **WebSocket** — use `ws://` / `wss://`. Plain HTTP returns a JSON guide + snapshot.
+      responses:
+        "101":
+          description: Switching Protocols (WebSocket)
+        "200":
+          description: JSON guide + optional snapshot when called without WebSocket Upgrade
+  /v1/stream/boosts/top:
+    get:
+      tags: [Live · Stream]
+      summary: Live stream — top boosts (WebSocket)
+      description: |
+        **WebSocket** — use `ws://` / `wss://`. Plain HTTP returns a JSON guide + snapshot.
+      responses:
+        "101":
+          description: Switching Protocols (WebSocket)
+        "200":
+          description: JSON guide + optional snapshot when called without WebSocket Upgrade
+  /v1/wallets/{walletAddress}/kind:
+    get:
+      tags: [Wallet · Analytics]
+      summary: Classify wallet as EOA or PDA
+      description: |
+        Returns `walletKind` for an address:
+        - `eoa` — individual / personal wallet
+        - `pda` — vault wallet (program-derived)
+        Pass optional `walletKind` to force; otherwise known vault pubkeys auto-resolve to `pda`.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - $ref: "#/components/parameters/WalletAddressPath"
+        - $ref: "#/components/parameters/WalletKindQuery"
+      responses:
+        "200":
+          description: "Classification payload (`walletKind`, `walletKindLabel`, `walletKindMeaning`)"
+  /v1/wallets/{walletAddress}/holdings:
+    get:
+      tags: [Wallet · Analytics]
+      summary: Wallet token holdings with P&L
+      description: |
+        Lists open (and optionally closed) token positions for a wallet with cost basis, USD value, realized/unrealized P&L. Requires market signing key. Includes `walletKind` (`eoa` individual / `pda` vault). Use for portfolio screens and copy-trade research.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - $ref: "#/components/parameters/WalletKindQuery"
+        - $ref: "#/components/parameters/WalletAddressPath"
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 50 }
+        - name: orderBy
+          in: query
+          schema: { type: string }
+        - name: direction
+          in: query
+          schema: { type: string, enum: [asc, desc] }
+        - name: cursor
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: Holdings payload
+        "503":
+          description: Market signing key not configured
+  /v1/wallets/{walletAddress}/activity:
+    get:
+      tags: [Wallet · Analytics]
+      summary: Wallet trade / transfer history
+      description: |
+        Chronological activity feed (buy/sell/transfers/LP). Supports `token`, `type`, and `cursor` pagination. Includes `walletKind` (`eoa`/`pda`). Use to audit how a wallet trades over time.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - $ref: "#/components/parameters/WalletKindQuery"
+        - $ref: "#/components/parameters/WalletAddressPath"
+        - name: token
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer }
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: type
+          in: query
+          schema: { type: string }
+          description: Repeatable — buy|sell|transferIn|transferOut|add|remove
+      responses:
+        "200":
+          description: Activity page
+  /v1/wallets/{walletAddress}/stats:
+    get:
+      tags: [Wallet · Analytics]
+      summary: Wallet trading performance stats
+      description: |
+        Aggregated trading stats for 7d or 30d: realized P&L, win rate, buy/sell counts, PnL distribution, avg hold time, identity tags. Pass extra `wallet` query params for batch. Response includes `walletKind` and `walletKinds` map. Use for leaderboards and “is this trader good?” checks.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - $ref: "#/components/parameters/WalletKindQuery"
+        - $ref: "#/components/parameters/WalletAddressPath"
+        - name: period
+          in: query
+          schema: { type: string, enum: [7d, 30d], default: 7d }
+        - name: wallet
+          in: query
+          schema: { type: string }
+          description: Extra wallets for batch stats
+      responses:
+        "200":
+          description: Stats payload
+  /v1/wallets/{walletAddress}/token-balance:
+    get:
+      tags: [Wallet · Analytics]
+      summary: Balance of one token in a wallet
+      description: |
+        Returns the wallet’s balance/position for a single `token` mint. Includes `walletKind` (`eoa`/`pda`). Lighter than full holdings when you only need one asset.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - $ref: "#/components/parameters/WalletKindQuery"
+        - $ref: "#/components/parameters/WalletAddressPath"
+        - name: token
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Token balance
+  /v1/wallets/{walletAddress}/created-tokens:
+    get:
+      tags: [Wallet · Analytics]
+      summary: Tokens launched by this wallet (dev history)
+      description: |
+        Lists tokens created by the wallet with market cap / ATH / migration (graduated vs bonding-curve) filters. Includes `walletKind` (`eoa`/`pda`). Use to judge a developer’s launch track record.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - $ref: "#/components/parameters/WalletKindQuery"
+        - $ref: "#/components/parameters/WalletAddressPath"
+        - name: orderBy
+          in: query
+          schema: { type: string, enum: [market_cap, token_ath_mc] }
+        - name: direction
+          in: query
+          schema: { type: string, enum: [asc, desc] }
+        - name: migrateState
+          in: query
+          schema: { type: string, enum: [migrated, non_migrated] }
+      responses:
+        "200":
+          description: Created tokens
+  /v1/wallets/{walletAddress}/score:
+    get:
+      tags: [Wallet · Analytics]
+      summary: Copy-trade scorecard for a wallet
+      description: |
+        Computes track-record score, copy-tradeability score, style tags, latency/slippage/gas backtest, and (if mostly a launcher) Dev-reputation. Includes `walletKind` (`eoa` individual / `pda` vault). Use to decide whether following/copying this wallet is realistic.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - $ref: "#/components/parameters/WalletKindQuery"
+        - $ref: "#/components/parameters/WalletAddressPath"
+        - name: latency
+          in: query
+          schema: { type: number, default: 3 }
+          description: Assumed entry lag in seconds
+        - name: slippage
+          in: query
+          schema: { type: number, default: 0.05 }
+          description: One-sided slippage fraction
+        - name: gas
+          in: query
+          schema: { type: number, default: 0.2 }
+          description: Gas cost USD per trade
+        - name: sample
+          in: query
+          schema: { type: integer, default: 200, maximum: 400 }
+      responses:
+        "200":
+          description: Score report
+  /v1/wallets/profits:
+    post:
+      tags: [Wallet · Analytics]
+      summary: Batch P&L for many wallets
+      description: |
+        POST up to 100 wallet addresses and get P&L for a period (`1d`/`7d`/`30d`/`all`). Optional body `walletKind` (default for all) or `walletKinds` map. Response includes `walletKinds`. Use for comparing or ranking multiple wallets at once.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [wallets]
+              properties:
+                wallets:
+                  type: array
+                  items: { type: string }
+                  maxItems: 100
+                period:
+                  type: string
+                  enum: [1d, 7d, 30d, all]
+                  default: 7d
+                walletKind:
+                  type: string
+                  enum: [eoa, pda]
+                  description: Default kind for all wallets — eoa=individual, pda=vault
+                walletKinds:
+                  type: object
+                  additionalProperties:
+                    type: string
+                    enum: [eoa, pda]
+                  description: Per-address walletKind override
+      responses:
+        "200":
+          description: "Batch profits (includes `walletKinds` map)"
+  /v1/vaults:
+    get:
+      tags: [Vaults]
+      summary: List indexed vaults
+      description: |
+        Paginated list of vaults known to the indexer for the cluster. Entry point for vault discovery/browse UI.
+        Each item includes `vaultType` / `vaultTypeLabel` / `vaultTypeMeaning` (default `pooled`).
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - $ref: "#/components/parameters/VaultTypeQuery"
+      responses:
+        "200":
+          description: Paginated vaults
+  /v1/vaults/{pubkey}:
+    get:
+      tags: [Vaults]
+      summary: Get vault detail
+      description: |
+        Single vault record (config, strategist, fees, status, etc.). The vault pubkey is a **PDA** wallet
+        (`walletKind=pda`, `walletKindLabel=vault`). Also returns `vaultType*` fields. Use for vault detail pages.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: pubkey
+          in: path
+          required: true
+          schema: { type: string }
+          description: On-chain account pubkey
+      responses:
+        "200":
+          description: Vault detail
+  /v1/vaults/{pubkey}/holdings:
+    get:
+      tags: [Vaults]
+      summary: Vault token holdings
+      description: |
+        Holder book for a vault. Response includes `walletKind=pda` (vault wallet) and `vaultType*` fields.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: pubkey
+          in: path
+          required: true
+          schema: { type: string }
+          description: On-chain account pubkey
+      responses:
+        "200":
+          description: Holdings
+  /v1/vaults/{pubkey}/positions:
+    get:
+      tags: [Vaults]
+      summary: Vault open positions
+      description: |
+        Open trading positions tracked for this vault.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: pubkey
+          in: path
+          required: true
+          schema: { type: string }
+          description: On-chain account pubkey
+      responses:
+        "200":
+          description: Positions
+  /v1/vaults/{pubkey}/fees:
+    get:
+      tags: [Vaults]
+      summary: Vault fee accounting
+      description: |
+        Fee-related state/history for the vault (accrued/claimed performance fees, etc.).
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: pubkey
+          in: path
+          required: true
+          schema: { type: string }
+          description: On-chain account pubkey
+      responses:
+        "200":
+          description: Fees
+  /v1/vaults/{pubkey}/trades:
+    get:
+      tags: [Vaults]
+      summary: Vault trade history
+      description: |
+        Indexed trades executed by this vault.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: pubkey
+          in: path
+          required: true
+          schema: { type: string }
+          description: On-chain account pubkey
+      responses:
+        "200":
+          description: Trades
+  /v1/vaults/{pubkey}/nav:
+    get:
+      tags: [Vaults]
+      summary: Vault NAV history
+      description: |
+        NAV snapshots over time for charts and performance tracking.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: pubkey
+          in: path
+          required: true
+          schema: { type: string }
+          description: On-chain account pubkey
+      responses:
+        "200":
+          description: NAV snapshots
+  /v1/vaults/{pubkey}/payouts:
+    get:
+      tags: [Vaults]
+      summary: Vault close payouts
+      description: |
+        Payout records related to vault close / investor distributions.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: pubkey
+          in: path
+          required: true
+          schema: { type: string }
+          description: On-chain account pubkey
+      responses:
+        "200":
+          description: Close payouts
+  /v1/vaults/{pubkey}/follows:
+    get:
+      tags: [Vaults]
+      summary: Vault follow events
+      description: |
+        Investor follow on/off history for this vault.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: pubkey
+          in: path
+          required: true
+          schema: { type: string }
+          description: On-chain account pubkey
+      responses:
+        "200":
+          description: Follow events
+  /v1/leaderboard:
+    get:
+      tags: [Actors]
+      summary: Top 10 vault leaderboard
+      description: |
+        Returns at most **10** vaults ranked by profit (`return_pct`) descending.
+        Tie-break: higher `nav` first.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      responses:
+        "200":
+          description: "`{ items (≤10), limit: 10, orderBy: return_pct }`"
+  /v1/trades:
+    get:
+      tags: [Actors]
+      summary: List indexed trades
+      description: |
+        Trade feed from the indexer. Omit `vault` for a global recent feed, or pass `vault` to filter one vault PDA.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: vault
+          in: query
+          required: false
+          schema: { type: string }
+          description: Optional vault pubkey filter
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 100, minimum: 1, maximum: 200 }
+      responses:
+        "200":
+          description: "`{ items, vault, limit }`"
+  /v1/auth/twitter/start:
+    get:
+      tags: [Auth]
+      summary: Start Twitter OAuth login
+      description: |
+        Returns the Twitter OAuth URL (PKCE). Redirect the user to `data.url` to begin login.
+
+        Optional `returnTo` — full callback URL on an allowed origin (must match `CORS_ORIGINS` or `FRONTEND_URL`).
+        Stored in `auth_states.return_to` and used after Twitter redirects to `/v1/auth/twitter/callback`
+        to send tokens to the client app hash: `{returnTo}#accessToken=…&refreshToken=…`.
+
+        **simulator-v2:** `GET /v1/auth/twitter/start?returnTo=http://localhost:5174/auth/callback`
+
+        On success the backend upserts `users.twitter_id` (unique) and issues JWT + refresh token.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: returnTo
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uri
+          description: Client OAuth landing page (origin must be in CORS_ORIGINS)
+      responses:
+        "200":
+          description: OAuth URL
+  /v1/auth/twitter/callback:
+    get:
+      tags: [Auth]
+      summary: Twitter OAuth callback
+      description: |
+        Exchanges the OAuth code for 1Vault access/refresh tokens after Twitter redirects back.
+
+        Upserts `users` row (`twitter_id`, `handle`, `display_name`, `avatar_url`) and inserts `refresh_tokens`.
+        Browser redirect (when `returnTo` was set or `Accept: text/html`): `{returnTo}#accessToken=…&refreshToken=…`.
+        JSON response when `Accept: application/json` and no `returnTo`.
+      responses:
+        "200":
+          description: Tokens
+  /v1/auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh JWT session
+      description: |
+        Rotates access (and refresh) tokens using a valid refresh token.
+      responses:
+        "200":
+          description: Rotated tokens
+  /v1/auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout / revoke session
+      description: |
+        Invalidates the current refresh session.
+      responses:
+        "200":
+          description: Logged out
+  /v1/auth/me:
+    get:
+      tags: [Auth]
+      security: [{ bearerAuth: [] }]
+      summary: Current user profile
+      description: |
+        Returns the authenticated user profile and linked wallets.
+      responses:
+        "200":
+          description: Profile
+  /v1/me:
+    get:
+      tags: [Auth]
+      security: [{ bearerAuth: [] }]
+      summary: Current user profile (alias)
+      description: |
+        Alias of `/v1/auth/me`.
+      responses:
+        "200":
+          description: Profile alias
+  /v1/wallets/nonce:
+    get:
+      tags: [Account · Wallets]
+      security: [{ bearerAuth: [] }]
+      summary: Get wallet bind nonce message
+      description: |
+        Returns a message for the user to sign with their Solana wallet to prove ownership before binding.
+      parameters:
+        - name: pubkey
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Nonce message
+  /v1/wallets/bind:
+    post:
+      tags: [Account · Wallets]
+      security: [{ bearerAuth: [] }]
+      summary: Bind Solana wallet to account
+      description: |
+        Submits the signed nonce to attach a Solana **EOA** (individual) pubkey to the logged-in user.
+        Vault PDAs (`walletKind=pda`) are rejected with `WALLET_KIND_INVALID`. Bound wallets return `walletKind=eoa`.
+        `rolePreference`: `strategies` (Strategies) or `investors` (Investors). Legacy `degen`/`retail` accepted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pubkey, signature, nonce]
+              properties:
+                pubkey: { type: string }
+                signature: { type: string }
+                nonce: { type: string }
+                rolePreference: { $ref: "#/components/schemas/RolePreference" }
+                primary: { type: boolean }
+      responses:
+        "200":
+          description: "Bound wallet (`walletKind=eoa`, `rolePreference` strategies|investors)"
+        "422":
+          description: Vault PDA cannot be bound / invalid rolePreference
+  /v1/ledger/deposits:
+    get:
+      tags: [Ledger]
+      security: [{ bearerAuth: [] }]
+      summary: List deposit intents
+      description: |
+        Lists off-chain deposit intents for an investor (optional vault filter).
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: investor
+          in: query
+          required: true
+          schema: { type: string }
+        - name: vault
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: "`{ items: DepositIntent[] }` (roles rewritten to strategies|investors)"
+    post:
+      tags: [Ledger]
+      security: [{ bearerAuth: [] }]
+      summary: Create deposit intent
+      description: |
+        Creates an off-chain deposit intent before (or alongside) preparing an on-chain park tx.
+        Investor must be a bound wallet of the authenticated user.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LedgerDepositCreateBody"
+      responses:
+        "201":
+          description: "`{ id, status: pending, role, roleLabel }`"
+  /v1/ledger/deposits/{id}/submit:
+    post:
+      tags: [Ledger]
+      security: [{ bearerAuth: [] }]
+      summary: Mark deposit intent submitted
+      description: |
+        Marks a deposit intent as submitted after the on-chain tx is broadcast.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LedgerDepositSubmitBody"
+      responses:
+        "200":
+          description: "`{ id, signature, status: submitted }`"
+  /v1/ledger/deposits/{id}/fail:
+    post:
+      tags: [Ledger]
+      security: [{ bearerAuth: [] }]
+      summary: Mark deposit intent failed
+      description: |
+        Marks a deposit intent as failed (user cancelled / tx failed).
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LedgerDepositFailBody"
+      responses:
+        "200":
+          description: "`{ id, status: failed }`"
+  /v1/ledger/mandates:
+    get:
+      tags: [Ledger]
+      security: [{ bearerAuth: [] }]
+      summary: List investor mandates
+      description: |
+        Lists investor mandate/config records stored off-chain.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: investor
+          in: query
+          required: true
+          schema: { type: string }
+        - name: vault
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: "`{ items: Mandate[] }`"
+    post:
+      tags: [Ledger]
+      security: [{ bearerAuth: [] }]
+      summary: Upsert investor mandate
+      description: |
+        Create or update an investor mandate (risk limits / follow preferences stored off-chain).
+        Defaults: `role=investors`, `parkAmount="0"`, `autoFollow=true`.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LedgerMandateBody"
+      responses:
+        "200":
+          description: "`{ ok: true, role, roleLabel }`"
+  /v1/ingest:
+    post:
+      tags: [System]
+      summary: Admin indexer ingest hook
+      description: |
+        Admin-only endpoint to push a signature to the indexer. Requires `X-Admin-Key`.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: X-Admin-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IngestBody"
+      responses:
+        "200":
+          description: Proxied indexer response
+
+  /v1/tx/register-strategist:
+    post:
+      tags: [Tx · Setup]
+      summary: Prep register_strategist tx
+      description: |
+        Builds an unsigned `register_strategist` transaction. Client signs and posts to `/v1/tx/submit`.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxStrategistOnlyBody"
+      responses:
+        "200":
+          description: PreparedTx
+
+  /v1/tx/resolve-accounts:
+    post:
+      tags: [Tx · Setup]
+      summary: Resolve vault/strategist PDAs
+      description: |
+        Derives program accounts/PDAs from strategist, investor, vault, or vaultId.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxResolveAccountsBody"
+      responses:
+        "200":
+          description: Derived account map (programId, protocolConfig, license*, vault*, investor*, …)
+
+  /v1/tx/lock-license:
+    post:
+      tags: [Tx · Setup]
+      summary: Prep lock_license tx
+      description: |
+        Builds unsigned license-lock transaction required before creating vaults.
+        Activates the strategist licence **record**; 1VL is transferred into the vault on `create_vault`.
+
+        Prepared `accounts` may include: `strategistAccount`, `license`, `licenseVault`, `licenseMint`, `strategistLicenseAta`.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxStrategistOnlyBody"
+      responses:
+        "200":
+          description: PreparedTx
+
+  /v1/tx/create-vault:
+    post:
+      tags: [Tx · Setup]
+      summary: Prep create_vault tx
+      description: |
+        Builds unsigned create-vault tx. Client must co-sign with a fresh `vaultTokenAccount` keypair.
+        `vaultType` is encoded on-chain as book mode (pooled=0, sliced=1) plus a u16 param
+        (0 for pooled; default 1000 management-fee bps for sliced).
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxCreateVaultBody"
+      responses:
+        "200":
+          description: Prepared fields + vaultType* (see VaultTypeFields)
+
+  /v1/tx/park:
+    post:
+      tags: [Tx · Capital]
+      security: [{ bearerAuth: [] }]
+      summary: Prep park/deposit tx (auth)
+      description: |
+        Builds unsigned deposit (park) tx. Optional `recordIntent` creates a ledger deposit intent when the investor wallet is owned by the caller.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxParkBody"
+      responses:
+        "200":
+          description: "`{ prepared: PreparedTx, depositIntentId?: number }`"
+  /v1/tx/park-guest:
+    post:
+      tags: [Tx · Capital]
+      summary: Prep park/deposit tx (no auth)
+      description: |
+        Same body as park, without requiring login — for guest/demo flows.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxParkBody"
+      responses:
+        "200":
+          description: "`{ prepared: PreparedTx, depositIntentId?: number }`"
+  /v1/tx/withdraw:
+    post:
+      tags: [Tx · Capital]
+      summary: Prep withdraw/redeem tx
+      description: |
+        Builds an unsigned **free withdraw** transaction: investor burns vault shares and receives
+        native SOL (wSOL ATA is created, funded from vault liquidity, then closed to unwrap).
+
+        **Single transaction includes:**
+        1. `update_nav` — refresh vault NAV before pricing
+        2. Create investor wSOL ATA (idempotent)
+        3. Create investor share ATA (idempotent)
+        4. `create_investor_config` (idempotent) — only if the PDA does not exist yet
+        5. `withdraw` — burn shares, transfer liquid wSOL to investor
+        6. Close wSOL ATA → native SOL to investor wallet
+
+        **On-chain `withdraw` accounts (devnet build):**
+        `investor`, `protocol_config`, `vault`, `investor_share_account`, `investor_token_account`,
+        `vault_token_account`, `share_mint`, `investor_config`, `token_program`.
+
+        **Signer:** investor only (`feePayer` = investor).
+
+        **Shares:** pass raw share units (same decimals as vault base mint). Redeem is pro-rata on NAV;
+        ensure `shares` ≤ on-chain share ATA balance and ≤ liquid wSOL cap
+        (`vault_ata_lamports * total_shares / nav`).
+
+        Resolve vault with `vault` pubkey or `strategist` + `vaultId`.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxWithdrawBody"
+            example:
+              investor: ETCBEqkrKYM6S7M7nqAJadmkDKZrTmftZLwsaoXFtpMR
+              strategist: 9WDdee1AwqRCJ2WSr9dDAcaoCXPkfd19vR5RQdc2zcan
+              vault: 51UmWAMsiQxJ4gngVabo7r7pRJx63marsxNppby8UmsW
+              vaultTokenAccount: 2jaFKaHeykPWtXzJ1U9B8WtepiPweXdYheAAdQkEW6F3
+              shares: 110000000
+      responses:
+        "200":
+          description: |
+            PreparedTx with `accounts.investorShareAta`, `investorWsolAta`, `shareMint`, `investorConfig`.
+
+  /v1/tx/investor-config:
+    post:
+      tags: [Tx · Follow]
+      summary: Prep create investor config
+      description: |
+        Creates investor config account (TP/SL and related settings) before following a vault.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxInvestorConfigBody"
+      responses:
+        "200":
+          description: PreparedTx
+
+  /v1/tx/update-investor-config:
+    post:
+      tags: [Tx · Follow]
+      summary: Prep update investor config
+      description: |
+        Updates an existing investor config (risk params / autoFollow / allocation).
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxUpdateInvestorConfigBody"
+      responses:
+        "200":
+          description: PreparedTx
+
+  /v1/tx/follow-on:
+    post:
+      tags: [Tx · Follow]
+      summary: Prep follow_on (start copying vault)
+      description: |
+        Turns follow mode on so the investor participates in strategist trades.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxFollowBody"
+      responses:
+        "200":
+          description: PreparedTx
+
+  /v1/tx/follow-off:
+    post:
+      tags: [Tx · Follow]
+      summary: Prep follow_off (stop copying vault)
+      description: |
+        Turns follow mode off for the investor on that vault.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxFollowBody"
+      responses:
+        "200":
+          description: PreparedTx
+
+  /v1/tx/request-trade:
+    post:
+      tags: [Tx · Trade]
+      summary: Prep request_trade (buy/sell intent)
+      description: |
+        Builds unsigned trade request. Also returns auto `executeTrade` unless `skipExecuteTrade=true`.
+        DEX program is auto-picked from `PROGRAM_IDS`.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxRequestTradeBody"
+      responses:
+        "200":
+          description: "`{ requestTrade, note, autoDex?, executeTrade? }`"
+  /v1/tx/execute-trade:
+    post:
+      tags: [Tx · Trade]
+      summary: Prep execute_trade (fill on DEX)
+      description: |
+        Builds unsigned execute_trade. Provide ATA pair **or** mints + vaultTokenAccount + action for derivation.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxExecuteTradeBody"
+      responses:
+        "200":
+          description: "`{ executeTrade, autoDex? }`"
+  /v1/tx/exit-position:
+    post:
+      tags: [Tx · Trade]
+      summary: Prep exit position by percent
+      description: |
+        Exits a position by percent/bps. Optional `alsoRequestSell` attaches sell request + execute trade.
+        `proceeds=0` auto-fills from market quote when inputMint+baseAmount provided.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxExitPositionBody"
+      responses:
+        "200":
+          description: "`{ exit, exitBps, proceeds, sellTrade?, executeTrade?, priceQuote?, … }`"
+  /v1/tx/reduce-position:
+    post:
+      tags: [Tx · Trade]
+      summary: Prep reduce_position (partial exit)
+      description: |
+        Partial position reduce by `exitBps` (1–10000) or `exitPercent`.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxReducePositionBody"
+      responses:
+        "200":
+          description: "`{ reduce, proceeds, exitBps, priceQuote?, … }`"
+  /v1/tx/open-position:
+    post:
+      tags: [Tx · Trade]
+      summary: Prep open_position
+      description: |
+        Opens a new vault position after a successful buy fill (accounting step).
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxOpenPositionBody"
+      responses:
+        "200":
+          description: PreparedTx
+
+  /v1/tx/close-position:
+    post:
+      tags: [Tx · Trade]
+      summary: Prep close_position
+      description: |
+        Fully closes a position record after exit/sell accounting.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxClosePositionBody"
+      responses:
+        "200":
+          description: "`{ close, proceeds, priceQuote?, … }`"
+  /v1/tx/accrue-fees:
+    post:
+      tags: [Tx · Fees]
+      summary: Prep accrue_fees
+      description: |
+        Accrues performance/management fees on-chain for the vault.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxAccrueFeesBody"
+      responses:
+        "200":
+          description: PreparedTx
+
+  /v1/tx/claim-fees:
+    post:
+      tags: [Tx · Fees]
+      summary: Prep claim_fees
+      description: |
+        Claims accrued fees. `feeWallet` defaults to cluster `strategiesFeeWallet`.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxClaimFeesBody"
+      responses:
+        "200":
+          description: PreparedTx
+
+  /v1/tx/initiate-close:
+    post:
+      tags: [Tx · Close]
+      summary: Prep initiate vault close
+      description: |
+        Starts the vault close workflow (wind-down).
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxInitiateCloseBody"
+      responses:
+        "200":
+          description: PreparedTx
+
+  /v1/tx/update-nav:
+    post:
+      tags: [Tx · Fees]
+      summary: Prep update_nav
+      description: |
+        Updates vault NAV on-chain after trades/exits.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxNavKeeperBody"
+      responses:
+        "200":
+          description: PreparedTx
+
+  /v1/tx/keeper-refresh:
+    post:
+      tags: [Tx · Fees]
+      summary: Prep keeper refresh
+      description: |
+        Keeper/maintenance instruction to refresh vault state.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxNavKeeperBody"
+      responses:
+        "200":
+          description: PreparedTx
+
+  /v1/tx/close-vault:
+    post:
+      tags: [Tx · Close]
+      summary: Prep close_vault
+      description: |
+        Finalizes vault close. Optional `holders` overrides default investors with shares>0.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxCloseVaultBody"
+      responses:
+        "200":
+          description: PreparedTx
+
+  /v1/tx/unlock-license:
+    post:
+      tags: [Tx · Close]
+      summary: Prep unlock_license
+      description: |
+        Unlocks the strategist license after vault close path completes.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxStrategistOnlyBody"
+      responses:
+        "200":
+          description: PreparedTx
+
+  /v1/tx/submit:
+    post:
+      tags: [Tx · Submit]
+      summary: Submit signed transaction
+      description: |
+        Broadcasts a client-signed base64 transaction to the cluster RPC.
+        Pass `signerDetails` from the prepared tx so the backend can merge ephemeral/keeper co-signatures.
+        After broadcast, confirm + indexer ingest run **async** (default when indexer configured).
+        Optional `depositIntentId` marks a ledger intent submitted.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxSubmitBody"
+      responses:
+        "200":
+          description: Transaction submitted; poll status for confirm + ingest
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    $ref: "#/components/schemas/TxSubmitResponseData"
+        "422":
+          description: MISSING_EOA_SIGNATURE or validation error
+  /v1/tx/status/{signature}:
+    get:
+      tags: [Tx · Submit]
+      summary: Get transaction confirmation status
+      description: |
+        Polls RPC for confirmation/finalization status of a submitted signature.
+        After `/v1/tx/submit`, `ingest` is filled when background confirm+ingest completes.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: signature
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: RPC status + optional ingest result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    $ref: "#/components/schemas/TxStatusResponseData"
+  /v1/flows:
+    post:
+      tags: [Flows]
+      summary: Start async multi-step flow
+      description: |
+        Creates a multi-step job. Mode-specific required fields on `FlowStartParams`:
+        - `create-vault`: vaultTokenAccount, vaultId; optional vaultType, investors with lamports
+        - `deposit`: investors[] with lamports each
+        - `configure-follow`: investors[]
+        - `withdraw`: `vault` (or strategist+vaultId), `investors[0]` with `pubkey` + `shares`.
+          One async step (`withdraw`); investor signs a bundled tx (update_nav + ATAs + withdraw + unwrap).
+          No strategist signature required. Free redeem — no platform withdraw fee on MVP program.
+        - `open-position`: outputMint, tradeId, amount
+        - `exit-position`: positionId, tradeId, inputMint
+        - `claim-fees` / `close-vault`: strategist (+ vault resolve as needed)
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FlowStartParams"
+      responses:
+        "201":
+          description: FlowJob (often awaiting_signature on first step)
+    get:
+      tags: [Flows]
+      summary: List flows
+      description: |
+        Lists async flows (limit 20). Filter by strategist, investor pubkey in params, or status.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: strategist
+          in: query
+          schema: { type: string }
+        - name: investor
+          in: query
+          schema: { type: string }
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, awaiting_signature, confirming, completed, failed, cancelled]
+      responses:
+        "200":
+          description: "`{ items: FlowJob[] }`"
+  /v1/flows/{id}:
+    get:
+      tags: [Flows]
+      summary: Get flow status
+      description: |
+        Returns current step, prepared tx (if any), and status for one flow.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: FlowJob
+
+  /v1/flows/{id}/submit:
+    post:
+      tags: [Flows]
+      summary: Submit current flow step
+      description: |
+        Submits the signed transaction for the flow’s current waiting step and advances the job.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [signedTransaction]
+              properties:
+                signedTransaction: { type: string, description: "Base64 signed tx for the awaiting step" }
+      responses:
+        "200":
+          description: FlowJob after submit
+
+  /v1/flows/{id}/cancel:
+    post:
+      tags: [Flows]
+      summary: Cancel a flow
+      description: |
+        Cancels a running/pending async flow.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: FlowJob (status cancelled)
+
+  /v1/strategists/{pubkey}:
+    get:
+      tags: [Actors]
+      summary: Get strategist profile
+      description: |
+        Indexed strategist account/profile plus vaults (each with vaultType*).
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: pubkey
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: "`{ strategist, vaults }`"
+  /v1/investors/{pubkey}:
+    get:
+      tags: [Actors]
+      summary: Get investor profile
+      description: |
+        Indexed investor holdings, mandates, and positions.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+        - name: pubkey
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: "`{ investor, holdings, mandates, positions }`"
+  /v1/features/referral:
+    post:
+      tags: [Features]
+      summary: Referral (not on-chain yet)
+      description: |
+        Stub write. Returns `501 FEATURE_NOT_ON_CHAIN` with `details.feature=referral`.
+        Body is ignored until the program supports referrals.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Reserved — currently ignored
+              additionalProperties: true
+      responses:
+        "501":
+          description: FEATURE_NOT_ON_CHAIN
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FeatureNotOnChain"
+  /v1/features/staking:
+    post:
+      tags: [Features]
+      summary: Platform staking (not on-chain yet)
+      description: |
+        Stub write. Returns `501` with `details.feature=platform_staking`.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "501":
+          description: FEATURE_NOT_ON_CHAIN
+
+  /v1/features/vault-stake:
+    post:
+      tags: [Features]
+      summary: Vault SOL stake (not on-chain yet)
+      description: |
+        Stub write. Returns `501` with `details.feature=vault_sol_stake`.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "501":
+          description: FEATURE_NOT_ON_CHAIN
+
+  /v1/features/mev:
+    post:
+      tags: [Features]
+      summary: MEV preference (not on-chain yet)
+      description: |
+        Stub write. Returns `501` with `details.feature=mev_preference`.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "501":
+          description: FEATURE_NOT_ON_CHAIN
+
+  /v1/features/dca:
+    post:
+      tags: [Features]
+      summary: DCA (not on-chain yet)
+      description: |
+        Stub write. Returns `501` with `details.feature=dca`.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "501":
+          description: FEATURE_NOT_ON_CHAIN
+
+  /v1/features/early-exit-fee:
+    post:
+      tags: [Features]
+      summary: Early exit fee (not on-chain yet)
+      description: |
+        Stub write. Returns `501` with `details.feature=early_exit_fee`.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "501":
+          description: FEATURE_NOT_ON_CHAIN
+
+  /v1/features/withdraw-fee:
+    post:
+      tags: [Features]
+      summary: Flat withdraw fee (not on-chain yet)
+      description: |
+        Stub write. Returns `501` with `details.feature=flat_withdraw_fee`.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "501":
+          description: FEATURE_NOT_ON_CHAIN
+
+  /v1/features/management-fee:
+    post:
+      tags: [Features]
+      summary: Management fee (not on-chain yet)
+      description: |
+        Stub write. Returns `501` with `details.feature=management_fee`.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        "501":
+          description: FEATURE_NOT_ON_CHAIN
+
+  /v1/features/referral/rewards:
+    get:
+      tags: [Features]
+      summary: List referral rewards (indexer cache)
+      description: |
+        Read-only indexer cache. Writes remain FEATURE_NOT_ON_CHAIN.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      responses:
+        "200":
+          description: "`{ items: [...], note }`"
+  /v1/features/staking/events:
+    get:
+      tags: [Features]
+      summary: List staking events (indexer cache)
+      description: |
+        Read-only indexer cache. Writes remain FEATURE_NOT_ON_CHAIN.
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      responses:
+        "200":
+          description: "`{ items: [...], note }`"
