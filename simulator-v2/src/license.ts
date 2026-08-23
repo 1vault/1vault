@@ -1,3 +1,5 @@
+import { apiUrl } from "./http";
+
 const CLUSTER = (import.meta.env.VITE_CLUSTER ?? "devnet") as string;
 
 function qs(params?: Record<string, string>): string {
@@ -21,7 +23,7 @@ export async function fetchLicensePreview(opts: {
   strategist: string;
   rpcUrl: string;
 }): Promise<LicensePreview> {
-  const res = await fetch(`/v1/tx/resolve-accounts${qs()}`, {
+  const res = await fetch(apiUrl(`/v1/tx/resolve-accounts${qs()}`), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ strategist: opts.strategist }),

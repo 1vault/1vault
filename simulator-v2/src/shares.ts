@@ -1,3 +1,5 @@
+import { apiUrl, readJson } from "./http";
+
 export type WithdrawTarget = {
   vault: string;
   shares: number;
@@ -53,8 +55,8 @@ async function fetchVaultRow(
   cluster: string
 ): Promise<Record<string, unknown>> {
   try {
-    const res = await fetch(`/v1/vaults/${vault}?cluster=${encodeURIComponent(cluster)}`);
-    const json = (await res.json()) as { data?: Record<string, unknown> };
+    const res = await fetch(apiUrl(`/v1/vaults/${vault}?cluster=${encodeURIComponent(cluster)}`));
+    const json = await readJson<{ data?: Record<string, unknown> }>(res);
     return (json.data?.vault ?? json.data ?? {}) as Record<string, unknown>;
   } catch {
     return {};
@@ -114,11 +116,11 @@ export async function fetchWithdrawHoldings(opts: {
   const vaults = new Set<string>();
   try {
     const res = await fetch(
-      `/v1/investors/${opts.investor}?cluster=${encodeURIComponent(opts.cluster)}`
+      apiUrl(`/v1/investors/${opts.investor}?cluster=${encodeURIComponent(opts.cluster)}`)
     );
-    const json = (await res.json()) as {
+    const json = await readJson<{
       data?: { holdings?: Array<Record<string, unknown>> };
-    };
+    }>(res);
     for (const h of json.data?.holdings ?? []) {
       const v = String(h.vault ?? "");
       if (v) vaults.add(v);
@@ -217,8 +219,8 @@ export async function fetchWithdrawShares(opts: {
   strategist?: string;
   vaultId?: number;
 }): Promise<number> {
-  const proto = await fetch(`/v1/protocol?cluster=${encodeURIComponent(opts.cluster)}`);
-  const pj = (await proto.json()) as { data?: { programId?: string } };
+  const proto = await fetch(apiUrl(`/v1/protocol?cluster=${encodeURIComponent(opts.cluster)}`));
+  const pj = await readJson<{ data?: { programId?: string } }>(proto);
   if (!pj.data?.programId) return 0;
 
   const onChain = await fetchOnChainShares(

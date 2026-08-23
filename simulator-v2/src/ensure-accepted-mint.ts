@@ -1,14 +1,16 @@
 import { parseSecretKey, signWirePartial } from "./keys";
+import { apiUrl, readJson } from "./http";
 
 const WSOL = "So11111111111111111111111111111111111111112";
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const cluster = import.meta.env.VITE_CLUSTER ?? "devnet";
-  const res = await fetch(`${path}?cluster=${cluster}`, {
+  const sep = path.includes("?") ? "&" : "?";
+  const res = await fetch(apiUrl(`${path}${sep}cluster=${encodeURIComponent(cluster)}`), {
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
   });
-  const json = (await res.json()) as { success: boolean; data?: T; error?: { message?: string } };
+  const json = await readJson<{ success: boolean; data?: T; error?: { message?: string } }>(res);
   if (!res.ok || !json.success) throw new Error(json.error?.message ?? `HTTP ${res.status}`);
   return json.data as T;
 }
@@ -24,8 +26,7 @@ export async function ensureVaultAcceptsMint(opts: {
   priorityFeeMicroLamports?: number;
   computeUnitLimit?: number;
 }): Promise<string | undefined> {
-  const qs = `?cluster=${encodeURIComponent(opts.cluster)}`;
-  const prep = await api<{ transaction: string }>(`/v1/tx/update-vault-risk${qs}`, {
+  const prep = await api<{ transaction: string }>(`/v1/tx/update-vault-risk`, {
     method: "POST",
     body: JSON.stringify({
       strategist: opts.strategist,

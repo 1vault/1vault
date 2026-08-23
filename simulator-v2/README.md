@@ -221,6 +221,18 @@ See [backend/docs/FRONTEND_GUIDE.md](../backend/docs/FRONTEND_GUIDE.md) §3.
 | `VITE_CLUSTER` | `devnet` |
 | `VITE_SOLANA_RPC` | `https://api.devnet.solana.com` |
 
+### Railway / static host
+
+Vite’s `/v1` proxy only works in **dev**. Production builds call the backend via `VITE_BACKEND_URL`.
+
+1. Simulator service — **build** variable:  
+   `VITE_BACKEND_URL=https://<your-go-backend>.up.railway.app`
+2. Backend service — include the simulator origin:  
+   `CORS_ORIGINS=https://<your-simulator>.up.railway.app,...`
+3. Redeploy simulator after changing `VITE_*` (they are baked in at build time).
+
+If you see `Unexpected token '<'` / HTML instead of JSON, `VITE_BACKEND_URL` is missing or wrong.
+
 ---
 
 ## Shared types

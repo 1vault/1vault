@@ -1,6 +1,7 @@
 import { detectExecutedTradeResume, fetchVaultTradeCursor } from "./vault-cursor";
 import { fetchWithdrawShares, fetchWithdrawTargets, fetchWithdrawHoldings } from "./shares";
 import { parseSecretKey, signWirePartial, signWithExternalWallet, solToLamports } from "./keys";
+import { apiUrl, readJson } from "./http";
 import type { Keypair } from "@solana/web3.js";
 import type { NodeUpdate, RetailSettings, SimMode } from "../shared/events";
 
@@ -81,11 +82,11 @@ function qs(extra?: Record<string, string>): string {
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
   });
-  const json = (await res.json()) as ApiEnvelope<T>;
+  const json = await readJson<ApiEnvelope<T>>(res);
   if (!res.ok || !json.success) {
     throw new Error(json.error?.message ?? `HTTP ${res.status}`);
   }

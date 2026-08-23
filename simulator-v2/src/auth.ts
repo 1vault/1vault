@@ -1,5 +1,6 @@
 import type { AuthSession, AuthUser } from "../shared/events";
 import { parseSecretKey } from "./keys";
+import { apiUrl, readJson } from "./http";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
 
@@ -49,8 +50,8 @@ export function clearSession(): void {
 }
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, init);
-  const json = (await res.json()) as ApiEnvelope<T>;
+  const res = await fetch(apiUrl(path), init);
+  const json = await readJson<ApiEnvelope<T>>(res);
   if (!res.ok || !json.success) {
     throw new Error(json.error?.message ?? `request failed (${res.status})`);
   }

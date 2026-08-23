@@ -2,6 +2,7 @@ import type { NodeUpdate, ProtocolInfo, RetailSettings, SimMode, WalletPreview }
 import { runBackendFlow } from "./backend-flow";
 import { fetchWalletBalance } from "./backend-flow";
 import { parseSecretKey } from "./keys";
+import { apiUrl, readJson } from "./http";
 
 const CLUSTER = (import.meta.env.VITE_CLUSTER ?? "devnet") as "devnet" | "mainnet-beta";
 
@@ -31,13 +32,13 @@ function getInjected(): Injected | null {
 export async function fetchProtocol(): Promise<ProtocolInfo> {
   let res: Response;
   try {
-    res = await fetch(`/v1/protocol${qs()}`);
+    res = await fetch(apiUrl(`/v1/protocol${qs()}`));
   } catch {
     throw new Error(
-      "Cannot reach 1Vault backend on :3090. Start backend API and use http://127.0.0.1:5174"
+      "Cannot reach 1Vault backend. Locally: start API on :3090. On Railway: set VITE_BACKEND_URL (build) + CORS_ORIGINS."
     );
   }
-  const json = await res.json();
+  const json = await readJson<{ success?: boolean; data?: Record<string, string>; error?: { message?: string } }>(res);
   if (!res.ok || !json.success) {
     throw new Error(json.error?.message ?? "protocol fetch failed");
   }
