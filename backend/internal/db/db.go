@@ -3,10 +3,10 @@ package db
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"log"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,30 +18,30 @@ import (
 )
 
 func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
+	databaseURL = normalizeDatabaseURL(databaseURL)
+
 	cfg, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		return nil, err
 	}
 
 	host := cfg.ConnConfig.Host
-	serverName := tlsServerName(host)
 	remote := needsTLS(databaseURL, host)
 
 	if remote {
-		tlsCfg, err := buildTLSConfig(serverName)
-		if err != nil {
-			return nil, err
+		cfg.ConnConfig.TLSConfig = &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			ServerName:         tlsServerName(host),
+			InsecureSkipVerify: !truthy(os.Getenv("DATABASE_SSL_VERIFY")),
 		}
-		cfg.ConnConfig.TLSConfig = tlsCfg
+		if cfg.ConnConfig.TLSConfig.InsecureSkipVerify {
+			log.Printf("[db] TLS on (encrypt); cert verify skipped — set DATABASE_SSL_VERIFY=1 to enforce")
+		}
 
-		// Supabase session pooler (5432) is capped (~15). Keep app pool tiny.
-		// Prefer transaction pooler :6543 in DATABASE_URL when possible.
-		cfg.MaxConns = int32(envInt("DB_MAX_CONNS", 4))
+		// Supabase pooler limits are low; keep pool tiny.
+		cfg.MaxConns = int32(envInt("DB_MAX_CONNS", 3))
 		cfg.MinConns = int32(envInt("DB_MIN_CONNS", 0))
 		cfg.ConnConfig.ConnectTimeout = 20 * time.Second
-		if port := cfg.ConnConfig.Port; port == 5432 && strings.Contains(strings.ToLower(host), "pooler.supabase.") {
-			log.Printf("[db] supabase session pooler :5432 — use :6543 (transaction) if you hit max clients")
-		}
 	} else {
 		cfg.MaxConns = 32
 		cfg.MinConns = 8
@@ -51,6 +51,8 @@ func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	cfg.MaxConnLifetime = time.Hour
 	cfg.MaxConnIdleTime = 5 * time.Minute
 	cfg.HealthCheckPeriod = 30 * time.Second
+
+	log.Printf("[db] connecting host=%s port=%d maxConns=%d", host, cfg.ConnConfig.Port, cfg.MaxConns)
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -63,52 +65,38 @@ func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-func buildTLSConfig(serverName string) (*tls.Config, error) {
-	roots, err := loadRootCAs()
-	if err != nil {
-		return nil, fmt.Errorf("tls root cas: %w", err)
+// normalizeDatabaseURL fixes common Supabase Railway pitfalls:
+// - session pooler :5432 → transaction pooler :6543 (avoids EMAXCONNSESSION)
+// - ensure sslmode=require
+func normalizeDatabaseURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return raw
 	}
+	host := strings.ToLower(u.Hostname())
+	changed := false
 
-	cfg := &tls.Config{
-		MinVersion: tls.VersionTLS12,
-		ServerName: serverName,
-		RootCAs:    roots,
-	}
-
-	// Escape hatch only — Railway/distroless without CA bundle.
-	if truthy(os.Getenv("DATABASE_SSL_INSECURE")) {
-		log.Printf("[db] WARNING: DATABASE_SSL_INSECURE=1 — TLS verify disabled")
-		cfg.InsecureSkipVerify = true
-	}
-	return cfg, nil
-}
-
-func loadRootCAs() (*x509.CertPool, error) {
-	roots, err := x509.SystemCertPool()
-	if err != nil || roots == nil {
-		roots = x509.NewCertPool()
-	}
-	loaded := err == nil && roots != nil
-	for _, p := range []string{
-		"/etc/ssl/certs/ca-certificates.crt",
-		"/etc/pki/tls/certs/ca-bundle.crt",
-		"/etc/ssl/cert.pem",
-	} {
-		b, readErr := os.ReadFile(p)
-		if readErr != nil {
-			continue
-		}
-		if roots.AppendCertsFromPEM(b) {
-			loaded = true
+	if strings.Contains(host, "pooler.supabase.") {
+		port := u.Port()
+		if port == "" || port == "5432" {
+			u.Host = net.JoinHostPort(u.Hostname(), "6543")
+			changed = true
+			log.Printf("[db] supabase session :5432 → transaction :6543")
 		}
 	}
-	if loaded {
-		return roots, nil
+
+	q := u.Query()
+	if q.Get("sslmode") == "" && (strings.Contains(host, "supabase.") || needsTLS(raw, host)) {
+		q.Set("sslmode", "require")
+		u.RawQuery = q.Encode()
+		changed = true
 	}
-	if truthy(os.Getenv("DATABASE_SSL_INSECURE")) {
-		return x509.NewCertPool(), nil
+
+	if !changed {
+		return raw
 	}
-	return nil, fmt.Errorf("no CA certificates found (install ca-certificates or set DATABASE_SSL_INSECURE=1)")
+	return u.String()
 }
 
 func needsTLS(databaseURL, host string) bool {
