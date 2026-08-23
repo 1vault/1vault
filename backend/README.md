@@ -109,10 +109,18 @@ Hasil: `bin/railway/1vault-api` (static ELF) + `migrations/` + `docs/` untuk Swa
 | Variable | Required |
 |----------|----------|
 | `JWT_SECRET` | yes |
-| `DATABASE_URL` | yes (Postgres plugin) |
+| `DATABASE_URL` | yes (Postgres plugin or Supabase) |
 | `PORT` | auto by Railway |
 | `CORS_ORIGINS` | production frontend + simulator origins |
 | `TWITTER_*` / RPC / GMGN | optional |
+
+**Supabase from Railway:** use the **transaction** pooler URL (port **6543**), not session `:5432` (hits `max clients reached`). Example:
+
+```text
+postgresql://postgres.PROJECT:PASSWORD@aws-0-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require
+```
+
+Image includes `ca-certificates` for TLS verify. Escape hatch only: `DATABASE_SSL_INSECURE=1`.
 
 Do **not** commit `.env` — set secrets in Railway dashboard.
 ## Smoke test (one-shot)
