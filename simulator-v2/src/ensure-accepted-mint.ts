@@ -1,4 +1,3 @@
-import { ensureVaultAcceptsMint } from "./ensure-accepted-mint";
 import { parseSecretKey, signWirePartial } from "./keys";
 
 const WSOL = "So11111111111111111111111111111111111111112";

@@ -297,7 +297,9 @@ async function buildStartBody(
       let skipTradeSteps = false;
       if (vaultPubkey) {
         try {
-          const proto = await api<{ programId?: string }>(`/v1/protocol${qs()}`).catch(() => ({}));
+          const proto = await api<{ programId?: string }>(`/v1/protocol${qs()}`).catch(
+            (): { programId?: string } => ({})
+          );
           const programId = proto.programId;
           if (programId) {
             const resume = await detectExecutedTradeResume(RPC_URL, vaultPubkey, programId);
@@ -313,14 +315,13 @@ async function buildStartBody(
             positionId = onChain.positionId;
           }
         } catch {
-          const envelope = (await api<{
+          const envelope = await api<{
             vault?: Record<string, unknown>;
             trades?: Array<{ trade_id?: number }>;
-          }>(`/v1/vaults/${vaultPubkey}${qs()}`).catch(() => ({}))) as {
-            vault?: Record<string, unknown>;
-            trades?: Array<{ trade_id?: number }>;
-          };
-          const row = envelope.vault ?? envelope;
+          }>(`/v1/vaults/${vaultPubkey}${qs()}`).catch(
+            (): { vault?: Record<string, unknown>; trades?: Array<{ trade_id?: number }> } => ({})
+          );
+          const row = (envelope.vault ?? envelope) as Record<string, unknown>;
           tradeId = Number(row.nextTradeId ?? row.next_trade_id ?? 0);
           positionId = Number(row.nextPositionId ?? row.next_position_id ?? 0);
           if (!tradeId && envelope.trades?.length) {

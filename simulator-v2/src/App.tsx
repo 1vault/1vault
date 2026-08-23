@@ -65,7 +65,7 @@ export default function App() {
   const [authUser, setAuthUser] = useState<AuthUser>();
   const [authLoading, setAuthLoading] = useState(true);
   const [authBusy, setAuthBusy] = useState(false);
-  const authTokenRef = useRef<string>();
+  const authTokenRef = useRef<string | undefined>(undefined);
   const drag = useRef<{ y: number; h: number } | null>(null);
 
   useEffect(() => {
