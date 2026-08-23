@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,8 +19,14 @@ func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, err
 	}
-	if strings.Contains(strings.ToLower(databaseURL), "supabase.") {
-		cfg.ConnConfig.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	// Supabase (and most cloud Postgres) require TLS. When we set TLSConfig
+	// ourselves, Go needs ServerName for SNI — otherwise:
+	// "tls: either ServerName or InsecureSkipVerify must be specified".
+	if needsTLS(databaseURL, cfg.ConnConfig.Host) {
+		cfg.ConnConfig.TLSConfig = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			ServerName: tlsServerName(cfg.ConnConfig.Host),
+		}
 	}
 	cfg.MaxConns = 32
 	cfg.MinConns = 8
@@ -36,6 +43,31 @@ func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 		return nil, err
 	}
 	return pool, nil
+}
+
+func needsTLS(databaseURL, host string) bool {
+	u := strings.ToLower(databaseURL)
+	h := strings.ToLower(host)
+	if strings.Contains(u, "sslmode=disable") {
+		return false
+	}
+	if strings.Contains(u, "supabase.") || strings.Contains(h, "supabase.") {
+		return true
+	}
+	if strings.Contains(u, "sslmode=require") ||
+		strings.Contains(u, "sslmode=verify-ca") ||
+		strings.Contains(u, "sslmode=verify-full") {
+		return true
+	}
+	return false
+}
+
+func tlsServerName(host string) string {
+	host = strings.TrimSpace(host)
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		return h
+	}
+	return host
 }
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool, dir string) error {
