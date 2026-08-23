@@ -24,34 +24,35 @@ import (
 )
 
 func (a *API) Health(w http.ResponseWriter, r *http.Request) {
-	dbOK := true
+	// Liveness for Railway/load balancers: always 200 if the process is serving.
+	// DB status is reported in the body; do not fail the probe on remote latency.
+	dbOK := false
+	dbDetail := "down"
 	if a.Pool != nil {
-		ctx, cancel := context.WithTimeout(r.Context(), 80*time.Millisecond)
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		err := a.Pool.Ping(ctx)
 		cancel()
-		if err != nil {
-			// Soft: prefer last known if pool has live conns (avoid 300ms+ remote ping on every probe).
-			dbOK = a.Pool.Stat().TotalConns() > 0
+		if err == nil {
+			dbOK = true
+			dbDetail = "up"
+		} else if a.Pool.Stat().TotalConns() > 0 {
+			dbOK = true
+			dbDetail = "degraded"
 		}
-	} else {
-		dbOK = false
-	}
-	status := http.StatusOK
-	if !dbOK {
-		status = http.StatusServiceUnavailable
 	}
 	c := cluster.Cluster(a.Cfg.DefaultCluster)
 	r = httpx.WithValue(r, httpx.KeyCluster, c)
 	httpx.OK(w, r, map[string]any{
-		"ok":             dbOK,
+		"ok":             true,
 		"service":        "1vault-backend",
 		"version":        "v1",
 		"runtime":        "go",
 		"defaultCluster": a.Cfg.DefaultCluster,
-		"database":       map[bool]string{true: "up", false: "down"}[dbOK],
+		"database":       dbDetail,
+		"databaseOk":     dbOK,
 		"indexer":        a.indexerHealthDetail(),
 		"clusterHint":    firstNonEmpty(r.URL.Query().Get("cluster"), a.Cfg.DefaultCluster),
-	}, status)
+	}, http.StatusOK)
 }
 
 func (a *API) Protocol(w http.ResponseWriter, r *http.Request) {

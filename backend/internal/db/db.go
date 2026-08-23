@@ -27,13 +27,18 @@ func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 			MinVersion: tls.VersionTLS12,
 			ServerName: tlsServerName(cfg.ConnConfig.Host),
 		}
+		// Remote pooler (Supabase): fewer warm conns, longer dial — Railway ↔ Sydney is slow.
+		cfg.MaxConns = 16
+		cfg.MinConns = 1
+		cfg.ConnConfig.ConnectTimeout = 15 * time.Second
+	} else {
+		cfg.MaxConns = 32
+		cfg.MinConns = 8
+		cfg.ConnConfig.ConnectTimeout = 5 * time.Second
 	}
-	cfg.MaxConns = 32
-	cfg.MinConns = 8
 	cfg.MaxConnLifetime = time.Hour
 	cfg.MaxConnIdleTime = 10 * time.Minute
 	cfg.HealthCheckPeriod = 30 * time.Second
-	cfg.ConnConfig.ConnectTimeout = 5 * time.Second
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
