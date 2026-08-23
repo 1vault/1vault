@@ -21,17 +21,43 @@ Solana RPC / WebSocket
 ```bash
 cd ProgramID/onevault-indexer
 cp .env.example .env
-# DATABASE_URL + RPC_URL (Helius recommended for production)
+# Required: DATABASE_URL + RPC_URL (Helius recommended)
 
 npm install
 npm run migrate    # apply schema/*.sql
 npm run api        # REST on port 3001
-npm run dev        # poll new program txs
+npm run dev        # poll new program txs (separate terminal)
 ```
+
+### `.env` checklist
+
+| Variable | Notes |
+|----------|--------|
+| `CLUSTER` | `devnet` or `mainnet-beta` |
+| `RPC_URL` | Helius / Solana RPC |
+| `PROGRAM_ID` | `2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP` |
+| `DATABASE_URL` | Same Postgres as Go backend. Prefer Supabase **transaction** pooler **`:6543`** (session `:5432` hits max clients) |
+| `API_PORT` | default `3001` |
+| `POLL_INTERVAL_MS` | default `5000`–`8000` |
+
+The indexer auto-rewrites `pooler.supabase.com:5432` → `:6543` and uses TLS with `rejectUnauthorized: false` for Supabase.
 
 Demo scripts in `onevault-program/sdk` POST each confirmed signature to `http://127.0.0.1:3001/api/ingest` for immediate rows.
 
 After **MVP program upgrade**, old indexed rows for stripped events remain in legacy tables; new txs only emit MVP events.
+
+## Verify (smoke)
+
+With `npm run api` running:
+
+```bash
+curl -s http://127.0.0.1:3001/health
+curl -s http://127.0.0.1:3001/api/stats
+curl -s http://127.0.0.1:3001/api/vaults | head
+npm run status
+```
+
+Expect `health.ok=true` and non-empty `stats` after any indexed vaults exist.
 
 ## API endpoints
 
@@ -84,3 +110,29 @@ npm run status
 ## Program ID
 
 `2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP`
+
+## Backend integration
+
+Go API (`backend/`) reads the **same** `DATABASE_URL`. Run indexer when you need vault list / holdings / leaderboard to stay fresh:
+
+| Process | Command | Port |
+|---------|---------|------|
+| Indexer API | `npm run api` | 3001 |
+| Indexer poller | `npm run dev` | — |
+| Go backend | `./bin/1vault-api` | 3090 |
+
+Optional: set `INDEXER_INGEST_URL=http://127.0.0.1:3001/api/ingest` on the backend so `POST /v1/tx/submit` can trigger immediate indexing.
+
+## Deploy on Railway
+
+Lihat **[RAILWAY.md](./RAILWAY.md)** — Root Directory wajib `ProgramID/onevault-indexer`.
+
+Ringkas (CLI):
+
+```bash
+cd ProgramID/onevault-indexer
+railway login
+railway link   # atau railway init
+railway variables set DATABASE_URL="...:6543/postgres" RPC_URL="..." PROGRAM_ID="2seoeTU6KKZckRDom9bsZmFdBi9iZxRXKszgLCzjpWqP" CLUSTER="devnet" RUN_POLLER="1"
+railway up
+```

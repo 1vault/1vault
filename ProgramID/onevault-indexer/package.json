@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
+    "start:railway": "node scripts/railway-start.mjs",
     "dev": "tsx src/index.ts",
     "api": "tsx src/api/server.ts",
     "migrate": "tsx src/migrate.ts",
