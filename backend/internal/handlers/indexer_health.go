@@ -16,7 +16,7 @@ func (a *API) indexerHealthDetail() map[string]any {
 			"dev":        "disabled",
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	st, err := a.Indexer.Status(ctx)
 	if err != nil {

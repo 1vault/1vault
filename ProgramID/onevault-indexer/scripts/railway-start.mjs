@@ -30,17 +30,20 @@ async function main() {
   if (runPoller) {
     console.log("[railway] starting poller…");
     const poller = run("index.js");
-    poller.on("exit", (code) => {
-      console.error("[railway] poller exited", code);
-      process.exit(code ?? 1);
+    // Do not exit the whole service if poller dies — keep /health + API up.
+    poller.on("exit", (code, signal) => {
+      console.error("[railway] poller exited code=%s signal=%s — API stays up", code, signal);
     });
   } else {
     console.log("[railway] RUN_POLLER=0 — API only");
   }
 
-  console.log("[railway] starting API on PORT=%s", process.env.PORT ?? process.env.API_PORT ?? "3001");
+  console.log("[railway] starting API on 0.0.0.0 PORT=%s", process.env.PORT ?? process.env.API_PORT ?? "3001");
   const api = run("api/server.js");
-  api.on("exit", (code) => process.exit(code ?? 0));
+  api.on("exit", (code) => {
+    console.error("[railway] API exited", code);
+    process.exit(code ?? 1);
+  });
 
   const shutdown = (sig) => {
     console.log("[railway] %s — shutting down", sig);

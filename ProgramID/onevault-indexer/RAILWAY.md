@@ -85,12 +85,22 @@ curl -s https://YOUR-INDEXER.up.railway.app/health
 curl -s https://YOUR-INDEXER.up.railway.app/api/stats
 ```
 
-Backend Go (jika perlu ingest segera setelah submit):
+Harus `{"ok":true,...}` — kalau **502 Application failed to respond**, service crash (cek `railway logs`: DB/RPC/migrate).
+
+Backend Go harus mengarah ke indexer yang sama:
 
 ```env
 INDEXER_INGEST_URL=https://YOUR-INDEXER.up.railway.app/api/ingest
 ```
 
+Lalu `GET /v1/health` → `indexer.api` / `indexer.dev` harus `"up"`.
+
+### 502 troubleshooting
+
+1. Root Directory = `ProgramID/onevault-indexer` (bukan `backend/`)
+2. Env: `DATABASE_URL` (:6543), `RPC_URL`, `PROGRAM_ID`, `CLUSTER`, `RUN_POLLER=1`
+3. Logs harus ada: `[1vault-api] listening on http://0.0.0.0:<PORT>`
+4. Redeploy setelah pull fix listen `0.0.0.0` + railway-start (poller crash tidak matikan API)
 ---
 
 ## Catatan Supabase

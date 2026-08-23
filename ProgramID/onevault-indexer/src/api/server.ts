@@ -326,6 +326,6 @@ app.get("/api/vaults/:pubkey/follows", asyncRoute(async (req, res) => {
   res.json(rows);
 }));
 
-app.listen(config.apiPort, () => {
-  console.log(`[1vault-api] listening on http://localhost:${config.apiPort}`);
+app.listen(config.apiPort, "0.0.0.0", () => {
+  console.log(`[1vault-api] listening on http://0.0.0.0:${config.apiPort}`);
 });
