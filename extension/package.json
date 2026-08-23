@@ -1,0 +1,33 @@
+{
+  "name": "1vault-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "1Vault degen Chrome extension — vault list, capital pipeline, flows via Go /v1",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "gen:api": "openapi-typescript ../backend/docs/openapi.yaml -o src/lib/api/schema.d.ts",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@solana/spl-token": "^0.4.15",
+    "@solana/web3.js": "^1.98.4",
+    "bs58": "^6.0.0",
+    "openapi-fetch": "^0.14.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tweetnacl": "^1.0.3"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.7.1",
+    "@types/chrome": "^0.0.326",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "openapi-typescript": "^7.8.0",
+    "typescript": "^5.8.3",
+    "vite": "^8.2.1",
+    "vite-plugin-node-polyfills": "^0.28.0"
+  }
+}
