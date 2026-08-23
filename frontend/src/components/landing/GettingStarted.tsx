@@ -1,10 +1,11 @@
 import type { CSSProperties } from "react";
+import { X_HANDLE } from "@/lib/social";
 import { CtaButton, Section, SectionLabel } from "./ui";
 
 const STEPS = [
   {
     title: "Claim your seat",
-    body: "Follow @1vault on X and drop your handle on the whitelist. Devnet seats go out in batches, newest handles last.",
+    body: `Follow @${X_HANDLE} on X and drop your handle on the whitelist. Devnet seats go out in batches, newest handles last.`,
     cta: "Join Whitelist",
     href: "#whitelist",
   },
