@@ -1,0 +1,12 @@
+# Railway — deploy from backend/ as the service root.
+# Dashboard: New Project → Deploy from GitHub → Root Directory = backend
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/v1/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5

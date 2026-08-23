@@ -1,0 +1,12 @@
+bin/
+*.exe
+*.test
+.env
+.env.*
+!.env.example
+.git/
+.gitignore
+*.md
+scripts/smoke.sh
+docs/test/
+docs/FRONTEND_GUIDE.md

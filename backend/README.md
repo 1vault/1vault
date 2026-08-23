@@ -84,6 +84,37 @@ go build -o bin/1vault-api ./cmd/api
 cd bin && ./1vault-api
 ```
 
+### Linux binary (Railway / VPS)
+
+Command yang benar harus menyertakan package path `./cmd/api` (bukan hanya `go build` di root `backend/`):
+
+```bash
+# Script (recommended) — output di bin/railway/
+./scripts/build-linux.sh          # linux/amd64
+./scripts/build-linux.sh arm64    # linux/arm64
+
+# Manual
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o bin/railway/1vault-api ./cmd/api
+```
+
+Hasil: `bin/railway/1vault-api` (static ELF) + `migrations/` + `docs/` untuk Swagger.
+
+### Deploy on Railway (Dockerfile)
+
+1. New project → connect repo → **Root Directory = `backend`**
+2. Builder uses `Dockerfile` + `railway.toml` (healthcheck `/v1/health`)
+3. Add Postgres plugin → `DATABASE_URL` injected automatically
+4. Set variables:
+
+| Variable | Required |
+|----------|----------|
+| `JWT_SECRET` | yes |
+| `DATABASE_URL` | yes (Postgres plugin) |
+| `PORT` | auto by Railway |
+| `CORS_ORIGINS` | production frontend + simulator origins |
+| `TWITTER_*` / RPC / GMGN | optional |
+
+Do **not** commit `.env` — set secrets in Railway dashboard.
 ## Smoke test (one-shot)
 
 With the API running locally:
