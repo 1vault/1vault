@@ -28,8 +28,10 @@ info:
 
     Expand any endpoint in Swagger to read **description** — what it does and when to use it.
 servers:
+  - live: https://awake-enchantment-production-ea29.up.railway.app/
+    description: Live
   - url: http://localhost:3090
-    description: Local
+    description: Local 
 tags:
   - name: System
     description: Health, docs, ingest
