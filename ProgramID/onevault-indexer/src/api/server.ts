@@ -30,6 +30,10 @@ function asyncRoute(
   };
 }
 
+app.get("/", (_req, res) => {
+  res.json({ ok: true, service: "onevault-indexer-api", health: "/health" });
+});
+
 app.get("/health", asyncRoute(async (_req, res) => {
   await touchHeartbeat("api");
   const dev = await componentStatus("poller");
@@ -328,4 +332,9 @@ app.get("/api/vaults/:pubkey/follows", asyncRoute(async (req, res) => {
 
 app.listen(config.apiPort, "0.0.0.0", () => {
   console.log(`[1vault-api] listening on http://0.0.0.0:${config.apiPort}`);
+  void touchHeartbeat("api");
+  // Keep api heartbeat fresh even if public HTTP never hits /health
+  setInterval(() => {
+    void touchHeartbeat("api");
+  }, 10_000);
 });

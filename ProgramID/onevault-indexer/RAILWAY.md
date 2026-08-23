@@ -78,6 +78,39 @@ Default **satu service** sudah cukup (`RUN_POLLER=1`).
 
 ---
 
+### Kenapa backend bilang `api: down` tapi `dev: up`?
+
+- **`dev`** = poller menulis `indexer_heartbeat` di Postgres (jalan).
+- **`api`** = backend harus HTTP `GET {INDEXER}/health`.
+- URL publik `https://1vault-production.up.railway.app` saat ini sering **502** → domain tidak mengarah ke service indexer (atau Public Networking belum aktif).
+
+**Perbaiki di Railway (service INDEXER):**
+
+1. Buka service **indexer** (bukan backend)
+2. **Settings → Networking → Public Networking → Generate Domain**
+3. Pastikan domain itu yang dipakai di backend:
+
+```env
+INDEXER_INGEST_URL=https://<DOMAIN-INDEXER>.up.railway.app/api/ingest
+```
+
+4. Cek:
+
+```bash
+curl -s https://<DOMAIN-INDEXER>.up.railway.app/health
+# harus {"ok":true,"service":"onevault-indexer-api",...}
+```
+
+Kalau backend & indexer satu project Railway, alternatif private:
+
+```env
+INDEXER_INGEST_URL=http://<nama-service-indexer>.railway.internal:8080/api/ingest
+```
+
+(`8080` = `PORT` di logs indexer.)
+
+---
+
 ## Smoke setelah live
 
 ```bash

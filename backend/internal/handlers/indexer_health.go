@@ -18,51 +18,77 @@ func (a *API) indexerHealthDetail() map[string]any {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+
+	apiDB := a.indexerRoleFromDB(ctx, "api")
+	devDB := a.indexerRoleFromDB(ctx, "poller")
+
 	st, err := a.Indexer.Status(ctx)
 	if err != nil {
-		// API unreachable — try DB heartbeat for dev poller
-		dev := a.indexerDevFromDB(ctx)
+		// HTTP unreachable (common: Railway domain on wrong service / 502).
+		// Fall back to DB heartbeats written by indexer processes.
+		api := apiDB
+		if api == "unknown" {
+			api = "down"
+		}
+		dev := devDB
+		if dev == "unknown" {
+			dev = "down"
+		}
+		ok := api == "up" && dev == "up"
 		return map[string]any{
-			"configured": true,
-			"ok":         false,
-			"api":        "down",
-			"dev":        dev,
-			"error":      err.Error(),
+			"configured":    true,
+			"ok":            ok,
+			"api":           api,
+			"dev":           dev,
+			"http":          "down",
+			"error":         err.Error(),
+			"hint":          "HTTP to INDEXER_INGEST_URL failed. Attach public domain to the indexer service (not backend), or use private URL http://<indexer-service>.railway.internal:$PORT/api/ingest",
+			"ingestReady":   false,
+			"processAlive":  ok,
 		}
 	}
 	out := map[string]any{
-		"configured": st.Configured,
-		"ok":         st.OK,
-		"api":        st.API,
-		"dev":        st.Dev,
+		"configured":  st.Configured,
+		"ok":          st.OK,
+		"api":         st.API,
+		"dev":         st.Dev,
+		"http":        "up",
+		"ingestReady": st.API == "up",
 	}
 	if st.Components != nil {
 		out["components"] = st.Components
 	}
-	// If API up but dev down, double-check DB (API may be old build)
-	if st.API == "up" && st.Dev != "up" {
-		if dev := a.indexerDevFromDB(ctx); dev == "up" {
-			out["dev"] = "up"
-			out["ok"] = true
-		}
+	// If HTTP says api up but poller component stale, trust DB poller heartbeat
+	if st.API == "up" && st.Dev != "up" && devDB == "up" {
+		out["dev"] = "up"
+		out["ok"] = true
+	}
+	// If HTTP ok but somehow api component missing, trust DB
+	if st.API != "up" && apiDB == "up" {
+		out["api"] = "up"
+		out["ok"] = out["dev"] == "up"
 	}
 	return out
 }
 
-func (a *API) indexerDevFromDB(ctx context.Context) string {
+func (a *API) indexerRoleFromDB(ctx context.Context, role string) string {
 	if a.Pool == nil {
 		return "unknown"
 	}
 	var lastSeen time.Time
 	err := a.Pool.QueryRow(ctx, `
-		SELECT last_seen_at FROM indexer_heartbeat WHERE role = 'poller'`).Scan(&lastSeen)
+		SELECT last_seen_at FROM indexer_heartbeat WHERE role = $1`, role).Scan(&lastSeen)
 	if err != nil {
 		return "down"
 	}
-	if time.Since(lastSeen) <= 30*time.Second {
+	if time.Since(lastSeen) <= 45*time.Second {
 		return "up"
 	}
 	return "down"
+}
+
+func (a *API) indexerDevFromDB(ctx context.Context) string {
+	return a.indexerRoleFromDB(ctx, "poller")
 }
 
 // legacy string helper
