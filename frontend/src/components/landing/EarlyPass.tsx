@@ -86,43 +86,14 @@ export function EarlyPass({ accessToken, handle }: EarlyPassProps) {
     }
   }
 
-  async function shareOnX() {
-    if (state.kind !== "ready") return;
-    setBusy(true);
-
-    try {
-      // On mobile the native sheet can hand the actual PNG to the X app, which
-      // is the only path that attaches media directly.
-      const file = await fetchPassFile();
-      if (file && navigator.canShare?.({ files: [file] })) {
-        try {
-          await navigator.share({ files: [file], text: TWEET_TEXT });
-          return;
-        } catch {
-          // Cancelled or unsupported in practice — fall through to the link.
-        }
-      }
-
-      // Desktop: post a link to the share page, which X unfurls into a large
-      // image card, and save the file so it can be attached manually too.
-      if (file) {
-        const href = URL.createObjectURL(file);
-        const link = document.createElement("a");
-        link.href = href;
-        link.download = file.name;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(href);
-      }
-
-      const intent = new URL("https://x.com/intent/tweet");
-      intent.searchParams.set("text", TWEET_TEXT);
-      intent.searchParams.set("url", `${window.location.origin}/${handle}`);
-      window.open(intent.toString(), "_blank", "noopener,noreferrer");
-    } finally {
-      setBusy(false);
-    }
+  // Stays synchronous: an await before window.open drops the user gesture and
+  // the browser blocks the popup. The posted link carries the pass as its
+  // preview card, so nothing needs to be fetched here.
+  function shareOnX() {
+    const intent = new URL("https://x.com/intent/tweet");
+    intent.searchParams.set("text", TWEET_TEXT);
+    intent.searchParams.set("url", `${window.location.origin}/${handle}`);
+    window.open(intent.toString(), "_blank", "noopener,noreferrer");
   }
 
   return (
@@ -144,7 +115,6 @@ export function EarlyPass({ accessToken, handle }: EarlyPassProps) {
         <button
           type="button"
           onClick={shareOnX}
-          disabled={state.kind !== "ready" || busy}
           className="wf-submit pass-btn group/btn"
         >
           <span className="wf-sweep" aria-hidden="true" />
