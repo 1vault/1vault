@@ -607,6 +607,27 @@ func (b *Builder) AccrueFees(payer, vault solana.PublicKey) (*Prepared, error) {
 }
 
 func (b *Builder) ClaimFees(strategist, vault, vaultTokenAccount, degenFeeWallet solana.PublicKey) (*Prepared, error) {
+	if b.RPC != nil {
+		feePDA := s.VaultFeePDA(b.Program, vault)
+		exists, err := b.RPC.AccountExists(feePDA)
+		if err != nil {
+			return nil, fmt.Errorf("load vault fee state %s: %w", feePDA, err)
+		}
+		if !exists {
+			return nil, fmt.Errorf("vault %s has no fee state — nothing to claim (Anchor NothingToClaim 6033)", vault)
+		}
+		data, err := b.RPC.AccountData(feePDA)
+		if err != nil {
+			return nil, fmt.Errorf("load vault fee state %s: %w", feePDA, err)
+		}
+		claimable, err := s.DecodeVaultFeeClaimable(data)
+		if err != nil {
+			return nil, err
+		}
+		if claimable == 0 {
+			return nil, fmt.Errorf("vault %s has nothing to claim (accrued==claimed) — Anchor NothingToClaim 6033; trade/accrue profit above HWM first", vault)
+		}
+	}
 	unwrap := s.FeeUnwrapPDA(b.Program, vault, degenFeeWallet)
 	ix := s.Ix(b.Program, s.DiscClaimFees,
 		s.Meta(strategist, true, true),

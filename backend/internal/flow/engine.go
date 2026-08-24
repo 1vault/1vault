@@ -214,6 +214,29 @@ func (svc *Service) shouldSkip(ctx context.Context, rpc *txprep.RPC, b *txprep.B
 		if p.SkipClaimFees {
 			return true, "skipClaimFees", nil
 		}
+		vault, err := svc.resolveVault(p, job)
+		if err != nil {
+			return false, "", err
+		}
+		feePDA := s.VaultFeePDA(b.Program, vault)
+		exists, err := rpc.AccountExists(feePDA)
+		if err != nil {
+			return false, "", err
+		}
+		if !exists {
+			return true, "no vault fee state — nothing to claim", nil
+		}
+		data, err := rpc.AccountData(feePDA)
+		if err != nil {
+			return false, "", err
+		}
+		claimable, err := s.DecodeVaultFeeClaimable(data)
+		if err != nil {
+			return false, "", err
+		}
+		if claimable == 0 {
+			return true, "nothing to claim (accrued performance fees already claimed or zero)", nil
+		}
 		return false, "", nil
 	case "initiate_close":
 		vault, err := svc.resolveVault(p, job)
