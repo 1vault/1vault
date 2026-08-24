@@ -33,7 +33,22 @@ Do **not** guess tx account order or flow steps from the on-chain IDL alone — 
 
 ## Environment
 
-Use cluster-scoped backend URL and Solana RPC. See `FRONTEND_GUIDE.md` §2 and program docs for `NEXT_PUBLIC_*` variables.
+Marketing site (waitlist + X OAuth) runs **standalone on Vercel** — no Go backend required.
+
+Copy `.env.example` → `.env.local` for local dev, or set in **Vercel → Settings → Environment Variables**:
+
+| Variable | Example |
+|----------|---------|
+| `SITE_URL` | `https://1vaults.xyz` |
+| `TWITTER_CLIENT_ID` | from X Developer Portal |
+| `TWITTER_CLIENT_SECRET` | from X Developer Portal |
+| `TWITTER_CALLBACK_URL` | `https://1vaults.xyz/callback` |
+| `DATABASE_URL` | Supabase Postgres connection string |
+| `JWT_SECRET` | long random string |
+
+In [X Developer Portal](https://developer.twitter.com/), register callback URL exactly as `TWITTER_CALLBACK_URL`.
+
+For product UI (vaults, flows, trades), use the Go backend — see `FRONTEND_GUIDE.md`.
 
 ## Local stack
 
