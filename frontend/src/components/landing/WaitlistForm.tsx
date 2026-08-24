@@ -91,7 +91,7 @@ export function WaitlistForm() {
           We&apos;ll reach out on X when mainnet access opens.
         </p>
 
-        {accessToken ? (
+        {accessToken && state.waitlist.handle ? (
           <EarlyPass accessToken={accessToken} handle={state.waitlist.handle} />
         ) : null}
       </div>

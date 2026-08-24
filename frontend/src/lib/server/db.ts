@@ -42,7 +42,14 @@ async function ensureSchema(): Promise<void> {
         );
       `);
       await db.query(`
+        ALTER TABLE waitlist ADD COLUMN IF NOT EXISTS pass_image_url TEXT;
+      `);
+      await db.query(`
         CREATE INDEX IF NOT EXISTS waitlist_joined_at_idx ON waitlist(joined_at);
+      `);
+      // Public pass pages resolve /:handle case-insensitively.
+      await db.query(`
+        CREATE INDEX IF NOT EXISTS users_handle_lower_idx ON users (lower(handle));
       `);
     })();
   }

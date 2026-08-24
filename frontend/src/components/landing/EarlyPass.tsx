@@ -13,7 +13,7 @@ type PassState =
 
 type EarlyPassProps = {
   accessToken: string;
-  handle?: string;
+  handle: string;
 };
 
 const TWEET_TEXT = [
@@ -61,7 +61,7 @@ export function EarlyPass({ accessToken, handle }: EarlyPassProps) {
     const res = await fetch(imageUrl);
     if (!res.ok) return null;
     const blob = await res.blob();
-    return new File([blob], `1vault-early-pass-${handle ?? "member"}.png`, {
+    return new File([blob], `1vault-early-pass-${handle}.png`, {
       type: "image/png",
     });
   }
@@ -118,10 +118,7 @@ export function EarlyPass({ accessToken, handle }: EarlyPassProps) {
 
       const intent = new URL("https://x.com/intent/tweet");
       intent.searchParams.set("text", TWEET_TEXT);
-      intent.searchParams.set(
-        "url",
-        `${window.location.origin}/pass/${state.token}`,
-      );
+      intent.searchParams.set("url", `${window.location.origin}/${handle}`);
       window.open(intent.toString(), "_blank", "noopener,noreferrer");
     } finally {
       setBusy(false);
