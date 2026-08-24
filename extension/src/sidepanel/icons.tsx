@@ -34,34 +34,41 @@ export function IconSend(p: Props) {
 
 export function IconPark(p: Props) {
   return (
-    <I {...p}>
-      <path d="M12 5v14M5 12h14" strokeLinecap="round" />
-      <circle cx="12" cy="12" r="9" />
+    <I {...p} strokeWidth={2.1}>
+      <path d="M12 4v10" strokeLinecap="round" />
+      <path d="M8 10l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M6 18h12" strokeLinecap="round" />
     </I>
   );
 }
 
 export function IconTrade(p: Props) {
   return (
-    <I {...p}>
-      <path d="M7 10h11l-3-3M17 14H6l3 3" strokeLinecap="round" strokeLinejoin="round" />
+    <I {...p} strokeWidth={2.1}>
+      <path d="M4 8h13l-3.5-3.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M20 16H7l3.5 3.5" strokeLinecap="round" strokeLinejoin="round" />
     </I>
   );
 }
 
 export function IconClose(p: Props) {
   return (
-    <I {...p}>
-      <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
+    <I {...p} strokeWidth={2.1}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M9 9l6 6M15 9l-6 6" strokeLinecap="round" />
     </I>
   );
 }
 
 export function IconCreate(p: Props) {
   return (
-    <I {...p}>
-      <rect x="4" y="4" width="16" height="16" rx="4" />
-      <path d="M12 8v8M8 12h8" strokeLinecap="round" />
+    <I {...p} strokeWidth={2.1}>
+      <path
+        d="M8 4h5l5 5v9a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"
+        strokeLinejoin="round"
+      />
+      <path d="M13 4v5h5" strokeLinejoin="round" />
+      <path d="M9.5 14h5M12 11.5v5" strokeLinecap="round" />
     </I>
   );
 }

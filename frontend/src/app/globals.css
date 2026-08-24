@@ -188,12 +188,806 @@ body {
   transform: translate3d(0, 0, 0);
 }
 
+/* ── Hero stage ── */
+
+:root {
+  --ease-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-soft: cubic-bezier(0.33, 1, 0.68, 1);
+  --motion-slow: 1.05s;
+  --motion-medium: 0.85s;
+}
+
+/* Single source of truth for horizontal alignment. Header and hero both use
+   this so the logo can never drift out of line with the headline. */
+.shell {
+  width: 100%;
+  max-width: 1560px;
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+}
+
+@media (min-width: 768px) {
+  .shell {
+    padding-inline: 2.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .shell {
+    padding-inline: 3.5rem;
+  }
+}
+
+@media (min-width: 1280px) {
+  .shell {
+    padding-inline: 5rem;
+  }
+}
+
+.hero {
+  position: relative;
+  display: flex;
+  min-height: 100svh;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  padding-block: clamp(7rem, 14vh, 9rem) clamp(4rem, 10vh, 6rem);
+}
+
+.hero-center {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+/* Each child fades up on its own delay so the copy resolves as a sequence
+   rather than one block sliding in. */
+.hero-item {
+  opacity: 0;
+  transform: translate3d(0, 16px, 0);
+}
+
+.hero-center--in .hero-item {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+  transition:
+    opacity 0.9s var(--ease-soft),
+    transform 0.9s var(--ease-soft);
+  transition-delay: var(--d, 0ms);
+}
+
+.hero-badge {
+  margin-top: clamp(3rem, 8vh, 5rem);
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 0.6rem;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0.5rem 1rem;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.58rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  backdrop-filter: blur(8px);
+  transition:
+    border-color 0.5s var(--ease-soft),
+    color 0.5s var(--ease-soft),
+    background-color 0.5s var(--ease-soft);
+}
+
+.hero-badge:hover {
+  border-color: rgba(58, 168, 240, 0.45);
+  background: rgba(58, 168, 240, 0.07);
+  color: #fff;
+}
+
+.hero-badge-sep {
+  width: 1px;
+  height: 0.75rem;
+  background: var(--line-strong);
+}
+
+@media (min-width: 640px) {
+  .hero-badge {
+    font-size: 0.62rem;
+    letter-spacing: 0.16em;
+  }
+}
+
+.hero-title {
+  max-width: 20ch;
+  font-family: var(--font-display), var(--font-geist-sans), sans-serif;
+  font-weight: 600;
+  font-size: clamp(2.1rem, 6.6vw, 5.25rem);
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+  text-wrap: balance;
+  filter: drop-shadow(0 4px 30px rgba(0, 0, 0, 0.85));
+}
+
+/* The forced break only helps once the line has room for it; below that the
+   headline wraps on its own. */
+.hero-br {
+  display: none;
+}
+
+@media (min-width: 640px) {
+  .hero-title {
+    line-height: 1.02;
+  }
+
+  .hero-br {
+    display: block;
+  }
+}
+
+.hero-sub {
+  margin-top: 1.5rem;
+  max-width: 40rem;
+  font-size: clamp(0.9rem, 1.1vw, 1.1rem);
+  line-height: 1.7;
+  text-wrap: pretty;
+  color: rgba(255, 255, 255, 0.66);
+  text-shadow: 0 2px 20px rgba(0, 0, 0, 0.9);
+}
+
+.hero-form {
+  margin-top: clamp(2.25rem, 5vh, 3rem);
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.hero-title-gradient {
+  background: linear-gradient(
+    135deg,
+    #ffffff 0%,
+    #bde8f5 42%,
+    #3aa8f0 78%,
+    #ffffff 100%
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: title-shimmer 8s ease-in-out infinite;
+}
+
+@keyframes title-shimmer {
+  0%,
+  100% {
+    background-position: 0% center;
+  }
+  50% {
+    background-position: 100% center;
+  }
+}
+
+@keyframes hero-orb-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: translate(-50%, 0) scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: translate(-50%, -4%) scale(1.08);
+  }
+}
+
+.hero-orb {
+  animation: hero-orb-pulse 12s ease-in-out infinite;
+}
+
+.hero-scanline {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(255, 255, 255, 0.04) 2px,
+    rgba(255, 255, 255, 0.04) 4px
+  );
+  pointer-events: none;
+}
+
+/* ── Hero dome: the half-circle horizon sitting behind the copy ── */
+
+.hero-dome {
+  position: absolute;
+  bottom: -6vh;
+  left: 50%;
+  z-index: 1;
+  aspect-ratio: 2 / 1;
+  height: clamp(28rem, 92vh, 64rem);
+  transform: translateX(-50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 1.6s var(--ease-soft) 0.15s;
+  mask-image: linear-gradient(to top, transparent 4%, #000 22%, #000 100%);
+  -webkit-mask-image: linear-gradient(
+    to top,
+    transparent 4%,
+    #000 22%,
+    #000 100%
+  );
+}
+
+.hero-dome--in {
+  opacity: 1;
+}
+
+.hero-dome svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+/* Soft well of darkness under the copy so the dome never fights the text. */
+.hero-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse min(46rem, 130vw) min(26rem, 55vh) at 50% 46%,
+    rgba(0, 0, 0, 0.84) 0%,
+    rgba(0, 0, 0, 0.58) 45%,
+    transparent 78%
+  );
+}
+
+/* On phones the dome would otherwise sit entirely inside the darkened strip at
+   the bottom of the section, so it is lifted clear of it and the scrim above
+   is tightened to match. */
+@media (max-width: 767px) {
+  .hero-dome {
+    bottom: 11vh;
+    aspect-ratio: auto;
+    height: auto;
+    width: min(1100px, 172vw);
+    mask-image: linear-gradient(to top, transparent 0%, #000 18%, #000 100%);
+    -webkit-mask-image: linear-gradient(
+      to top,
+      transparent 0%,
+      #000 18%,
+      #000 100%
+    );
+  }
+
+  .hero-scrim {
+    background: radial-gradient(
+      ellipse 92vw 27vh at 50% 38%,
+      rgba(0, 0, 0, 0.82) 0%,
+      rgba(0, 0, 0, 0.5) 52%,
+      transparent 82%
+    );
+  }
+
+  .dome-edge {
+    filter: drop-shadow(0 0 8px rgba(127, 228, 255, 0.9))
+      drop-shadow(0 0 26px rgba(58, 168, 240, 0.6));
+  }
+}
+
+/* Rings scale up from the horizon line once, so the dome "rises" on load. */
+.hero-dome svg > circle,
+.hero-dome svg > g {
+  transform-origin: 500px 500px;
+  animation: dome-rise 1.8s var(--ease-soft) both;
+}
+
+@keyframes dome-rise {
+  from {
+    transform: scale(0.82);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.dome-spin {
+  animation:
+    dome-rise 1.8s var(--ease-soft) both,
+    dome-rotate 70s linear infinite 1.8s;
+}
+
+@keyframes dome-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.dome-edge {
+  filter: drop-shadow(0 0 10px rgba(127, 228, 255, 0.75))
+    drop-shadow(0 0 34px rgba(58, 168, 240, 0.5));
+  animation:
+    dome-rise 1.8s var(--ease-soft) both,
+    dome-breathe 8s ease-in-out infinite 1.8s;
+}
+
+@keyframes dome-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.dome-ring {
+  filter: drop-shadow(0 0 14px rgba(58, 168, 240, 0.55));
+  animation:
+    dome-rise 1.8s var(--ease-soft) both,
+    dome-breathe 8s ease-in-out infinite 2.6s;
+}
+
+.dome-spin {
+  filter: drop-shadow(0 0 8px rgba(127, 228, 255, 0.45));
+}
+
+/* ── Waitlist form ── */
+
+.wf-shell {
+  position: relative;
+  width: 100%;
+  max-width: 34rem;
+}
+
+/* Coloured wash sitting behind the glass so it has something to refract. */
+.wf-aura {
+  position: absolute;
+  inset: -20% -6%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      ellipse at 24% 50%,
+      rgba(58, 168, 240, 0.26),
+      transparent 64%
+    ),
+    radial-gradient(
+      ellipse at 76% 45%,
+      rgba(127, 228, 255, 0.16),
+      transparent 62%
+    ),
+    radial-gradient(
+      ellipse at 50% 68%,
+      rgba(11, 95, 158, 0.24),
+      transparent 66%
+    );
+  filter: blur(38px);
+  animation: wf-aura-drift 12s ease-in-out infinite;
+}
+
+@keyframes wf-aura-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: translate3d(0.75rem, -0.25rem, 0) scale(1.04);
+    opacity: 0.85;
+  }
+}
+
+.wf-bar {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.14) 0%,
+    rgba(255, 255, 255, 0.05) 42%,
+    rgba(255, 255, 255, 0.09) 100%
+  );
+  padding: 0.6rem 0.6rem 0.6rem 1.1rem;
+  backdrop-filter: blur(26px) saturate(150%);
+  -webkit-backdrop-filter: blur(26px) saturate(150%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.06),
+    0 24px 70px rgba(0, 0, 0, 0.5);
+  transition:
+    border-color 0.5s var(--ease-soft),
+    box-shadow 0.5s var(--ease-soft),
+    transform 0.5s var(--ease-soft);
+}
+
+.wf-bar:hover {
+  border-color: rgba(127, 228, 255, 0.32);
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.26),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.07),
+    0 28px 80px rgba(0, 0, 0, 0.55),
+    0 0 40px rgba(58, 168, 240, 0.12);
+}
+
+.wf-bar--done {
+  border-color: rgba(127, 228, 255, 0.4);
+  padding-right: 1.1rem;
+}
+
+/* Slow diagonal glint travelling across the glass. */
+.wf-shine {
+  position: absolute;
+  inset: -50%;
+  pointer-events: none;
+  background: linear-gradient(
+    115deg,
+    transparent 42%,
+    rgba(255, 255, 255, 0.16) 48%,
+    rgba(255, 255, 255, 0.3) 50%,
+    rgba(255, 255, 255, 0.16) 52%,
+    transparent 58%
+  );
+  transform: translateX(-60%);
+  animation: wf-shine-slide 6s var(--ease-soft) infinite;
+}
+
+@keyframes wf-shine-slide {
+  0%,
+  60% {
+    transform: translateX(-60%);
+  }
+  92%,
+  100% {
+    transform: translateX(60%);
+  }
+}
+
+.wf-avatar {
+  position: relative;
+  display: flex;
+  height: 2.4rem;
+  width: 2.4rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.wf-text {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.2rem;
+  text-align: left;
+}
+
+.wf-label {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.58rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.wf-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.9rem;
+  color: #fff;
+}
+
+.wf-value--muted {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.wf-done-mark {
+  position: relative;
+  flex-shrink: 0;
+  color: var(--accent-bright);
+}
+
+.wf-submit {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.6rem;
+  overflow: hidden;
+  background: #fff;
+  padding: 0.95rem 1.35rem;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink);
+  transition:
+    background-color 0.45s var(--ease-soft),
+    color 0.45s var(--ease-soft),
+    box-shadow 0.45s var(--ease-soft);
+}
+
+.wf-submit:hover:not(:disabled) {
+  background: var(--accent-bright);
+  box-shadow: 0 10px 26px rgba(58, 168, 240, 0.2);
+}
+
+.wf-submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+/* Highlight that sweeps across the button on a slow loop. */
+.wf-sweep {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 35%,
+    rgba(58, 168, 240, 0.28) 50%,
+    transparent 65%
+  );
+  transform: translateX(-100%);
+  animation: wf-sweep-slide 4.5s var(--ease-soft) infinite;
+}
+
+@keyframes wf-sweep-slide {
+  0%,
+  55% {
+    transform: translateX(-100%);
+  }
+  85%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.wf-note {
+  margin-top: 1rem;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.58rem;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  line-height: 1.6;
+  color: var(--text-faint);
+}
+
+.wf-note--error {
+  color: #f87171;
+}
+
+/* ── Early Pass ── */
+
+.pass {
+  position: relative;
+  z-index: 1;
+  margin-top: 1.75rem;
+  animation: pass-in 0.9s var(--ease-soft) both;
+}
+
+@keyframes pass-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.pass-title {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.58rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.pass-frame {
+  position: relative;
+  margin-top: 0.85rem;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(4, 6, 10, 0.9);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.5);
+  transition:
+    border-color 0.5s var(--ease-soft),
+    box-shadow 0.5s var(--ease-soft);
+}
+
+.pass-frame:hover {
+  border-color: rgba(127, 228, 255, 0.32);
+  box-shadow:
+    0 22px 60px rgba(0, 0, 0, 0.55),
+    0 0 44px rgba(58, 168, 240, 0.14);
+}
+
+.pass-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pass-loading {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03),
+    rgba(255, 255, 255, 0.08),
+    rgba(255, 255, 255, 0.03)
+  );
+  background-size: 200% 100%;
+  animation: wl-shimmer 1.6s ease-in-out infinite;
+}
+
+.pass-fallback {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.pass-actions {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.85rem;
+}
+
+.pass-btn {
+  flex: 1;
+}
+
+.pass-btn--ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+  padding: 0.95rem 1.25rem;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #fff;
+  transition:
+    border-color 0.45s var(--ease-soft),
+    background-color 0.45s var(--ease-soft);
+}
+
+.pass-btn--ghost:hover:not(:disabled) {
+  border-color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.pass-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@media (max-width: 560px) {
+  .pass-actions {
+    flex-direction: column;
+  }
+
+  .pass-btn--ghost {
+    padding: 0.85rem 1rem;
+    font-size: 0.62rem;
+  }
+}
+
+@media (max-width: 560px) {
+  .wf-shell {
+    max-width: 22rem;
+  }
+
+  /* Glass loses its point at this size, so the wash is pulled right in and
+     kept faint rather than blooming past the card edges. */
+  .wf-aura {
+    inset: -8% -2%;
+    filter: blur(28px);
+    opacity: 0.5;
+  }
+
+  .wf-bar {
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    padding: 0.85rem;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.18),
+      0 14px 40px rgba(0, 0, 0, 0.45);
+  }
+
+  .wf-bar--done {
+    padding: 0.85rem;
+  }
+
+  /* Avatar and label keep sharing the first row; the button claims its own. */
+  .wf-text {
+    flex-basis: 0;
+  }
+
+  .wf-avatar {
+    height: 2rem;
+    width: 2rem;
+  }
+
+  .wf-label {
+    font-size: 0.53rem;
+  }
+
+  .wf-value {
+    font-size: 0.82rem;
+  }
+
+  .wf-submit {
+    width: 100%;
+    justify-content: center;
+    padding: 0.85rem 1rem;
+    font-size: 0.62rem;
+  }
+
+  .wf-note {
+    margin-top: 0.8rem;
+    font-size: 0.52rem;
+    letter-spacing: 0.1em;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .marquee-track,
   .aurora,
   .spin-slow,
-  .live-dot {
+  .live-dot,
+  .hero-orb,
+  .hero-title-gradient,
+  .wf-sweep,
+  .wf-shine,
+  .wf-aura,
+  .dome-spin,
+  .dome-edge,
+  .dome-ring,
+  .hero-dome svg > circle,
+  .hero-dome svg > g {
     animation: none;
+  }
+
+  .hero-item,
+  .hero-center--in .hero-item,
+  .hero-dome {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .hero-dome {
+    transform: translateX(-50%);
+  }
+
+  .hero-title-gradient {
+    color: #fff;
+    background: none;
+    -webkit-background-clip: unset;
+    background-clip: unset;
   }
 
   [data-reveal] {

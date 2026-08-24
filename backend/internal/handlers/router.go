@@ -223,6 +223,8 @@ func (a *API) Routes() http.Handler {
 		r.With(a.requireAuth).Get("/v1/me", a.Me)
 		r.With(a.requireAuth).Get("/v1/wallets/nonce", a.WalletNonce)
 		r.With(a.requireAuth).Post("/v1/wallets/bind", a.WalletBind)
+		r.With(a.requireAuth).Post("/v1/waitlist/join", a.JoinWaitlist)
+		r.With(a.requireAuth).Get("/v1/waitlist/me", a.WaitlistMe)
 	})
 
 	return r

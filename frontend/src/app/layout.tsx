@@ -18,14 +18,13 @@ const robotoMono = Roboto_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(
-    process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000",
-  ),
+  metadataBase: new URL(process.env.SITE_URL ?? "http://localhost:3000"),
   title: "1Vault — The Pooled Trading Vault Layer for Solana",
   description:
     "Pooled Solana trading vaults. Same vault. Degen signs. Vault pays. Close pays by share weight.",
   icons: {
-    icon: "/1vault-icon.png",
+    icon: "/favicon.png",
+    apple: "/favicon.png",
   },
   openGraph: {
     title: "1Vault — The Pooled Trading Vault Layer for Solana",

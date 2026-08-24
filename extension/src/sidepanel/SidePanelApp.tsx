@@ -17,6 +17,7 @@ import {
   IconTrade,
   IconVault,
 } from "./icons";
+import { ListPager, ShimmerHero, ShimmerList, usePagedSlice } from "./Shimmer";
 import { TradePanel } from "./TradePanel";
 
 type NavId = "home" | "trade" | "activity" | "vault";
@@ -56,6 +57,11 @@ export function SidePanelApp() {
   const [toast, setToast] = useState<string | null>(null);
   const [flowState, setFlowState] = useState<FlowState | null>(null);
   const [positions, setPositions] = useState<VaultPositionRow[]>([]);
+  const [vaultsLoading, setVaultsLoading] = useState(false);
+  const [pipelineLoading, setPipelineLoading] = useState(false);
+  const [positionsLoading, setPositionsLoading] = useState(false);
+  const [vaultPage, setVaultPage] = useState(1);
+  const [positionPage, setPositionPage] = useState(1);
 
   const refreshStatus = useCallback(async () => {
     const s = await sendBg<KeyStatus>({ type: "KEYRING_STATUS" });
@@ -73,24 +79,33 @@ export function SidePanelApp() {
   }, []);
 
   const loadVaults = useCallback(async () => {
-    const data = await sendBg<{
-      pubkey: string;
-      vaults: VaultRow[];
-    }>({ type: "MY_VAULTS" });
-    setVaults(data.vaults);
-    if (!activeVault && data.vaults[0]?.pubkey) {
-      setActiveVault(String(data.vaults[0].pubkey));
+    setVaultsLoading(true);
+    try {
+      const data = await sendBg<{
+        pubkey: string;
+        vaults: VaultRow[];
+      }>({ type: "MY_VAULTS" });
+      setVaults(data.vaults);
+      setVaultPage(1);
+      if (!activeVault && data.vaults[0]?.pubkey) {
+        setActiveVault(String(data.vaults[0].pubkey));
+      }
+      return data;
+    } finally {
+      setVaultsLoading(false);
     }
-    return data;
   }, [activeVault]);
 
   const refreshPipeline = useCallback(async () => {
     if (!activeVault) return;
+    setPipelineLoading(true);
     try {
       const p = await sendBg<PipelineEstimate>({ type: "PIPELINE", vault: activeVault });
       setPipeline(p);
     } catch {
       setPipeline(null);
+    } finally {
+      setPipelineLoading(false);
     }
   }, [activeVault]);
 
@@ -160,16 +175,35 @@ export function SidePanelApp() {
 
   useEffect(() => {
     if (listTab !== "positions" || !activeVault) return;
+    let cancelled = false;
+    setPositionsLoading(true);
+    setPositionPage(1);
     void Promise.all([
       listVaultPositions(activeVault),
       listVaultTrades(activeVault).catch(() => ({ items: [] })),
     ])
       .then(([posData, tradesData]) => {
+        if (cancelled) return;
         const parsed = parseVaultPositions(posData as Record<string, unknown>);
         setPositions(attachTradeIds(parsed, tradesData.items ?? []));
       })
-      .catch(() => setPositions([]));
+      .catch(() => {
+        if (!cancelled) setPositions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setPositionsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [listTab, activeVault]);
+
+  useEffect(() => {
+    setVaultPage(1);
+  }, [listTab]);
+
+  const pagedVaults = usePagedSlice(vaults, vaultPage);
+  const pagedPositions = usePagedSlice(positions, positionPage);
 
   const bar = useMemo(() => {
     if (!pipeline) return null;
@@ -335,30 +369,42 @@ export function SidePanelApp() {
             {ok && <div className="ok">{ok}</div>}
           </section>
 
-          <div className="quick">
-            <button type="button" className="quick-item" disabled>
+          <div className="quick" aria-hidden>
+            <button type="button" className="quick-item" data-action="create" disabled>
               <div className="quick-icon">
-                <IconCreate width={18} height={18} />
+                <IconCreate width={20} height={20} />
               </div>
-              <span>Create</span>
+              <span className="quick-meta">
+                <strong>Create</strong>
+                <em>New vault</em>
+              </span>
             </button>
-            <button type="button" className="quick-item" disabled>
+            <button type="button" className="quick-item" data-action="park" disabled>
               <div className="quick-icon">
-                <IconPark width={18} height={18} />
+                <IconPark width={20} height={20} />
               </div>
-              <span>Park</span>
+              <span className="quick-meta">
+                <strong>Park</strong>
+                <em>Add SOL</em>
+              </span>
             </button>
-            <button type="button" className="quick-item" disabled>
+            <button type="button" className="quick-item" data-action="trade" disabled>
               <div className="quick-icon">
-                <IconTrade width={18} height={18} />
+                <IconTrade width={20} height={20} />
               </div>
-              <span>Trade</span>
+              <span className="quick-meta">
+                <strong>Trade</strong>
+                <em>Open book</em>
+              </span>
             </button>
-            <button type="button" className="quick-item" disabled>
+            <button type="button" className="quick-item" data-action="close" disabled>
               <div className="quick-icon">
-                <IconClose width={18} height={18} />
+                <IconClose width={20} height={20} />
               </div>
-              <span>Close</span>
+              <span className="quick-meta">
+                <strong>Close</strong>
+                <em>Wind down</em>
+              </span>
             </button>
           </div>
         </div>
@@ -379,6 +425,9 @@ export function SidePanelApp() {
 
         {nav === "home" && (
           <div className="home-panels">
+            {vaultsLoading && !hasVaults ? (
+              <ShimmerHero />
+            ) : (
             <section className="hero">
               {!hasVaults ? (
                 <>
@@ -397,6 +446,27 @@ export function SidePanelApp() {
                     </button>
                     <button className="btn btn-secondary" onClick={() => setNav("trade")}>
                       <IconTrade width={16} height={16} /> Trade
+                    </button>
+                  </div>
+                </>
+              ) : pipelineLoading && !pipeline ? (
+                <>
+                  <div className="muted">
+                    {selected ? vaultName(selected) : "Active vault"}{" "}
+                    {selected && <span className="chip">{vaultType(selected)}</span>}
+                  </div>
+                  <div className="hero-nav shimmer-inline">
+                    <span className="shimmer shimmer-line shimmer-nav" aria-hidden />
+                    <span>SOL NAV</span>
+                  </div>
+                  <div className="shimmer shimmer-line shimmer-line-md" style={{ width: "72%" }} />
+                  <div className="shimmer shimmer-bar" />
+                  <div className="hero-actions">
+                    <button className="btn btn-primary" disabled>
+                      <IconDown /> Park SOL
+                    </button>
+                    <button className="btn btn-secondary" disabled>
+                      <IconTrade width={16} height={16} /> Open position
                     </button>
                   </div>
                 </>
@@ -458,51 +528,68 @@ export function SidePanelApp() {
                 </>
               )}
             </section>
+            )}
 
             <div className="quick">
               <button
                 type="button"
                 className="quick-item"
+                data-action="create"
                 disabled={busy || flowRunning}
                 onClick={() => void startFlow("create-vault")}
               >
                 <div className="quick-icon">
-                  <IconCreate width={18} height={18} />
+                  <IconCreate width={20} height={20} />
                 </div>
-                <span>Create</span>
+                <span className="quick-meta">
+                  <strong>Create</strong>
+                  <em>New vault</em>
+                </span>
               </button>
               <button
                 type="button"
                 className="quick-item"
+                data-action="park"
                 disabled={busy || flowRunning || !activeVault}
                 onClick={() => void startFlow("deposit")}
               >
                 <div className="quick-icon">
-                  <IconPark width={18} height={18} />
+                  <IconPark width={20} height={20} />
                 </div>
-                <span>Park</span>
+                <span className="quick-meta">
+                  <strong>Park</strong>
+                  <em>Add SOL</em>
+                </span>
               </button>
               <button
                 type="button"
                 className="quick-item"
+                data-action="trade"
                 disabled={busy || flowRunning || !activeVault}
                 onClick={() => void startFlow("open-position")}
               >
                 <div className="quick-icon">
-                  <IconTrade width={18} height={18} />
+                  <IconTrade width={20} height={20} />
                 </div>
-                <span>Trade</span>
+                <span className="quick-meta">
+                  <strong>Trade</strong>
+                  <em>Open book</em>
+                </span>
               </button>
               <button
                 type="button"
                 className="quick-item"
+                data-action="close"
                 disabled={busy || flowRunning || !activeVault}
                 onClick={() => void startFlow("close-vault")}
               >
                 <div className="quick-icon">
-                  <IconClose width={18} height={18} />
+                  <IconClose width={20} height={20} />
                 </div>
-                <span>Close</span>
+                <span className="quick-meta">
+                  <strong>Close</strong>
+                  <em>Wind down</em>
+                </span>
               </button>
             </div>
 
@@ -542,49 +629,67 @@ export function SidePanelApp() {
             </div>
 
             {listTab === "vaults" && (
-              <div className="list vault-grid">
-                {vaults.length === 0 && (
-                  <div className="empty-hint">No vaults indexed yet for this degen.</div>
+              <>
+                {vaultsLoading ? (
+                  <ShimmerList count={3} className="vault-grid" />
+                ) : (
+                  <>
+                    <div className="list vault-grid">
+                      {vaults.length === 0 && (
+                        <div className="empty-hint">No vaults indexed yet for this degen.</div>
+                      )}
+                      {pagedVaults.slice.map((v) => {
+                        const pk = String(v.pubkey ?? "");
+                        const active = pk === activeVault;
+                        return (
+                          <button
+                            key={pk}
+                            type="button"
+                            className={`row-card${active ? " active" : ""}`}
+                            onClick={() => setActiveVault(pk)}
+                          >
+                            <div className="token-icon">
+                              1V
+                              <span className="badge-dot">
+                                <IconCheck />
+                              </span>
+                            </div>
+                            <div className="row-main">
+                              <div className="row-title">
+                                {vaultName(v)}
+                                <span className="chip">{vaultType(v)}</span>
+                              </div>
+                              <div className="row-sub mono">{shortAddr(pk)}</div>
+                            </div>
+                            <div className="row-right">
+                              <div className="row-value">
+                                {formatLamportsAsSol(String(v.nav ?? v.total_assets ?? "0"), 2)}
+                              </div>
+                              <div className="row-meta">SOL NAV</div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <ListPager
+                      page={pagedVaults.page}
+                      totalPages={pagedVaults.totalPages}
+                      total={pagedVaults.total}
+                      pageSize={pagedVaults.pageSize}
+                      onPage={setVaultPage}
+                    />
+                  </>
                 )}
-                {vaults.map((v) => {
-                  const pk = String(v.pubkey ?? "");
-                  const active = pk === activeVault;
-                  return (
-                    <button
-                      key={pk}
-                      type="button"
-                      className={`row-card${active ? " active" : ""}`}
-                      onClick={() => setActiveVault(pk)}
-                    >
-                      <div className="token-icon">
-                        1V
-                        <span className="badge-dot">
-                          <IconCheck />
-                        </span>
-                      </div>
-                      <div className="row-main">
-                        <div className="row-title">
-                          {vaultName(v)}
-                          <span className="chip">{vaultType(v)}</span>
-                        </div>
-                        <div className="row-sub mono">{shortAddr(pk)}</div>
-                      </div>
-                      <div className="row-right">
-                        <div className="row-value">
-                          {formatLamportsAsSol(String(v.nav ?? v.total_assets ?? "0"), 2)}
-                        </div>
-                        <div className="row-meta">SOL NAV</div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+              </>
             )}
 
             {listTab === "capital" && (
               <div className="list">
-                {!pipeline && <div className="empty-hint">Select a vault to load capital pipeline.</div>}
-                {pipeline && (
+                {pipelineLoading && !pipeline ? (
+                  <ShimmerList count={3} />
+                ) : !pipeline ? (
+                  <div className="empty-hint">Select a vault to load capital pipeline.</div>
+                ) : (
                   <>
                     <div className="row-card">
                       <div className="token-icon">IN</div>
@@ -643,29 +748,45 @@ export function SidePanelApp() {
             )}
 
             {listTab === "positions" && (
-              <div className="list">
-                {!activeVault && (
+              <>
+                {!activeVault ? (
                   <div className="empty-hint">Select a vault to load open positions.</div>
-                )}
-                {activeVault && positions.length === 0 && (
-                  <div className="empty-hint">No open positions on this vault.</div>
-                )}
-                {positions.map((p) => (
-                  <div key={p.positionId} className="row-card">
-                    <div className="token-icon">POS</div>
-                    <div className="row-main">
-                      <div className="row-title">Position #{p.positionId}</div>
-                      <div className="row-sub mono">{shortAddr(p.outputMint || p.inputMint)}</div>
+                ) : positionsLoading ? (
+                  <ShimmerList count={3} />
+                ) : (
+                  <>
+                    <div className="list">
+                      {positions.length === 0 && (
+                        <div className="empty-hint">No open positions on this vault.</div>
+                      )}
+                      {pagedPositions.slice.map((p) => (
+                        <div key={p.positionId} className="row-card">
+                          <div className="token-icon">POS</div>
+                          <div className="row-main">
+                            <div className="row-title">Position #{p.positionId}</div>
+                            <div className="row-sub mono">
+                              {shortAddr(p.outputMint || p.inputMint)}
+                            </div>
+                          </div>
+                          <div className="row-right">
+                            <div className="row-value">
+                              {formatLamportsAsSol(p.currentValue || p.entryValue, 3)}
+                            </div>
+                            <div className="row-meta">SOL value</div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    <div className="row-right">
-                      <div className="row-value">
-                        {formatLamportsAsSol(p.currentValue || p.entryValue, 3)}
-                      </div>
-                      <div className="row-meta">SOL value</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                    <ListPager
+                      page={pagedPositions.page}
+                      totalPages={pagedPositions.totalPages}
+                      total={pagedPositions.total}
+                      pageSize={pagedPositions.pageSize}
+                      onPage={setPositionPage}
+                    />
+                  </>
+                )}
+              </>
             )}
           </div>
         )}
