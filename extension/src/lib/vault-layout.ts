@@ -65,12 +65,17 @@ export async function annotateVaultLayout(
   return vaults.map((v) => {
     const pk = String(v.pubkey ?? "");
     const meta = byPk.get(pk) ?? { ok: false };
+    const statusCode = meta.statusCode;
+    // Close: Active/Paused can initiate; Closing can finish close_vault; Closed is done.
+    const canClose =
+      meta.ok && (statusCode === 0 || statusCode === 1 || statusCode === 2);
     return {
       ...v,
       layoutCompatible: meta.ok,
       vaultStatus: meta.status,
-      vaultStatusCode: meta.statusCode,
-      canPark: meta.ok && meta.statusCode === 0,
+      vaultStatusCode: statusCode,
+      canPark: meta.ok && statusCode === 0,
+      canClose,
     };
   });
 }

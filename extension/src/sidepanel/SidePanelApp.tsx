@@ -272,7 +272,8 @@ export function SidePanelApp() {
   const selected = vaults.find((v) => String(v.pubkey) === activeVault) ?? null;
   const hasVaults = vaults.length > 0;
   const selectedLayoutOk = selected?.layoutCompatible !== false;
-  const canPark = selected == null ? false : selected.canPark !== false && selected.layoutCompatible !== false;
+  const canPark = Boolean(selected?.canPark);
+  const canClose = Boolean(selected?.canClose);
 
   const flowRunning = flowState?.status === "running";
 
@@ -511,6 +512,7 @@ export function SidePanelApp() {
                   activeVault={activeVault}
                   layoutOk={selectedLayoutOk}
                   canPark={canPark}
+                  canClose={canClose}
                   onCreate={() => void startFlow("create-vault")}
                   onPark={() => {
                     if (!canPark) {
@@ -524,9 +526,12 @@ export function SidePanelApp() {
                   }}
                   onTrade={() => void startFlow("open-position")}
                   onClose={() => {
-                    if (!selectedLayoutOk) {
+                    if (!canClose) {
+                      const st = String(selected?.vaultStatus ?? "unknown");
                       setError(
-                        "This vault uses a legacy on-chain layout and cannot be closed with the current program. Create a new vault."
+                        st === "Closed"
+                          ? "Vault is already Closed."
+                          : "Cannot close this vault (legacy layout or missing account). Create a new vault."
                       );
                       return;
                     }
@@ -824,11 +829,14 @@ export function SidePanelApp() {
               </button>
               <button
                 className="btn btn-secondary"
-                disabled={busy || flowRunning || !activeVault || !selectedLayoutOk}
+                disabled={busy || flowRunning || !activeVault || !canClose}
                 onClick={() => {
-                  if (!selectedLayoutOk) {
+                  if (!canClose) {
+                    const st = String(selected?.vaultStatus ?? "unknown");
                     setError(
-                      "This vault uses a legacy on-chain layout and cannot be closed with the current program. Create a new vault."
+                      st === "Closed"
+                        ? "Vault is already Closed."
+                        : "Cannot close this vault (legacy layout or missing account)."
                     );
                     return;
                   }
@@ -857,6 +865,7 @@ function VaultQuickActions({
   loading,
   layoutOk,
   canPark,
+  canClose,
   onCreate,
   onPark,
   onTrade,
@@ -868,6 +877,7 @@ function VaultQuickActions({
   loading?: boolean;
   layoutOk?: boolean;
   canPark?: boolean;
+  canClose?: boolean;
   onCreate: () => void;
   onPark: () => void;
   onTrade: () => void;
@@ -875,7 +885,7 @@ function VaultQuickActions({
 }) {
   const locked = busy || flowRunning || loading;
   const needsVault = !activeVault;
-  const closeBlocked = needsVault || layoutOk === false;
+  const closeBlocked = needsVault || canClose === false;
   const parkBlocked = needsVault || canPark === false;
 
   return (
@@ -928,7 +938,11 @@ function VaultQuickActions({
         className="quick-item"
         data-action="close"
         disabled={locked || closeBlocked}
-        title={layoutOk === false ? "Legacy vault — create a new vault to close with current program" : undefined}
+        title={
+          canClose === false
+            ? "Vault already Closed or incompatible"
+            : undefined
+        }
         onClick={onClose}
       >
         <div className="quick-icon">

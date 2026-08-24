@@ -655,6 +655,26 @@ func (b *Builder) InitiateVaultClose(strategist, vault solana.PublicKey) (*Prepa
 	if err := b.requireCurrentVaultLayout(vault); err != nil {
 		return nil, err
 	}
+	if b.RPC != nil {
+		data, err := b.RPC.AccountData(vault)
+		if err != nil {
+			return nil, fmt.Errorf("load vault %s: %w", vault, err)
+		}
+		st, err := s.DecodeVaultStatus(data)
+		if err != nil {
+			return nil, err
+		}
+		switch st {
+		case s.VaultStatusClosed:
+			return nil, fmt.Errorf("vault %s is already Closed — nothing to initiate", vault)
+		case s.VaultStatusClosing:
+			return nil, fmt.Errorf("vault %s is already Closing — continue with close_vault (not initiate_close)", vault)
+		case s.VaultStatusActive, s.VaultStatusPaused:
+			// ok
+		default:
+			return nil, fmt.Errorf("vault %s status %s cannot initiate close", vault, st)
+		}
+	}
 	ix := s.Ix(b.Program, s.DiscInitiateVaultClose,
 		s.Meta(strategist, true, false),
 		s.Meta(vault, false, true),

@@ -143,7 +143,13 @@ async function handle(message: Msg): Promise<unknown> {
       ]);
       const vaults = (strat.vaults?.length ? strat.vaults : listed.items) ?? [];
       const annotated = await annotateVaultLayout(vaults).catch(() =>
-        vaults.map((v) => ({ ...v, layoutCompatible: true }))
+        vaults.map((v) => ({
+          ...v,
+          layoutCompatible: false,
+          canPark: false,
+          canClose: false,
+          vaultStatus: "Unknown",
+        }))
       );
       return { pubkey, vaults: annotated, protocol };
     }

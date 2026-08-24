@@ -215,6 +215,46 @@ func (svc *Service) shouldSkip(ctx context.Context, rpc *txprep.RPC, b *txprep.B
 			return true, "skipClaimFees", nil
 		}
 		return false, "", nil
+	case "initiate_close":
+		vault, err := svc.resolveVault(p, job)
+		if err != nil {
+			return false, "", err
+		}
+		data, err := rpc.AccountData(vault)
+		if err != nil {
+			return false, "", err
+		}
+		st, err := s.DecodeVaultStatus(data)
+		if err != nil {
+			return false, "", err
+		}
+		switch st {
+		case s.VaultStatusClosing:
+			return true, "vault already Closing — skip initiate_close", nil
+		case s.VaultStatusClosed:
+			return true, "vault already Closed — skip initiate_close", nil
+		case s.VaultStatusActive, s.VaultStatusPaused:
+			return false, "", nil
+		default:
+			return false, "", fmt.Errorf("vault %s has unexpected status %s", vault, st)
+		}
+	case "close_vault":
+		vault, err := svc.resolveVault(p, job)
+		if err != nil {
+			return false, "", err
+		}
+		data, err := rpc.AccountData(vault)
+		if err != nil {
+			return false, "", err
+		}
+		st, err := s.DecodeVaultStatus(data)
+		if err != nil {
+			return false, "", err
+		}
+		if st == s.VaultStatusClosed {
+			return true, "vault already Closed — skip close_vault", nil
+		}
+		return false, "", nil
 	default:
 		return false, "", nil
 	}
