@@ -96,6 +96,7 @@ type ButtonProps = {
   external?: boolean;
   icon?: ReactNode;
   className?: string;
+  onClick?: () => void;
   children: ReactNode;
 };
 
@@ -105,6 +106,7 @@ export function CtaButton({
   external = false,
   icon,
   className = "",
+  onClick,
   children,
 }: ButtonProps) {
   const base =
@@ -119,6 +121,12 @@ export function CtaButton({
       href={href}
       target={external ? "_blank" : undefined}
       rel={external ? "noreferrer" : undefined}
+      onClick={(e) => {
+        if (onClick) {
+          e.preventDefault();
+          onClick();
+        }
+      }}
       className={`${base} ${styles} ${className}`}
     >
       {icon}

@@ -50,17 +50,17 @@ export function SiteHeader() {
             : "border-transparent bg-transparent"
         }`}
       >
-        <div className="mx-auto flex h-[68px] w-full max-w-[1240px] items-center justify-between px-6 md:px-10">
-          <a href="#top" className="flex items-center gap-3">
+        <div className="shell flex h-17 items-center justify-between lg:h-18">
+          <a href="#top" className="group flex items-center gap-3">
             <Image
               src="/1vault-icon.png"
               alt="1Vault"
-              width={28}
-              height={28}
+              width={72}
+              height={72}
               priority
-              className="h-7 w-7"
+              className="h-8 w-8 transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-105"
             />
-            <span className="display text-lg font-semibold tracking-tight">
+            <span className="display text-xl font-semibold tracking-tight">
               1Vault
             </span>
           </a>
@@ -83,7 +83,7 @@ export function SiteHeader() {
               target="_blank"
               rel="noreferrer"
               aria-label="1Vault on X"
-              className="flex h-10 w-10 items-center justify-center border border-line-strong text-dim transition-colors duration-300 hover:border-white hover:text-white"
+              className="flex h-9 w-9 items-center justify-center border border-line-strong text-dim transition-colors duration-300 hover:border-white hover:text-white"
             >
               <XGlyph />
             </a>
