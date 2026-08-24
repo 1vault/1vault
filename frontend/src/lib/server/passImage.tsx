@@ -276,13 +276,6 @@ export async function renderPassImage(
     {
       width: PASS_WIDTH,
       height: PASS_HEIGHT,
-      headers: {
-        // Crawlers give a link preview only a couple of seconds, and a cold
-        // render costs about three, so the edge has to answer instead of the
-        // function. Revalidation keeps a renamed avatar from sticking forever.
-        "Cache-Control":
-          "public, max-age=600, s-maxage=86400, stale-while-revalidate=604800",
-      },
       fonts: display
         ? [
             {
@@ -295,6 +288,28 @@ export async function renderPassImage(
         : undefined,
     },
   );
+}
+
+const PASS_CACHE_CONTROL =
+  "public, max-age=600, s-maxage=86400, stale-while-revalidate=604800";
+
+/**
+ * Serves the pass as a fully buffered PNG. `ImageResponse` streams its body
+ * chunked with no `Content-Length`, and social crawlers skip images whose
+ * length is not declared up front — the link preview then renders with text
+ * but no picture.
+ */
+export async function renderPassPng(card: PassCardData): Promise<Response> {
+  const rendered = await renderPassImage(card);
+  const bytes = await rendered.arrayBuffer();
+
+  return new Response(bytes, {
+    headers: {
+      "Content-Type": "image/png",
+      "Content-Length": String(bytes.byteLength),
+      "Cache-Control": PASS_CACHE_CONTROL,
+    },
+  });
 }
 
 /**

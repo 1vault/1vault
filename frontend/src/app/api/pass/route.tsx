@@ -1,5 +1,5 @@
 import { verifyPassToken } from "@/lib/server/passToken";
-import { renderPassImage, type PassCardData } from "@/lib/server/passImage";
+import { renderPassPng, type PassCardData } from "@/lib/server/passImage";
 import { getPassByHandle } from "@/lib/server/waitlist";
 
 /**
@@ -30,5 +30,5 @@ export async function GET(request: Request) {
     }
   }
 
-  return renderPassImage(card);
+  return renderPassPng(card);
 }
