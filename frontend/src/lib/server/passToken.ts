@@ -22,7 +22,10 @@ export async function signPassToken(claims: PassClaims): Promise<string> {
   return new SignJWT({ ...claims })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime("30m")
+    // Long lived on purpose: the token addresses a public share page that X
+    // re-crawls long after the post goes out, and it grants nothing beyond
+    // rendering the card.
+    .setExpirationTime("365d")
     .sign(secretKey());
 }
 

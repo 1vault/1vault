@@ -8,13 +8,19 @@ import { X_HANDLE } from "@/lib/social";
 
 type PassState =
   | { kind: "loading" }
-  | { kind: "ready"; url: string }
+  | { kind: "ready"; token: string }
   | { kind: "error"; message: string };
 
 type EarlyPassProps = {
   accessToken: string;
   handle?: string;
 };
+
+const TWEET_TEXT = [
+  `Just claimed my Early Access Pass for @${X_HANDLE}.`,
+  "",
+  "One vault. One book. Settle by shares.",
+].join("\n");
 
 export function EarlyPass({ accessToken, handle }: EarlyPassProps) {
   const [state, setState] = useState<PassState>({ kind: "loading" });
@@ -29,9 +35,7 @@ export function EarlyPass({ accessToken, handle }: EarlyPassProps) {
           method: "POST",
           headers: { Authorization: `Bearer ${accessToken}` },
         });
-        if (active) {
-          setState({ kind: "ready", url: `/api/pass?t=${token}` });
-        }
+        if (active) setState({ kind: "ready", token });
       } catch (error) {
         if (active) {
           setState({
@@ -50,45 +54,78 @@ export function EarlyPass({ accessToken, handle }: EarlyPassProps) {
     };
   }, [accessToken]);
 
-  async function downloadPass(): Promise<boolean> {
-    if (state.kind !== "ready") return false;
+  const imageUrl = state.kind === "ready" ? `/api/pass?t=${state.token}` : "";
+
+  async function fetchPassFile(): Promise<File | null> {
+    if (!imageUrl) return null;
+    const res = await fetch(imageUrl);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return new File([blob], `1vault-early-pass-${handle ?? "member"}.png`, {
+      type: "image/png",
+    });
+  }
+
+  async function downloadPass() {
     setBusy(true);
     try {
-      const res = await fetch(state.url);
-      if (!res.ok) throw new Error("Pass image failed to render");
-      const blob = await res.blob();
-      const href = URL.createObjectURL(blob);
+      const file = await fetchPassFile();
+      if (!file) return;
+      const href = URL.createObjectURL(file);
       const link = document.createElement("a");
       link.href = href;
-      link.download = `1vault-early-pass-${handle ?? "member"}.png`;
+      link.download = file.name;
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(href);
-      return true;
     } catch {
-      return false;
+      /* keep the UI quiet; the preview is still on screen */
     } finally {
       setBusy(false);
     }
   }
 
   async function shareOnX() {
-    // X's compose intent cannot carry an image, so the file is saved first and
-    // the composer opens ready for the user to attach it.
-    await downloadPass();
+    if (state.kind !== "ready") return;
+    setBusy(true);
 
-    const text = [
-      `Just claimed my Early Access Pass for @${X_HANDLE}.`,
-      "",
-      "One vault. One book. Settle by shares.",
-      "Mainnet waitlist is open:",
-    ].join("\n");
+    try {
+      // On mobile the native sheet can hand the actual PNG to the X app, which
+      // is the only path that attaches media directly.
+      const file = await fetchPassFile();
+      if (file && navigator.canShare?.({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], text: TWEET_TEXT });
+          return;
+        } catch {
+          // Cancelled or unsupported in practice — fall through to the link.
+        }
+      }
 
-    const url = new URL("https://x.com/intent/tweet");
-    url.searchParams.set("text", text);
-    url.searchParams.set("url", "https://1vaults.xyz");
-    window.open(url.toString(), "_blank", "noopener,noreferrer");
+      // Desktop: post a link to the share page, which X unfurls into a large
+      // image card, and save the file so it can be attached manually too.
+      if (file) {
+        const href = URL.createObjectURL(file);
+        const link = document.createElement("a");
+        link.href = href;
+        link.download = file.name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(href);
+      }
+
+      const intent = new URL("https://x.com/intent/tweet");
+      intent.searchParams.set("text", TWEET_TEXT);
+      intent.searchParams.set(
+        "url",
+        `${window.location.origin}/pass/${state.token}`,
+      );
+      window.open(intent.toString(), "_blank", "noopener,noreferrer");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -97,7 +134,8 @@ export function EarlyPass({ accessToken, handle }: EarlyPassProps) {
 
       <div className="pass-frame">
         {state.kind === "ready" ? (
-          <img src={state.url} alt="1Vault Early Pass" className="pass-img" />
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={imageUrl} alt="1Vault Early Pass" className="pass-img" />
         ) : state.kind === "error" ? (
           <p className="pass-fallback">{state.message}</p>
         ) : (
@@ -124,12 +162,12 @@ export function EarlyPass({ accessToken, handle }: EarlyPassProps) {
           disabled={state.kind !== "ready" || busy}
           className="pass-btn pass-btn--ghost"
         >
-          {busy ? "Saving…" : "Download PNG"}
+          {busy ? "Working…" : "Download PNG"}
         </button>
       </div>
 
       <p className="wf-note">
-        The image is saved to your device — attach it to the post on X
+        Your post links to the pass so X shows it as a preview card
       </p>
     </div>
   );

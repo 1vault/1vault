@@ -26,3 +26,13 @@ if (!res.ok) {
 
 await writeFile("pass-preview.png", Buffer.from(await res.arrayBuffer()));
 console.log("saved pass-preview.png");
+
+const page = await fetch(`http://localhost:3000/pass/${token}`);
+const html = await page.text();
+console.log("share page", page.status);
+console.log(
+  html
+    .split("\n")
+    .filter((line) => line.includes("twitter:") || line.includes("og:image"))
+    .join("\n") || "(no card tags found)",
+);
