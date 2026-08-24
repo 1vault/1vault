@@ -8,6 +8,12 @@ import {
   type VaultPositionRow,
 } from "../lib/trade/positions";
 import { IconTrade } from "./icons";
+import {
+  ListPager,
+  ShimmerList,
+  ShimmerResearch,
+  usePagedSlice,
+} from "./Shimmer";
 
 type FlowOpts = {
   positionId?: number;
@@ -42,18 +48,23 @@ function pickResearchSummary(data: Record<string, unknown>): string {
 
 export function TradePanel({ activeVault, vaultId, busy, flowRunning, onRunFlow }: Props) {
   const [positions, setPositions] = useState<VaultPositionRow[]>([]);
+  const [positionsLoading, setPositionsLoading] = useState(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [mint, setMint] = useState("");
   const [research, setResearch] = useState<Record<string, unknown> | null>(null);
   const [researchErr, setResearchErr] = useState<string | null>(null);
   const [researchBusy, setResearchBusy] = useState(false);
+  const [page, setPage] = useState(1);
 
   const loadPositions = useCallback(async () => {
     if (!activeVault) {
       setPositions([]);
+      setPositionsLoading(false);
       return;
     }
     setLoadErr(null);
+    setPositionsLoading(true);
+    setPage(1);
     try {
       const [posData, tradesData] = await Promise.all([
         listVaultPositions(activeVault),
@@ -64,6 +75,8 @@ export function TradePanel({ activeVault, vaultId, busy, flowRunning, onRunFlow 
     } catch (e) {
       setPositions([]);
       setLoadErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPositionsLoading(false);
     }
   }, [activeVault]);
 
@@ -109,6 +122,7 @@ export function TradePanel({ activeVault, vaultId, busy, flowRunning, onRunFlow 
   }
 
   const disabled = busy || flowRunning;
+  const paged = usePagedSlice(positions, page);
 
   return (
     <div className="trade-panel">
@@ -127,7 +141,11 @@ export function TradePanel({ activeVault, vaultId, busy, flowRunning, onRunFlow 
           >
             <IconTrade width={16} height={16} /> Open position
           </button>
-          <button className="btn btn-secondary" disabled={disabled} onClick={() => void loadPositions()}>
+          <button
+            className="btn btn-secondary"
+            disabled={disabled || positionsLoading}
+            onClick={() => void loadPositions()}
+          >
             Refresh
           </button>
         </div>
@@ -157,7 +175,8 @@ export function TradePanel({ activeVault, vaultId, busy, flowRunning, onRunFlow 
           {researchBusy ? "Loading…" : "Run research"}
         </button>
         {researchErr && <div className="err">{researchErr}</div>}
-        {research && (
+        {researchBusy && <ShimmerResearch />}
+        {research && !researchBusy && (
           <div className="dd-result">
             <strong>{pickResearchSummary(research)}</strong>
             <pre className="mono dd-json">
@@ -168,37 +187,54 @@ export function TradePanel({ activeVault, vaultId, busy, flowRunning, onRunFlow 
         )}
       </section>
 
-      <section className="list">
+      <section className="list-section">
         <div className="dd-head">
           <h2>Open positions</h2>
           {!activeVault && <span className="muted">Select a vault on Home</span>}
         </div>
         {loadErr && <div className="err">{loadErr}</div>}
-        {activeVault && positions.length === 0 && !loadErr && (
-          <div className="empty-hint">No open positions — open one first.</div>
+        {positionsLoading ? (
+          <ShimmerList count={3} />
+        ) : (
+          <>
+            <div className="list">
+              {activeVault && positions.length === 0 && !loadErr && (
+                <div className="empty-hint">No open positions — open one first.</div>
+              )}
+              {paged.slice.map((pos) => (
+                <div key={pos.positionId} className="row-card">
+                  <div className="token-icon">#{pos.positionId}</div>
+                  <div className="row-main">
+                    <div className="row-title">Position {pos.positionId}</div>
+                    <div className="row-sub mono">
+                      sell {shortAddr(pos.outputMint || pos.inputMint)} · trade {pos.tradeId}
+                    </div>
+                  </div>
+                  <div className="row-right">
+                    <div className="row-value">
+                      {formatLamportsAsSol(pos.currentValue || pos.entryValue, 3)}
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-exit"
+                      disabled={disabled}
+                      onClick={() => exitPosition(pos)}
+                    >
+                      Exit
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <ListPager
+              page={paged.page}
+              totalPages={paged.totalPages}
+              total={paged.total}
+              pageSize={paged.pageSize}
+              onPage={setPage}
+            />
+          </>
         )}
-        {positions.map((pos) => (
-          <div key={pos.positionId} className="row-card">
-            <div className="token-icon">#{pos.positionId}</div>
-            <div className="row-main">
-              <div className="row-title">Position {pos.positionId}</div>
-              <div className="row-sub mono">
-                sell {shortAddr(pos.outputMint || pos.inputMint)} · trade {pos.tradeId}
-              </div>
-            </div>
-            <div className="row-right">
-              <div className="row-value">{formatLamportsAsSol(pos.currentValue || pos.entryValue, 3)}</div>
-              <button
-                type="button"
-                className="btn btn-secondary btn-exit"
-                disabled={disabled}
-                onClick={() => exitPosition(pos)}
-              >
-                Exit
-              </button>
-            </div>
-          </div>
-        ))}
       </section>
     </div>
   );
