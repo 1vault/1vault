@@ -155,6 +155,24 @@ func (svc *Service) shouldSkip(ctx context.Context, rpc *txprep.RPC, b *txprep.B
 		}
 		exists, err := rpc.AccountExists(s.InvestorConfigPDA(b.Program, vault, inv))
 		return exists, "investor config exists", err
+	case "update_investor_config":
+		// Deposit/park only needs an existing config; re-update hits VaultPaused when
+		// the vault is not Active and is unnecessary if TP/SL already set at create.
+		if p.Mode == ModeDeposit {
+			inv, _ := s.ParsePK(st.SignerPubkey)
+			vault, err := svc.resolveVault(p, job)
+			if err != nil {
+				return false, "", err
+			}
+			exists, err := rpc.AccountExists(s.InvestorConfigPDA(b.Program, vault, inv))
+			if err != nil {
+				return false, "", err
+			}
+			if exists {
+				return true, "investor config already set — skip update on deposit", nil
+			}
+		}
+		return false, "", nil
 	case "execute_trade":
 		vault, err := svc.resolveVault(p, job)
 		if err != nil {

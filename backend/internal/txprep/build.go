@@ -471,6 +471,9 @@ func (b *Builder) Park(investor, vault, vaultTokenAccount solana.PublicKey, lamp
 	if lamports == 0 {
 		return nil, fmt.Errorf("lamports required")
 	}
+	if err := b.requireVaultActive(vault); err != nil {
+		return nil, err
+	}
 	shareMint := s.ShareMintPDA(b.Program, vault)
 	wsolATA := s.ATA(s.WSOL, investor)
 	shareATA := s.ATA(shareMint, investor)
@@ -626,6 +629,17 @@ func (b *Builder) ClaimFees(strategist, vault, vaultTokenAccount, degenFeeWallet
 	return p, nil
 }
 
+func (b *Builder) requireVaultActive(vault solana.PublicKey) error {
+	if b.RPC == nil {
+		return nil
+	}
+	data, err := b.RPC.AccountData(vault)
+	if err != nil {
+		return fmt.Errorf("load vault %s: %w", vault, err)
+	}
+	return s.RequireVaultActive(vault, data)
+}
+
 func (b *Builder) requireCurrentVaultLayout(vault solana.PublicKey) error {
 	if b.RPC == nil {
 		return nil
@@ -677,6 +691,9 @@ func (b *Builder) UnlockLicense(strategist solana.PublicKey) (*Prepared, error) 
 }
 
 func (b *Builder) CreateInvestorConfig(investor, vault solana.PublicKey) (*Prepared, error) {
+	if err := b.requireVaultActive(vault); err != nil {
+		return nil, err
+	}
 	cfg := s.InvestorConfigPDA(b.Program, vault, investor)
 	ix := s.Ix(b.Program, s.DiscCreateInvestorCfg,
 		s.Meta(investor, true, true),
@@ -1037,6 +1054,9 @@ func encodeInvestorConfigParams(p InvestorConfigParams) []byte {
 }
 
 func (b *Builder) UpdateInvestorConfig(investor, vault solana.PublicKey, params InvestorConfigParams) (*Prepared, error) {
+	if err := b.requireVaultActive(vault); err != nil {
+		return nil, err
+	}
 	cfg := s.InvestorConfigPDA(b.Program, vault, investor)
 	data := s.Concat(s.DiscUpdateInvestorCfg, encodeInvestorConfigParams(params))
 	ix := s.Ix(b.Program, data,

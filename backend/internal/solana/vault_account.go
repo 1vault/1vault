@@ -70,6 +70,70 @@ func ValidateVaultAccountData(pubkey solana.PublicKey, data []byte) error {
 	return nil
 }
 
+// VaultStatus matches on-chain VaultStatus enum.
+type VaultStatus uint8
+
+const (
+	VaultStatusActive  VaultStatus = 0
+	VaultStatusPaused  VaultStatus = 1
+	VaultStatusClosing VaultStatus = 2
+	VaultStatusClosed  VaultStatus = 3
+)
+
+func (s VaultStatus) String() string {
+	switch s {
+	case VaultStatusActive:
+		return "Active"
+	case VaultStatusPaused:
+		return "Paused"
+	case VaultStatusClosing:
+		return "Closing"
+	case VaultStatusClosed:
+		return "Closed"
+	default:
+		return fmt.Sprintf("Unknown(%d)", s)
+	}
+}
+
+// DecodeVaultStatus reads Vault.status from current-layout account data.
+func DecodeVaultStatus(data []byte) (VaultStatus, error) {
+	if len(data) != CurrentVaultAccountLen {
+		return 0, fmt.Errorf("vault account len %d want %d", len(data), CurrentVaultAccountLen)
+	}
+	o, err := vaultPerfFeeOffset(data)
+	if err != nil {
+		return 0, err
+	}
+	o += 2 // performance_fee_bps
+	o += 3 // book_mode + early_exit_fee_bps
+	if o >= len(data) {
+		return 0, fmt.Errorf("vault account truncated before status")
+	}
+	st := VaultStatus(data[o])
+	if st > VaultStatusClosed {
+		return 0, fmt.Errorf("invalid vault status %d", st)
+	}
+	return st, nil
+}
+
+// RequireVaultActive returns a clear error when park/deposit/config cannot run.
+func RequireVaultActive(pubkey solana.PublicKey, data []byte) error {
+	if err := ValidateVaultAccountData(pubkey, data); err != nil {
+		return err
+	}
+	st, err := DecodeVaultStatus(data)
+	if err != nil {
+		return err
+	}
+	if st == VaultStatusActive {
+		return nil
+	}
+	return fmt.Errorf(
+		"vault %s is %s (not Active) — Anchor reports this as VaultPaused (6008); pick an Active vault or create a new one before Park",
+		pubkey, st,
+	)
+}
+
 // DecodeVaultTokenAccount reads vault_token_account from on-chain Vault account data.
 func DecodeVaultTokenAccount(data []byte) (solana.PublicKey, error) {
 	if len(data) < 8+32+8+4 {

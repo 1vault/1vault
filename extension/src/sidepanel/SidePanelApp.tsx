@@ -272,6 +272,7 @@ export function SidePanelApp() {
   const selected = vaults.find((v) => String(v.pubkey) === activeVault) ?? null;
   const hasVaults = vaults.length > 0;
   const selectedLayoutOk = selected?.layoutCompatible !== false;
+  const canPark = selected == null ? false : selected.canPark !== false && selected.layoutCompatible !== false;
 
   const flowRunning = flowState?.status === "running";
 
@@ -509,8 +510,18 @@ export function SidePanelApp() {
                   flowRunning={flowRunning}
                   activeVault={activeVault}
                   layoutOk={selectedLayoutOk}
+                  canPark={canPark}
                   onCreate={() => void startFlow("create-vault")}
-                  onPark={() => void startFlow("deposit")}
+                  onPark={() => {
+                    if (!canPark) {
+                      const st = String(selected?.vaultStatus ?? "unknown");
+                      setError(
+                        `Cannot park — vault is ${st} (need Active). Create a new vault or select an Active one.`
+                      );
+                      return;
+                    }
+                    void startFlow("deposit");
+                  }}
                   onTrade={() => void startFlow("open-position")}
                   onClose={() => {
                     if (!selectedLayoutOk) {
@@ -596,6 +607,11 @@ export function SidePanelApp() {
                                 {v.layoutCompatible === false && (
                                   <span className="chip chip-warn" title="Legacy account — cannot close with current program">
                                     LEGACY
+                                  </span>
+                                )}
+                                {typeof v.vaultStatus === "string" && v.vaultStatus !== "Active" && (
+                                  <span className="chip chip-warn" title="On-chain vault status">
+                                    {String(v.vaultStatus).toUpperCase()}
                                   </span>
                                 )}
                               </div>
@@ -840,6 +856,7 @@ function VaultQuickActions({
   activeVault,
   loading,
   layoutOk,
+  canPark,
   onCreate,
   onPark,
   onTrade,
@@ -850,6 +867,7 @@ function VaultQuickActions({
   activeVault: string | null;
   loading?: boolean;
   layoutOk?: boolean;
+  canPark?: boolean;
   onCreate: () => void;
   onPark: () => void;
   onTrade: () => void;
@@ -858,6 +876,7 @@ function VaultQuickActions({
   const locked = busy || flowRunning || loading;
   const needsVault = !activeVault;
   const closeBlocked = needsVault || layoutOk === false;
+  const parkBlocked = needsVault || canPark === false;
 
   return (
     <div className="quick hero-quick">
@@ -879,7 +898,8 @@ function VaultQuickActions({
         type="button"
         className="quick-item"
         data-action="park"
-        disabled={locked || needsVault}
+        disabled={locked || parkBlocked}
+        title={canPark === false ? "Vault must be Active to park SOL" : undefined}
         onClick={onPark}
       >
         <div className="quick-icon">
