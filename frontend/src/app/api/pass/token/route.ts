@@ -1,5 +1,7 @@
+import { after } from "next/server";
 import { bearerToken, verifySession } from "@/lib/server/jwt";
 import { fail, ok } from "@/lib/server/http";
+import { warmPassImage } from "@/lib/server/passImage";
 import { signPassToken } from "@/lib/server/passToken";
 import { getUserById, getWaitlistForUser } from "@/lib/server/waitlist";
 
@@ -32,6 +34,9 @@ export async function POST(request: Request) {
     position: waitlist.position,
     joinedAt: waitlist.joinedAt,
   });
+
+  // Covers members who joined before the card was generated on join.
+  after(() => warmPassImage(user.handle));
 
   return ok({ token: passToken });
 }

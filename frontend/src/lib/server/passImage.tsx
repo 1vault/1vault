@@ -1,6 +1,11 @@
 import { ImageResponse } from "next/og";
 import { put } from "@vercel/blob";
-import { savePassImageUrl, type PublicPass } from "./waitlist";
+import { siteUrl } from "./config";
+import {
+  getPassByHandle,
+  savePassImageUrl,
+  type PublicPass,
+} from "./waitlist";
 
 export const PASS_WIDTH = 1200;
 export const PASS_HEIGHT = 675;
@@ -328,5 +333,28 @@ export async function ensureStoredPassImage(
     // failure here is invisible in production, so leave a trace.
     console.error("Failed to store pass image in Blob", error);
     return null;
+  }
+}
+
+/**
+ * Makes a member's pass image available before anyone can link to it. A cold
+ * render takes a few seconds — longer than a social crawler will wait — so
+ * leaving it until the crawl means the first share of every new signup falls
+ * back to a card with no image. Call this as soon as the row exists.
+ */
+export async function warmPassImage(handle: string): Promise<void> {
+  try {
+    const pass = await getPassByHandle(handle);
+    if (!pass) return;
+
+    if (await ensureStoredPassImage(pass)) return;
+
+    // Without a Blob store there is nothing durable to write, so at least pay
+    // the render cost here and leave the result in the CDN cache.
+    await fetch(
+      `${siteUrl()}/api/pass?h=${encodeURIComponent(pass.handle)}`,
+    ).then((res) => res.arrayBuffer());
+  } catch (error) {
+    console.error("Failed to warm pass image", error);
   }
 }
