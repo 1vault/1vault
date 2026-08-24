@@ -16,6 +16,40 @@ type Store struct {
 	Pool *pgxpool.Pool
 }
 
+// jsonbText passes JSON as string so QueryExecModeSimpleProtocol (Supabase
+// transaction pooler) does not encode []byte as bytea hex — that yields
+// SQLSTATE 22P02 "invalid input syntax for type json".
+func jsonbText(v any) (string, error) {
+	switch t := v.(type) {
+	case nil:
+		return "{}", nil
+	case string:
+		if t == "" {
+			return "{}", nil
+		}
+		return t, nil
+	case []byte:
+		if len(t) == 0 {
+			return "{}", nil
+		}
+		return string(t), nil
+	case json.RawMessage:
+		if len(t) == 0 {
+			return "{}", nil
+		}
+		return string(t), nil
+	default:
+		b, err := json.Marshal(t)
+		if err != nil {
+			return "", err
+		}
+		if string(b) == "null" {
+			return "{}", nil
+		}
+		return string(b), nil
+	}
+}
+
 func (s *Store) InsertJob(ctx context.Context, cluster string, mode Mode, actor string, params StartParams, steps []plannedStep) (*Job, error) {
 	raw, err := json.Marshal(params)
 	if err != nil {
@@ -29,7 +63,14 @@ func (s *Store) InsertJob(ctx context.Context, cluster string, mode Mode, actor 
 		"tradeId":           params.TradeID,
 		"positionId":        params.PositionID,
 	}
-	ctxRaw, _ := json.Marshal(ctxMap)
+	ctxRaw, err := jsonbText(ctxMap)
+	if err != nil {
+		return nil, err
+	}
+	paramsText, err := jsonbText(raw)
+	if err != nil {
+		return nil, err
+	}
 
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
@@ -40,21 +81,21 @@ func (s *Store) InsertJob(ctx context.Context, cluster string, mode Mode, actor 
 	var id uuid.UUID
 	err = tx.QueryRow(ctx, `
 		INSERT INTO flow_jobs (cluster, mode, status, actor_pubkey, params, context, current_step)
-		VALUES ($1,$2,'pending',$3,$4,$5,0) RETURNING id`,
-		cluster, string(mode), actor, raw, ctxRaw,
+		VALUES ($1,$2,'pending',$3,$4::jsonb,$5::jsonb,0) RETURNING id`,
+		cluster, string(mode), actor, paramsText, ctxRaw,
 	).Scan(&id)
 	if err != nil {
 		return nil, err
 	}
 	for i, st := range steps {
-		meta, _ := json.Marshal(st.Meta)
-		if meta == nil {
-			meta = []byte("{}")
+		metaText, err := jsonbText(st.Meta)
+		if err != nil {
+			return nil, err
 		}
 		_, err = tx.Exec(ctx, `
 			INSERT INTO flow_steps (flow_id, seq, name, signer_role, signer_pubkey, status, meta)
-			VALUES ($1,$2,$3,$4,$5,'pending',$6)`,
-			id, i, st.Name, st.SignerRole, nullIfEmpty(st.SignerPubkey), meta,
+			VALUES ($1,$2,$3,$4,$5,'pending',$6::jsonb)`,
+			id, i, st.Name, st.SignerRole, nullIfEmpty(st.SignerPubkey), metaText,
 		)
 		if err != nil {
 			return nil, err
@@ -201,12 +242,10 @@ func (s *Store) List(ctx context.Context, cluster, actor, investor, status strin
 		var st Step
 		var prep []byte
 		var sig, serr *string
-		var signers []string
-		if err := srows.Scan(&st.ID, &st.FlowID, &st.Seq, &st.Name, &st.SignerRole, &st.SignerPubkey, &st.Status, &prep, &signers, &sig, &serr, &st.CreatedAt, &st.UpdatedAt); err != nil {
+		if err := srows.Scan(&st.ID, &st.FlowID, &st.Seq, &st.Name, &st.SignerRole, &st.SignerPubkey, &st.Status, &prep, &st.RequiredSigners, &sig, &serr, &st.CreatedAt, &st.UpdatedAt); err != nil {
 			return nil, err
 		}
 		st.Prepared = prep
-		st.RequiredSigners = signers
 		st.Signature = sig
 		st.Error = serr
 		if job := byID[st.FlowID]; job != nil {
@@ -236,31 +275,43 @@ func (s *Store) SetCurrentStep(ctx context.Context, id uuid.UUID, seq int) error
 }
 
 func (s *Store) MergeContext(ctx context.Context, id uuid.UUID, patch map[string]any) error {
-	raw, _ := json.Marshal(patch)
-	_, err := s.Pool.Exec(ctx, `
+	raw, err := jsonbText(patch)
+	if err != nil {
+		return err
+	}
+	_, err = s.Pool.Exec(ctx, `
 		UPDATE flow_jobs SET context = context || $2::jsonb, updated_at=NOW() WHERE id=$1`, id, raw)
 	return err
 }
 
 func (s *Store) MarkStepAwaiting(ctx context.Context, stepID uuid.UUID, prepared any, signers []string, details []signing.Detail) error {
-	raw, err := json.Marshal(prepared)
+	raw, err := jsonbText(prepared)
 	if err != nil {
 		return err
 	}
 	if len(details) > 0 {
-		meta, _ := json.Marshal(map[string]any{"signerDetails": details})
+		meta, err := jsonbText(map[string]any{"signerDetails": details})
+		if err != nil {
+			return err
+		}
 		_, _ = s.Pool.Exec(ctx, `
 			UPDATE flow_steps SET meta = COALESCE(meta, '{}'::jsonb) || $2::jsonb WHERE id=$1`, stepID, meta)
 	}
+	if signers == nil {
+		signers = []string{}
+	}
 	_, err = s.Pool.Exec(ctx, `
-		UPDATE flow_steps SET status='awaiting_signature', prepared=$2, required_signers=$3, updated_at=NOW()
+		UPDATE flow_steps SET status='awaiting_signature', prepared=$2::jsonb, required_signers=$3, updated_at=NOW()
 		WHERE id=$1`, stepID, raw, signers)
 	return err
 }
 
 func (s *Store) MergeStepMeta(ctx context.Context, stepID uuid.UUID, patch map[string]any) error {
-	raw, _ := json.Marshal(patch)
-	_, err := s.Pool.Exec(ctx, `
+	raw, err := jsonbText(patch)
+	if err != nil {
+		return err
+	}
+	_, err = s.Pool.Exec(ctx, `
 		UPDATE flow_steps SET meta = COALESCE(meta, '{}'::jsonb) || $2::jsonb, updated_at=NOW()
 		WHERE id=$1`, stepID, raw)
 	return err
