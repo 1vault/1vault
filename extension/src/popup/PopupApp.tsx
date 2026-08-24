@@ -14,7 +14,7 @@ export function PopupApp() {
 
   return (
     <div className="sp" style={{ minHeight: 120, padding: 16 }}>
-      <div className="muted">Opening 1Vault side panel…</div>
+      <div className="muted">Opening 1vaults side panel…</div>
     </div>
   );
 }

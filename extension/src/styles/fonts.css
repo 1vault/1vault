@@ -1,0 +1,6 @@
+/* Match the 1Vault landing page — bundled locally so the panel needs no font CDN. */
+@import "@fontsource-variable/geist";
+@import "@fontsource/space-grotesk/500.css";
+@import "@fontsource/space-grotesk/600.css";
+@import "@fontsource/space-grotesk/700.css";
+@import "@fontsource-variable/roboto-mono";

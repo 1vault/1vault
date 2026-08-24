@@ -23,6 +23,8 @@ export default defineConfig({
     },
   },
   build: {
-    sourcemap: true,
+    // Inline sourceMappingURL comments break IIFE-wrapped content scripts: the
+    // //# comment eats the closing })() and Chrome throws "Unexpected end of input".
+    sourcemap: "hidden",
   },
 });

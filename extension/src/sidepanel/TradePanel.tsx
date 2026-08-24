@@ -8,6 +8,8 @@ import {
   type VaultPositionRow,
 } from "../lib/trade/positions";
 import { IconTrade } from "./icons";
+import { HeroHead } from "./InfoTip";
+import { SolAmount } from "./SolAmount";
 import {
   ListPager,
   ShimmerList,
@@ -127,12 +129,10 @@ export function TradePanel({ activeVault, vaultId, busy, flowRunning, onRunFlow 
   return (
     <div className="trade-panel">
       <section className="hero">
-        <h1>Trade with vault</h1>
-        <p>
-          Research a mint, open a devnet demo position, or exit an open book. Vault{" "}
-          {activeVault ? shortAddr(activeVault) : "—"}
-          {vaultId ? ` #${vaultId}` : ""}.
-        </p>
+        <HeroHead
+          title="Trade with vault"
+          info={`Research a mint, open a devnet demo position, or exit an open book. Vault ${activeVault ? shortAddr(activeVault) : "—"}${vaultId ? ` #${vaultId}` : ""}.`}
+        />
         <div className="hero-actions">
           <button
             className="btn btn-primary"
@@ -212,7 +212,11 @@ export function TradePanel({ activeVault, vaultId, busy, flowRunning, onRunFlow 
                   </div>
                   <div className="row-right">
                     <div className="row-value">
-                      {formatLamportsAsSol(pos.currentValue || pos.entryValue, 3)}
+                      <SolAmount
+                        value={formatLamportsAsSol(pos.currentValue || pos.entryValue, 3)}
+                        unit="SOL"
+                        size="md"
+                      />
                     </div>
                     <button
                       type="button"

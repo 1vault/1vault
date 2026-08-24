@@ -1,4 +1,5 @@
 import { useMemo, type CSSProperties, type ReactNode } from "react";
+import { VaultSummaryShimmer } from "./VaultSummary";
 
 export function ShimmerBlock({
   className = "",
@@ -39,13 +40,12 @@ export function ShimmerList({ count = 3, className = "" }: { count?: number; cla
 export function ShimmerHero() {
   return (
     <section className="hero" aria-busy="true" aria-label="Loading vault">
-      <ShimmerBlock className="shimmer-line shimmer-line-sm" style={{ width: "40%" }} />
-      <ShimmerBlock className="shimmer-line shimmer-nav" />
-      <ShimmerBlock className="shimmer-line shimmer-line-md" style={{ width: "70%" }} />
-      <ShimmerBlock className="shimmer-bar" />
-      <div className="hero-actions">
-        <ShimmerBlock className="shimmer-btn" />
-        <ShimmerBlock className="shimmer-btn" />
+      <VaultSummaryShimmer />
+      <div className="quick hero-quick">
+        <ShimmerBlock className="shimmer-quick" />
+        <ShimmerBlock className="shimmer-quick" />
+        <ShimmerBlock className="shimmer-quick" />
+        <ShimmerBlock className="shimmer-quick" />
       </div>
     </section>
   );

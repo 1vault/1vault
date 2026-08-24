@@ -10,15 +10,18 @@ import {
   IconClose,
   IconCreate,
   IconDown,
-  IconExplore,
   IconHome,
   IconLink,
+  IconMarket,
   IconPark,
   IconTrade,
   IconVault,
 } from "./icons";
+import { HeroHead } from "./InfoTip";
 import { ListPager, ShimmerHero, ShimmerList, usePagedSlice } from "./Shimmer";
+import { SolAmount } from "./SolAmount";
 import { TradePanel } from "./TradePanel";
+import { VaultSummary, VaultSummaryShimmer } from "./VaultSummary";
 
 type NavId = "home" | "trade" | "activity" | "vault";
 type ListTab = "vaults" | "capital" | "positions";
@@ -307,7 +310,7 @@ export function SidePanelApp() {
   /* ——— Locked / empty keyring ——— */
   if (!status?.has || !status.unlocked) {
     return (
-      <div className="sp">
+      <div className="sp sp-app">
         <div className="sp-scroll">
           <TopBar
             label={status?.has ? "Locked wallet" : "New degen wallet"}
@@ -316,11 +319,10 @@ export function SidePanelApp() {
           />
 
           <section className="hero">
-            <h1>{status?.has ? "Unlock to ride" : "Import degen key"}</h1>
-            <p>
-              Same vault. Degen signs. Vault pays. Secret stays encrypted on this device — never sent
-              to the backend.
-            </p>
+            <HeroHead
+              title={status?.has ? "Unlock to ride" : "Import degen key"}
+              info="Same vault. Degen signs. Vault pays. Secret stays encrypted on this device — never sent to the backend."
+            />
 
             {!status?.has && (
               <div className="field">
@@ -368,45 +370,6 @@ export function SidePanelApp() {
             {error && <div className="err">{error}</div>}
             {ok && <div className="ok">{ok}</div>}
           </section>
-
-          <div className="quick" aria-hidden>
-            <button type="button" className="quick-item" data-action="create" disabled>
-              <div className="quick-icon">
-                <IconCreate width={20} height={20} />
-              </div>
-              <span className="quick-meta">
-                <strong>Create</strong>
-                <em>New vault</em>
-              </span>
-            </button>
-            <button type="button" className="quick-item" data-action="park" disabled>
-              <div className="quick-icon">
-                <IconPark width={20} height={20} />
-              </div>
-              <span className="quick-meta">
-                <strong>Park</strong>
-                <em>Add SOL</em>
-              </span>
-            </button>
-            <button type="button" className="quick-item" data-action="trade" disabled>
-              <div className="quick-icon">
-                <IconTrade width={20} height={20} />
-              </div>
-              <span className="quick-meta">
-                <strong>Trade</strong>
-                <em>Open book</em>
-              </span>
-            </button>
-            <button type="button" className="quick-item" data-action="close" disabled>
-              <div className="quick-icon">
-                <IconClose width={20} height={20} />
-              </div>
-              <span className="quick-meta">
-                <strong>Close</strong>
-                <em>Wind down</em>
-              </span>
-            </button>
-          </div>
         </div>
         <BottomNav nav="home" onNav={setNav} />
       </div>
@@ -414,7 +377,7 @@ export function SidePanelApp() {
   }
 
   return (
-    <div className="sp">
+    <div className="sp sp-app">
       <div className="sp-scroll">
         <TopBar
           label="Degen account"
@@ -428,170 +391,35 @@ export function SidePanelApp() {
             {vaultsLoading && !hasVaults ? (
               <ShimmerHero />
             ) : (
-            <section className="hero">
-              {!hasVaults ? (
-                <>
-                  <h1>No vault yet</h1>
-                  <p>
-                    Lock 1,000,000 1VL, create a pooled vault, then park SOL. Retail rides with you —
-                    close pays by share weight.
-                  </p>
-                  <div className="hero-actions">
-                    <button
-                      className="btn btn-primary"
-                      disabled={busy || flowRunning}
-                      onClick={() => void startFlow("create-vault")}
-                    >
-                      <IconDown /> Create vault
-                    </button>
-                    <button className="btn btn-secondary" onClick={() => setNav("trade")}>
-                      <IconTrade width={16} height={16} /> Trade
-                    </button>
-                  </div>
-                </>
-              ) : pipelineLoading && !pipeline ? (
-                <>
-                  <div className="muted">
-                    {selected ? vaultName(selected) : "Active vault"}{" "}
-                    {selected && <span className="chip">{vaultType(selected)}</span>}
-                  </div>
-                  <div className="hero-nav shimmer-inline">
-                    <span className="shimmer shimmer-line shimmer-nav" aria-hidden />
-                    <span>SOL NAV</span>
-                  </div>
-                  <div className="shimmer shimmer-line shimmer-line-md" style={{ width: "72%" }} />
-                  <div className="shimmer shimmer-bar" />
-                  <div className="hero-actions">
-                    <button className="btn btn-primary" disabled>
-                      <IconDown /> Park SOL
-                    </button>
-                    <button className="btn btn-secondary" disabled>
-                      <IconTrade width={16} height={16} /> Open position
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="muted">
-                    {selected ? vaultName(selected) : "Active vault"}{" "}
-                    {selected && <span className="chip">{vaultType(selected)}</span>}
-                  </div>
-                  <div className="hero-nav">
-                    {pipeline ? formatLamportsAsSol(pipeline.nav, 3) : "—"}
-                    <span>SOL NAV</span>
-                  </div>
-                  <p>
-                    Buying power{" "}
-                    {pipeline ? formatLamportsAsSol(pipeline.projected.buyingPower, 3) : "—"} SOL ·
-                    incoming{" "}
-                    {bar ? formatLamportsAsSol(bar.incoming.toString(), 3) : "0"} SOL
-                  </p>
-                  {bar && (
-                    <>
-                      <div className="stack-bar" title="committed / incoming / mandated">
-                        <span style={{ width: `${bar.c}%`, background: "var(--accent)" }} />
-                        <span style={{ width: `${bar.i}%`, background: "var(--accent-bright)" }} />
-                        <span style={{ width: `${bar.m}%`, background: "#666" }} />
-                      </div>
-                      <div className="legend">
-                        <span>
-                          <i style={{ background: "var(--accent)" }} />
-                          Committed
-                        </span>
-                        <span>
-                          <i style={{ background: "var(--accent-bright)" }} />
-                          Incoming
-                        </span>
-                        <span>
-                          <i style={{ background: "#666" }} />
-                          Mandated
-                        </span>
-                      </div>
-                    </>
-                  )}
-                  <div className="hero-actions">
-                    <button
-                      className="btn btn-primary"
-                      disabled={busy || flowRunning || !activeVault}
-                      onClick={() => void startFlow("deposit")}
-                    >
-                      <IconDown /> Park SOL
-                    </button>
-                    <button
-                      className="btn btn-secondary"
-                      disabled={busy || flowRunning || !activeVault}
-                      onClick={() => void startFlow("open-position")}
-                    >
-                      <IconTrade width={16} height={16} /> Open position
-                    </button>
-                  </div>
-                </>
-              )}
-            </section>
-            )}
+              <section className="hero">
+                {!hasVaults ? (
+                  <HeroHead
+                    title="No vault yet"
+                    info="Lock 1,000,000 1VL, create a pooled vault, then park SOL. Retail rides with you — close pays by share weight."
+                  />
+                ) : pipelineLoading && !pipeline ? (
+                  <VaultSummaryShimmer />
+                ) : (
+                  <VaultSummary
+                    name={selected ? vaultName(selected) : "Active vault"}
+                    typeLabel={selected ? vaultType(selected) : undefined}
+                    pipeline={pipeline}
+                    bar={bar}
+                  />
+                )}
 
-            <div className="quick">
-              <button
-                type="button"
-                className="quick-item"
-                data-action="create"
-                disabled={busy || flowRunning}
-                onClick={() => void startFlow("create-vault")}
-              >
-                <div className="quick-icon">
-                  <IconCreate width={20} height={20} />
-                </div>
-                <span className="quick-meta">
-                  <strong>Create</strong>
-                  <em>New vault</em>
-                </span>
-              </button>
-              <button
-                type="button"
-                className="quick-item"
-                data-action="park"
-                disabled={busy || flowRunning || !activeVault}
-                onClick={() => void startFlow("deposit")}
-              >
-                <div className="quick-icon">
-                  <IconPark width={20} height={20} />
-                </div>
-                <span className="quick-meta">
-                  <strong>Park</strong>
-                  <em>Add SOL</em>
-                </span>
-              </button>
-              <button
-                type="button"
-                className="quick-item"
-                data-action="trade"
-                disabled={busy || flowRunning || !activeVault}
-                onClick={() => void startFlow("open-position")}
-              >
-                <div className="quick-icon">
-                  <IconTrade width={20} height={20} />
-                </div>
-                <span className="quick-meta">
-                  <strong>Trade</strong>
-                  <em>Open book</em>
-                </span>
-              </button>
-              <button
-                type="button"
-                className="quick-item"
-                data-action="close"
-                disabled={busy || flowRunning || !activeVault}
-                onClick={() => void startFlow("close-vault")}
-              >
-                <div className="quick-icon">
-                  <IconClose width={20} height={20} />
-                </div>
-                <span className="quick-meta">
-                  <strong>Close</strong>
-                  <em>Wind down</em>
-                </span>
-              </button>
-            </div>
+                <VaultQuickActions
+                  busy={busy}
+                  flowRunning={flowRunning}
+                  activeVault={activeVault}
+                  onCreate={() => void startFlow("create-vault")}
+                  onPark={() => void startFlow("deposit")}
+                  onTrade={() => void startFlow("open-position")}
+                  onClose={() => void startFlow("close-vault")}
+                  loading={hasVaults && pipelineLoading && !pipeline}
+                />
+              </section>
+            )}
 
             {showBanner && bar && bar.incoming > 0n && (
               <div className="banner">
@@ -599,7 +427,9 @@ export function SidePanelApp() {
                   ×
                 </button>
                 <div className="banner-kicker">Capital in motion</div>
-                <strong>+{formatLamportsAsSol(bar.incoming.toString(), 3)} SOL incoming</strong>
+                <strong>
+                  +<SolAmount value={formatLamportsAsSol(bar.incoming.toString(), 3)} unit="SOL incoming" size="sm" />
+                </strong>
                 <p>
                   Retail parked or mandated funds waiting to confirm. Projected NAV{" "}
                   {pipeline ? formatLamportsAsSol(pipeline.projected.nav, 3) : "—"} SOL.
@@ -663,9 +493,12 @@ export function SidePanelApp() {
                             </div>
                             <div className="row-right">
                               <div className="row-value">
-                                {formatLamportsAsSol(String(v.nav ?? v.total_assets ?? "0"), 2)}
+                                <SolAmount
+                                  value={formatLamportsAsSol(String(v.nav ?? v.total_assets ?? "0"), 2)}
+                                  unit="SOL NAV"
+                                  size="md"
+                                />
                               </div>
-                              <div className="row-meta">SOL NAV</div>
                             </div>
                           </button>
                         );
@@ -701,15 +534,18 @@ export function SidePanelApp() {
                       </div>
                       <div className="row-right">
                         <div className="row-value">
-                          {formatLamportsAsSol(
-                            (
-                              BigInt(pipeline.incoming.pendingLamports) +
-                              BigInt(pipeline.incoming.submittedLamports)
-                            ).toString(),
-                            3
-                          )}
+                          <SolAmount
+                            value={formatLamportsAsSol(
+                              (
+                                BigInt(pipeline.incoming.pendingLamports) +
+                                BigInt(pipeline.incoming.submittedLamports)
+                              ).toString(),
+                              3,
+                            )}
+                            unit="SOL"
+                            size="md"
+                          />
                         </div>
-                        <div className="row-meta">SOL</div>
                       </div>
                     </div>
                     <div className="row-card">
@@ -724,9 +560,12 @@ export function SidePanelApp() {
                       </div>
                       <div className="row-right">
                         <div className="row-value">
-                          {formatLamportsAsSol(pipeline.mandated.lamports, 3)}
+                          <SolAmount
+                            value={formatLamportsAsSol(pipeline.mandated.lamports, 3)}
+                            unit="SOL"
+                            size="md"
+                          />
                         </div>
-                        <div className="row-meta">SOL</div>
                       </div>
                     </div>
                     <div className="row-card">
@@ -737,9 +576,12 @@ export function SidePanelApp() {
                       </div>
                       <div className="row-right">
                         <div className="row-value">
-                          {formatLamportsAsSol(pipeline.projected.buyingPower, 3)}
+                          <SolAmount
+                            value={formatLamportsAsSol(pipeline.projected.buyingPower, 3)}
+                            unit="SOL"
+                            size="md"
+                          />
                         </div>
-                        <div className="row-meta">SOL</div>
                       </div>
                     </div>
                   </>
@@ -770,9 +612,12 @@ export function SidePanelApp() {
                           </div>
                           <div className="row-right">
                             <div className="row-value">
-                              {formatLamportsAsSol(p.currentValue || p.entryValue, 3)}
+                              <SolAmount
+                                value={formatLamportsAsSol(p.currentValue || p.entryValue, 3)}
+                                unit="SOL"
+                                size="md"
+                              />
                             </div>
-                            <div className="row-meta">SOL value</div>
                           </div>
                         </div>
                       ))}
@@ -839,8 +684,10 @@ export function SidePanelApp() {
 
         {nav === "vault" && (
           <section className="hero">
-            <h1>Vault tools</h1>
-            <p>Licence lock, claim fees, initiate close, unlock 1VL — Fees & Close flows.</p>
+            <HeroHead
+              title="Vault tools"
+              info="Licence lock, claim fees, initiate close, unlock 1VL — Fees & Close flows."
+            />
             <div className="hero-actions">
               <button
                 className="btn btn-primary"
@@ -869,6 +716,90 @@ export function SidePanelApp() {
   );
 }
 
+function VaultQuickActions({
+  busy,
+  flowRunning,
+  activeVault,
+  loading,
+  onCreate,
+  onPark,
+  onTrade,
+  onClose,
+}: {
+  busy: boolean;
+  flowRunning: boolean;
+  activeVault: string | null;
+  loading?: boolean;
+  onCreate: () => void;
+  onPark: () => void;
+  onTrade: () => void;
+  onClose: () => void;
+}) {
+  const locked = busy || flowRunning || loading;
+  const needsVault = !activeVault;
+
+  return (
+    <div className="quick hero-quick">
+      <button
+        type="button"
+        className="quick-item"
+        data-action="create"
+        disabled={locked}
+        onClick={onCreate}
+      >
+        <div className="quick-icon">
+          <IconCreate width={18} height={18} />
+        </div>
+        <span className="quick-meta">
+          <strong>Create</strong>
+        </span>
+      </button>
+      <button
+        type="button"
+        className="quick-item"
+        data-action="park"
+        disabled={locked || needsVault}
+        onClick={onPark}
+      >
+        <div className="quick-icon">
+          <IconPark width={18} height={18} />
+        </div>
+        <span className="quick-meta">
+          <strong>Park</strong>
+        </span>
+      </button>
+      <button
+        type="button"
+        className="quick-item"
+        data-action="trade"
+        disabled={locked || needsVault}
+        onClick={onTrade}
+      >
+        <div className="quick-icon">
+          <IconTrade width={18} height={18} />
+        </div>
+        <span className="quick-meta">
+          <strong>Trade</strong>
+        </span>
+      </button>
+      <button
+        type="button"
+        className="quick-item"
+        data-action="close"
+        disabled={locked || needsVault}
+        onClick={onClose}
+      >
+        <div className="quick-icon">
+          <IconClose width={18} height={18} />
+        </div>
+        <span className="quick-meta">
+          <strong>Close</strong>
+        </span>
+      </button>
+    </div>
+  );
+}
+
 function TopBar({
   label,
   addr,
@@ -890,7 +821,7 @@ function TopBar({
         </div>
       </button>
       <div className="sp-top-actions">
-        <button type="button" className="icon-btn" title="1Vault" aria-label="1Vault">
+        <button type="button" className="icon-btn" title="1vaults" aria-label="1vaults">
           <IconLink />
         </button>
         <button
@@ -910,7 +841,7 @@ function TopBar({
 function BottomNav({ nav, onNav }: { nav: NavId; onNav: (n: NavId) => void }) {
   const items: Array<{ id: NavId; label: string; icon: ReactNode }> = [
     { id: "home", label: "Home", icon: <IconHome /> },
-    { id: "trade", label: "Trade", icon: <IconExplore /> },
+    { id: "trade", label: "Trade", icon: <IconMarket /> },
     { id: "activity", label: "Activity", icon: <IconActivity /> },
     { id: "vault", label: "Vault", icon: <IconVault /> },
   ];
@@ -921,9 +852,10 @@ function BottomNav({ nav, onNav }: { nav: NavId; onNav: (n: NavId) => void }) {
           key={it.id}
           type="button"
           className={`nav-item${nav === it.id ? " active" : ""}`}
+          aria-current={nav === it.id ? "page" : undefined}
           onClick={() => onNav(it.id)}
         >
-          {it.icon}
+          <span className="nav-icon">{it.icon}</span>
           <span className="nav-label">{it.label}</span>
         </button>
       ))}
