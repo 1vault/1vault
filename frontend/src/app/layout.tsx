@@ -23,7 +23,8 @@ export const metadata: Metadata = {
   description:
     "Pooled Solana trading vaults. Same vault. Degen signs. Vault pays. Close pays by share weight.",
   icons: {
-    icon: "/1vault-icon.png",
+    icon: "/favicon.png",
+    apple: "/favicon.png",
   },
   openGraph: {
     title: "1Vault — The Pooled Trading Vault Layer for Solana",

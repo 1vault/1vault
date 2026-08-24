@@ -317,11 +317,31 @@ export async function renderPassPng(card: PassCardData): Promise<Response> {
  * first time. Returns null when Blob is not configured (local dev), which lets
  * callers fall back to rendering through `/api/pass`.
  */
+/**
+ * Vercel only calls the variable `BLOB_READ_WRITE_TOKEN` for the first store
+ * connected to a project; others are prefixed with the store name.
+ */
+function blobToken(): string | undefined {
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    return process.env.BLOB_READ_WRITE_TOKEN;
+  }
+
+  const named = Object.keys(process.env).find((key) =>
+    key.endsWith("_READ_WRITE_TOKEN"),
+  );
+  return named ? process.env[named] : undefined;
+}
+
 export async function ensureStoredPassImage(
   pass: PublicPass,
 ): Promise<string | null> {
   if (pass.imageUrl) return pass.imageUrl;
-  if (!process.env.BLOB_READ_WRITE_TOKEN) return null;
+
+  const token = blobToken();
+  if (!token) {
+    console.error("No Blob read-write token found; serving live render");
+    return null;
+  }
 
   try {
     const rendered = await renderPassImage(pass);
@@ -331,6 +351,7 @@ export async function ensureStoredPassImage(
       `pass/${pass.handle.toLowerCase()}.png`,
       Buffer.from(bytes),
       {
+        token,
         access: "public",
         contentType: "image/png",
         addRandomSuffix: false,
