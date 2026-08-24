@@ -41,3 +41,18 @@ func TestNeedsTLS(t *testing.T) {
 		t.Fatal("sslmode=disable should skip TLS")
 	}
 }
+
+func TestIsTransactionPooler(t *testing.T) {
+	if !isTransactionPooler("aws-0-ap-southeast-2.pooler.supabase.com", 6543) {
+		t.Fatal("supabase pooler host should use simple protocol")
+	}
+	if !isTransactionPooler("aws-0-ap-southeast-2.pooler.supabase.com", 5432) {
+		t.Fatal("supabase pooler host (any port) should use simple protocol")
+	}
+	if !isTransactionPooler("db.example.com", 6543) {
+		t.Fatal("port 6543 should use simple protocol")
+	}
+	if isTransactionPooler("localhost", 5432) {
+		t.Fatal("local postgres should keep prepared statements")
+	}
+}

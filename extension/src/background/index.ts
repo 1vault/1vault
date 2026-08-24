@@ -13,6 +13,8 @@ import { estimatePipeline } from "../lib/estimate";
 import { runFlow, type FlowMode, type FlowRunInput, type FlowState } from "../lib/flow";
 import { indexerHealth } from "../lib/indexer/client";
 import { signWirePartial } from "../lib/signing";
+import { clearSession } from "../lib/auth";
+import { annotateVaultLayout } from "../lib/vault-layout";
 
 export type Msg =
   | { type: "PING" }
@@ -23,6 +25,7 @@ export type Msg =
   | { type: "KEYRING_UNLOCK"; password: string }
   | { type: "KEYRING_LOCK" }
   | { type: "KEYRING_CLEAR" }
+  | { type: "LOGOUT_ALL" }
   | { type: "MY_VAULTS" }
   | { type: "PIPELINE"; vault: string }
   | { type: "SIGN_WIRE"; transactionB64: string }
@@ -121,6 +124,15 @@ async function handle(message: Msg): Promise<unknown> {
     case "KEYRING_CLEAR":
       await clearKeyring();
       return { cleared: true };
+    case "LOGOUT_ALL":
+      lock();
+      await clearKeyring();
+      await clearSession();
+      flowAbort?.abort();
+      flowAbort = null;
+      flowState = { status: "idle", events: [] };
+      await chrome.storage.session.clear();
+      return { cleared: true };
     case "MY_VAULTS": {
       const pubkey = (await getStoredPubkey()) ?? getUnlockedKeypair()?.publicKey.toBase58();
       if (!pubkey) throw new Error("import or unlock keyring first");
@@ -130,7 +142,10 @@ async function handle(message: Msg): Promise<unknown> {
         getProtocol().catch(() => ({})),
       ]);
       const vaults = (strat.vaults?.length ? strat.vaults : listed.items) ?? [];
-      return { pubkey, vaults, protocol };
+      const annotated = await annotateVaultLayout(vaults).catch(() =>
+        vaults.map((v) => ({ ...v, layoutCompatible: true }))
+      );
+      return { pubkey, vaults: annotated, protocol };
     }
     case "PIPELINE":
       return estimatePipeline(message.vault);

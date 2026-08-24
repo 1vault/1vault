@@ -197,6 +197,100 @@ button {
   background-repeat: no-repeat;
 }
 
+.sp-account-wrap {
+  position: relative;
+  min-width: 0;
+  flex: 1;
+}
+
+.sp-avatar-img {
+  object-fit: cover;
+  background: var(--ink);
+}
+
+.sp-avatar-img::after {
+  display: none;
+}
+
+.sp-role {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.02em;
+  color: var(--accent);
+}
+
+.sp-role.muted {
+  color: var(--text-dim);
+  font-weight: var(--fw-medium);
+}
+
+.sp-account-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 168px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(12, 18, 28, 0.98);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.sp-account-menu-wallet {
+  padding: 6px 8px 8px;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 4px;
+}
+
+.sp-account-menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sp-account-menu-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sp-account-menu-item.danger {
+  color: #f87171;
+}
+
+.btn.btn-x {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.btn.btn-x:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.btn.btn-x:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .sp-account {
   display: flex;
   align-items: center;
@@ -1192,6 +1286,11 @@ button {
   background: var(--accent-dim);
   color: var(--accent-bright);
   font-weight: var(--fw-bold);
+}
+
+.chip-warn {
+  background: rgba(248, 113, 113, 0.15);
+  color: #f87171;
 }
 
 /* ——— Pipeline bar ——— */

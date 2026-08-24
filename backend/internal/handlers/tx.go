@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -22,6 +23,19 @@ import (
 func (a *API) txBuilder(r *http.Request) *txprep.Builder {
 	addr := a.addresses(r)
 	return txprep.NewBuilder(addr, txprep.NewRPC(addr.RPCURL))
+}
+
+func (a *API) failTxBuild(w http.ResponseWriter, r *http.Request, err error) {
+	var layout *s.VaultLayoutError
+	if errors.As(err, &layout) {
+		httpx.Fail(w, r, http.StatusUnprocessableEntity, "VAULT_LAYOUT_INCOMPATIBLE", err.Error(), map[string]any{
+			"vault":  layout.Pubkey,
+			"len":    layout.Len,
+			"reason": layout.Reason,
+		})
+		return
+	}
+	httpx.Fail(w, r, 502, "TX_BUILD_FAILED", err.Error(), nil)
 }
 
 func (a *API) decodePK(w http.ResponseWriter, r *http.Request, raw, field string) (solana.PublicKey, bool) {
@@ -397,7 +411,7 @@ func (a *API) PrepInitiateClose(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := a.txBuilder(r).InitiateVaultClose(st, vault)
 	if err != nil {
-		httpx.Fail(w, r, 502, "TX_BUILD_FAILED", err.Error(), nil)
+		a.failTxBuild(w, r, err)
 		return
 	}
 	httpx.OK(w, r, p, http.StatusOK)
@@ -624,7 +638,7 @@ func (a *API) PrepCloseVault(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := b.CloseVault(st, vault, vta, metas)
 	if err != nil {
-		httpx.Fail(w, r, 502, "TX_BUILD_FAILED", err.Error(), nil)
+		a.failTxBuild(w, r, err)
 		return
 	}
 	httpx.OK(w, r, p, http.StatusOK)

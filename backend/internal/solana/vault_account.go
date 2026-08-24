@@ -9,6 +9,67 @@ import (
 
 const vaultAcceptedMintsSlots = 5
 
+// CurrentVaultAccountLen is 8 (discriminator) + Vault::INIT_SPACE for the
+// deployed book_mode / early_exit_fee_bps layout.
+const CurrentVaultAccountLen = 565
+
+// VaultLayoutError explains why an on-chain vault cannot be used with the deployed program.
+type VaultLayoutError struct {
+	Pubkey string
+	Len    int
+	Reason string
+}
+
+func (e *VaultLayoutError) Error() string {
+	return fmt.Sprintf(
+		"vault %s has incompatible on-chain layout (%s, len=%d); create a new vault after the book_mode upgrade — legacy vaults cannot initiate_close/close",
+		e.Pubkey, e.Reason, e.Len,
+	)
+}
+
+// ValidateVaultAccountData checks the account can be deserialized as the current Vault struct.
+// Legacy sizes: 594 (pre-simplification), 562 (pre-book_mode). Those hit Anchor 3003 AccountDidNotDeserialize.
+func ValidateVaultAccountData(pubkey solana.PublicKey, data []byte) error {
+	if len(data) < 8 {
+		return &VaultLayoutError{Pubkey: pubkey.String(), Len: len(data), Reason: "empty or missing account"}
+	}
+	if len(data) != CurrentVaultAccountLen {
+		reason := "legacy account size"
+		switch len(data) {
+		case 594:
+			reason = "legacy layout (pre-simplification)"
+		case 562:
+			reason = "legacy layout (missing book_mode/early_exit_fee_bps)"
+		}
+		return &VaultLayoutError{Pubkey: pubkey.String(), Len: len(data), Reason: reason}
+	}
+	o := 8 + 32 + 8
+	var err error
+	o, err = skipBorshString(data, o)
+	if err != nil {
+		return &VaultLayoutError{Pubkey: pubkey.String(), Len: len(data), Reason: "invalid name: " + err.Error()}
+	}
+	o, err = skipBorshString(data, o)
+	if err != nil {
+		return &VaultLayoutError{Pubkey: pubkey.String(), Len: len(data), Reason: "invalid description: " + err.Error()}
+	}
+	o += 32 + 1 + 32*vaultAcceptedMintsSlots + 32 + 32 + 8*4
+	if o+2+1+2+1 > len(data) {
+		return &VaultLayoutError{Pubkey: pubkey.String(), Len: len(data), Reason: "truncated after fees"}
+	}
+	o += 2 // performance_fee_bps
+	book := data[o]
+	if book > 1 {
+		return &VaultLayoutError{Pubkey: pubkey.String(), Len: len(data), Reason: fmt.Sprintf("invalid book_mode=%d", book)}
+	}
+	o += 1 + 2 // book_mode + early_exit_fee_bps
+	status := data[o]
+	if status > 3 {
+		return &VaultLayoutError{Pubkey: pubkey.String(), Len: len(data), Reason: fmt.Sprintf("invalid status=%d", status)}
+	}
+	return nil
+}
+
 // DecodeVaultTokenAccount reads vault_token_account from on-chain Vault account data.
 func DecodeVaultTokenAccount(data []byte) (solana.PublicKey, error) {
 	if len(data) < 8+32+8+4 {
@@ -65,14 +126,14 @@ func vaultPerfFeeOffset(data []byte) (int, error) {
 }
 
 // DecodeVaultNextIDs returns next_trade_id and next_position_id from on-chain Vault account data.
-// Deployed layout includes book_mode (u8) + management_fee_bps (u16) after performance_fee_bps.
+// Deployed layout includes book_mode (u8) + early_exit_fee_bps (u16) after performance_fee_bps.
 func DecodeVaultNextIDs(data []byte) (nextTradeID, nextPositionID uint64, err error) {
 	o, err := vaultPerfFeeOffset(data)
 	if err != nil {
 		return 0, 0, err
 	}
 	o += 2 // performance_fee_bps
-	o += 3 // book_mode + management_fee_bps (deployed)
+	o += 3 // book_mode + early_exit_fee_bps (deployed)
 	o++    // status
 	o += 2 // max_slippage_bps
 	o++    // open_positions_count
@@ -115,7 +176,7 @@ func DecodeVaultDescriptionAndSlippage(data []byte) (description string, maxSlip
 	o++
 	o += 32 * vaultAcceptedMintsSlots
 	o += 32 + 32 + 8*4
-	o += 2 + 3 + 1 // perf, book/mgmt, status
+	o += 2 + 3 + 1 // perf, book/early, status
 	if o+2 > len(data) {
 		return "", 0, fmt.Errorf("truncated before max_slippage")
 	}

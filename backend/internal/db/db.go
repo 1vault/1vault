@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -26,7 +27,9 @@ func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	}
 
 	host := cfg.ConnConfig.Host
+	port := cfg.ConnConfig.Port
 	remote := needsTLS(databaseURL, host)
+	pooler := isTransactionPooler(host, port)
 
 	if remote {
 		cfg.ConnConfig.TLSConfig = &tls.Config{
@@ -48,11 +51,19 @@ func Connect(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 		cfg.ConnConfig.ConnectTimeout = 5 * time.Second
 	}
 
+	// PgBouncer / Supabase transaction pooler multiplexes backend sessions.
+	// pgx's named prepared-statement cache then hits SQLSTATE 42P05
+	// ("prepared statement … already exists"). Simple protocol avoids PREPARE.
+	if pooler || truthy(os.Getenv("DATABASE_SIMPLE_PROTOCOL")) {
+		cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+		log.Printf("[db] query mode=simple_protocol (transaction pooler / PgBouncer safe)")
+	}
+
 	cfg.MaxConnLifetime = time.Hour
 	cfg.MaxConnIdleTime = 5 * time.Minute
 	cfg.HealthCheckPeriod = 30 * time.Second
 
-	log.Printf("[db] connecting host=%s port=%d maxConns=%d", host, cfg.ConnConfig.Port, cfg.MaxConns)
+	log.Printf("[db] connecting host=%s port=%d maxConns=%d", host, port, cfg.MaxConns)
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
@@ -97,6 +108,20 @@ func normalizeDatabaseURL(raw string) string {
 		return raw
 	}
 	return u.String()
+}
+
+// isTransactionPooler detects Supabase/PgBouncer transaction mode (port 6543
+// or pooler.supabase host). Session pooler (:5432) keeps prepared statements
+// per backend session; transaction mode does not.
+func isTransactionPooler(host string, port uint16) bool {
+	h := strings.ToLower(host)
+	if strings.Contains(h, "pooler.supabase.") {
+		return true
+	}
+	if port == 6543 {
+		return true
+	}
+	return false
 }
 
 func needsTLS(databaseURL, host string) bool {

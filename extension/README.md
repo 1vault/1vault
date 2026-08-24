@@ -68,9 +68,22 @@ Load unpacked:
 
 No runtime base-URL setup screen. Swagger: `https://awake-enchantment-production-ea29.up.railway.app/v1/docs`
 
-## Intentionally unused (zero-BE constraint)
+## X (Twitter) login
 
-- `/v1/auth/*` and X login — needs `CORS_ORIGINS` change
+- **Connect X** in the side panel header → backend OAuth (`/v1/auth/twitter/start`)
+- Profile header shows X avatar, display name, and **Strategist** / **Investor** (from bound wallet role)
+- **Logout** clears encrypted keyring, auth tokens, and session state
+
+On Railway backend, add the extension OAuth redirect origin to `CORS_ORIGINS`:
+
+```text
+https://<extension-id>.chromiumapp.org
+```
+
+Extension id: `chrome://extensions` → 1vaults → ID (unpacked builds get a stable id per folder).
+
+## Intentionally unused
+
 - `/v1/ledger/*` and `POST /v1/tx/park` — need Bearer; use indexer + `park-guest` instead
 - X.com content script — needs social lookup APIs
 
@@ -86,6 +99,7 @@ extension/src/
     api/          openapi client + undocumented.ts
     indexer/      :3001 ledger
     keyring.ts
+    auth/           X OAuth + session storage
     signing.ts
     estimate.ts
     flow/           async flow runner (P2)

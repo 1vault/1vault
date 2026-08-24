@@ -626,9 +626,23 @@ func (b *Builder) ClaimFees(strategist, vault, vaultTokenAccount, degenFeeWallet
 	return p, nil
 }
 
+func (b *Builder) requireCurrentVaultLayout(vault solana.PublicKey) error {
+	if b.RPC == nil {
+		return nil
+	}
+	data, err := b.RPC.AccountData(vault)
+	if err != nil {
+		return fmt.Errorf("load vault %s: %w", vault, err)
+	}
+	return s.ValidateVaultAccountData(vault, data)
+}
+
 func (b *Builder) InitiateVaultClose(strategist, vault solana.PublicKey) (*Prepared, error) {
+	if err := b.requireCurrentVaultLayout(vault); err != nil {
+		return nil, err
+	}
 	ix := s.Ix(b.Program, s.DiscInitiateVaultClose,
-		s.Meta(strategist, true, true),
+		s.Meta(strategist, true, false),
 		s.Meta(vault, false, true),
 	)
 	p, err := b.pack(strategist, []solana.PublicKey{strategist}, s.SetComputeUnitLimit(200_000), ix)
@@ -1090,6 +1104,9 @@ type HolderMeta struct {
 }
 
 func (b *Builder) CloseVault(strategist, vault, vaultTokenAccount solana.PublicKey, holders []HolderMeta) (*Prepared, error) {
+	if err := b.requireCurrentVaultLayout(vault); err != nil {
+		return nil, err
+	}
 	metas := []solana.AccountMeta{
 		s.Meta(strategist, true, true),
 		s.Meta(s.StrategistPDA(b.Program, strategist), false, true),

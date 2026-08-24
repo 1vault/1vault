@@ -28,7 +28,7 @@ export default defineManifest({
     service_worker: "src/background/index.ts",
     type: "module",
   },
-  permissions: ["storage", "alarms", "notifications", "sidePanel"],
+  permissions: ["storage", "alarms", "notifications", "sidePanel", "identity"],
   host_permissions: [
     "https://awake-enchantment-production-ea29.up.railway.app/*",
     "http://127.0.0.1:3090/*",

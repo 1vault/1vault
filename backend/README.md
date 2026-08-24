@@ -120,6 +120,8 @@ Hasil: `bin/railway/1vault-api` (static ELF) + `migrations/` + `docs/` untuk Swa
 postgresql://postgres.PROJECT:PASSWORD@aws-0-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require
 ```
 
+On `:6543` / `pooler.supabase.*`, the API uses **simple protocol** (no named prepared statements). Otherwise pgx hits `SQLSTATE 42P05` — `prepared statement "stmtcache_…" already exists`. Override with `DATABASE_SIMPLE_PROTOCOL=1`.
+
 Image includes `ca-certificates` for TLS verify. Escape hatch only: `DATABASE_SSL_INSECURE=1`.
 
 Do **not** commit `.env` — set secrets in Railway dashboard.

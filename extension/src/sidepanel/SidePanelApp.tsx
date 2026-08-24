@@ -1,9 +1,19 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { listVaultPositions, listVaultTrades } from "../lib/api/client";
 import type { FlowMode, FlowState } from "../lib/flow";
 import { attachTradeIds, parseVaultPositions, type VaultPositionRow } from "../lib/trade/positions";
 import { sendBg } from "../lib/messaging";
 import { formatLamportsAsSol, type PipelineEstimate } from "../lib/estimate";
+import {
+  type AuthSession,
+  type AuthUser,
+  displayXName,
+  loadStoredSession,
+  logoutAuth,
+  refreshAuthSession,
+  roleLabelForWallet,
+  startTwitterLogin,
+} from "../lib/auth";
 import {
   IconActivity,
   IconCheck,
@@ -65,6 +75,16 @@ export function SidePanelApp() {
   const [positionsLoading, setPositionsLoading] = useState(false);
   const [vaultPage, setVaultPage] = useState(1);
   const [positionPage, setPositionPage] = useState(1);
+  const [authSession, setAuthSession] = useState<AuthSession | null>(null);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
+
+  const authUser = authSession?.user;
+  const roleLabel = useMemo(
+    () => roleLabelForWallet(authUser, status?.pubkey ?? null),
+    [authUser, status?.pubkey]
+  );
 
   const refreshStatus = useCallback(async () => {
     const s = await sendBg<KeyStatus>({ type: "KEYRING_STATUS" });
@@ -130,6 +150,29 @@ export function SidePanelApp() {
       }
     })();
   }, [refreshStatus, loadHealth]);
+
+  useEffect(() => {
+    void (async () => {
+      const stored = await loadStoredSession();
+      if (!stored) return;
+      try {
+        const session = await refreshAuthSession(stored.refreshToken);
+        setAuthSession(session);
+      } catch {
+        await logoutAuth(stored.refreshToken);
+        setAuthSession(null);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!accountMenuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!accountMenuRef.current?.contains(e.target as Node)) setAccountMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [accountMenuOpen]);
 
   useEffect(() => {
     if (status?.unlocked) {
@@ -228,6 +271,7 @@ export function SidePanelApp() {
 
   const selected = vaults.find((v) => String(v.pubkey) === activeVault) ?? null;
   const hasVaults = vaults.length > 0;
+  const selectedLayoutOk = selected?.layoutCompatible !== false;
 
   const flowRunning = flowState?.status === "running";
 
@@ -307,15 +351,60 @@ export function SidePanelApp() {
     await refreshStatus();
   }
 
+  async function onConnectX() {
+    setAuthBusy(true);
+    setError(null);
+    try {
+      const session = await startTwitterLogin();
+      setAuthSession(session);
+      setOk("Signed in with X");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function onLogout() {
+    setAccountMenuOpen(false);
+    setAuthBusy(true);
+    setError(null);
+    try {
+      if (authSession?.refreshToken) await logoutAuth(authSession.refreshToken);
+      await sendBg({ type: "LOGOUT_ALL" });
+      setAuthSession(null);
+      setVaults([]);
+      setPipeline(null);
+      setActiveVault(null);
+      setFlowState(null);
+      setSecret("");
+      setPassword("");
+      await refreshStatus();
+      setOk("Logged out");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
   /* ——— Locked / empty keyring ——— */
   if (!status?.has || !status.unlocked) {
     return (
       <div className="sp sp-app">
         <div className="sp-scroll">
           <TopBar
-            label={status?.has ? "Locked wallet" : "New degen wallet"}
-            addr={status?.pubkey ? shortAddr(status.pubkey) : "Import key"}
+            authUser={authUser}
+            roleLabel={roleLabel}
+            walletAddr={status?.pubkey ? shortAddr(status.pubkey) : undefined}
             backendOk={backendOk}
+            authBusy={authBusy}
+            menuOpen={accountMenuOpen}
+            menuRef={accountMenuRef}
+            onToggleMenu={() => setAccountMenuOpen((v) => !v)}
+            onConnectX={() => void onConnectX()}
+            onLogout={() => void onLogout()}
+            onLock={status?.has && status.unlocked ? () => void onLock() : undefined}
           />
 
           <section className="hero">
@@ -380,9 +469,16 @@ export function SidePanelApp() {
     <div className="sp sp-app">
       <div className="sp-scroll">
         <TopBar
-          label="Degen account"
-          addr={status.pubkey ? shortAddr(status.pubkey) : "—"}
+          authUser={authUser}
+          roleLabel={roleLabel}
+          walletAddr={status.pubkey ? shortAddr(status.pubkey) : undefined}
           backendOk={backendOk}
+          authBusy={authBusy}
+          menuOpen={accountMenuOpen}
+          menuRef={accountMenuRef}
+          onToggleMenu={() => setAccountMenuOpen((v) => !v)}
+          onConnectX={() => void onConnectX()}
+          onLogout={() => void onLogout()}
           onLock={() => void onLock()}
         />
 
@@ -412,10 +508,19 @@ export function SidePanelApp() {
                   busy={busy}
                   flowRunning={flowRunning}
                   activeVault={activeVault}
+                  layoutOk={selectedLayoutOk}
                   onCreate={() => void startFlow("create-vault")}
                   onPark={() => void startFlow("deposit")}
                   onTrade={() => void startFlow("open-position")}
-                  onClose={() => void startFlow("close-vault")}
+                  onClose={() => {
+                    if (!selectedLayoutOk) {
+                      setError(
+                        "This vault uses a legacy on-chain layout and cannot be closed with the current program. Create a new vault."
+                      );
+                      return;
+                    }
+                    void startFlow("close-vault");
+                  }}
                   loading={hasVaults && pipelineLoading && !pipeline}
                 />
               </section>
@@ -488,6 +593,11 @@ export function SidePanelApp() {
                               <div className="row-title">
                                 {vaultName(v)}
                                 <span className="chip">{vaultType(v)}</span>
+                                {v.layoutCompatible === false && (
+                                  <span className="chip chip-warn" title="Legacy account — cannot close with current program">
+                                    LEGACY
+                                  </span>
+                                )}
                               </div>
                               <div className="row-sub mono">{shortAddr(pk)}</div>
                             </div>
@@ -698,8 +808,16 @@ export function SidePanelApp() {
               </button>
               <button
                 className="btn btn-secondary"
-                disabled={busy || flowRunning || !activeVault}
-                onClick={() => void startFlow("close-vault")}
+                disabled={busy || flowRunning || !activeVault || !selectedLayoutOk}
+                onClick={() => {
+                  if (!selectedLayoutOk) {
+                    setError(
+                      "This vault uses a legacy on-chain layout and cannot be closed with the current program. Create a new vault."
+                    );
+                    return;
+                  }
+                  void startFlow("close-vault");
+                }}
               >
                 Close vault
               </button>
@@ -721,6 +839,7 @@ function VaultQuickActions({
   flowRunning,
   activeVault,
   loading,
+  layoutOk,
   onCreate,
   onPark,
   onTrade,
@@ -730,6 +849,7 @@ function VaultQuickActions({
   flowRunning: boolean;
   activeVault: string | null;
   loading?: boolean;
+  layoutOk?: boolean;
   onCreate: () => void;
   onPark: () => void;
   onTrade: () => void;
@@ -737,6 +857,7 @@ function VaultQuickActions({
 }) {
   const locked = busy || flowRunning || loading;
   const needsVault = !activeVault;
+  const closeBlocked = needsVault || layoutOk === false;
 
   return (
     <div className="quick hero-quick">
@@ -786,7 +907,8 @@ function VaultQuickActions({
         type="button"
         className="quick-item"
         data-action="close"
-        disabled={locked || needsVault}
+        disabled={locked || closeBlocked}
+        title={layoutOk === false ? "Legacy vault — create a new vault to close with current program" : undefined}
         onClick={onClose}
       >
         <div className="quick-icon">
@@ -801,34 +923,87 @@ function VaultQuickActions({
 }
 
 function TopBar({
-  label,
-  addr,
+  authUser,
+  roleLabel,
+  walletAddr,
   backendOk,
+  authBusy,
+  menuOpen,
+  menuRef,
+  onToggleMenu,
+  onConnectX,
+  onLogout,
   onLock,
 }: {
-  label: string;
-  addr: string;
+  authUser?: AuthUser;
+  roleLabel: string | null;
+  walletAddr?: string;
   backendOk: boolean | null;
+  authBusy?: boolean;
+  menuOpen?: boolean;
+  menuRef?: React.RefObject<HTMLDivElement | null>;
+  onToggleMenu?: () => void;
+  onConnectX?: () => void;
+  onLogout?: () => void;
   onLock?: () => void;
 }) {
+  const signedIn = Boolean(authUser);
+  const statusLine = signedIn
+    ? roleLabel ?? (walletAddr ? "Strategist" : "Wallet not linked")
+    : walletAddr ?? "Import wallet key";
+
   return (
     <div className="sp-top">
-      <button type="button" className="sp-account">
-        <div className="sp-avatar" />
-        <div className="sp-account-meta">
-          <div className="sp-account-label">{label}</div>
-          <div className="sp-account-addr">{addr}</div>
-        </div>
-      </button>
+      <div className="sp-account-wrap" ref={menuRef}>
+        <button type="button" className="sp-account" onClick={onToggleMenu}>
+          {authUser?.avatarUrl ? (
+            <img className="sp-avatar sp-avatar-img" src={authUser.avatarUrl} alt="" />
+          ) : (
+            <div className="sp-avatar" />
+          )}
+          <div className="sp-account-meta">
+            <div className="sp-account-label">{displayXName(authUser)}</div>
+            <div className="sp-account-addr">
+              {signedIn ? (
+                <span className={`sp-role${roleLabel ? "" : " muted"}`}>{statusLine}</span>
+              ) : (
+                statusLine
+              )}
+            </div>
+          </div>
+        </button>
+        {menuOpen && signedIn && (
+          <div className="sp-account-menu">
+            {walletAddr && <div className="sp-account-menu-wallet mono">{walletAddr}</div>}
+            {onLock && (
+              <button type="button" className="sp-account-menu-item" onClick={onLock}>
+                Lock wallet
+              </button>
+            )}
+            <button type="button" className="sp-account-menu-item danger" onClick={onLogout}>
+              Logout
+            </button>
+          </div>
+        )}
+      </div>
       <div className="sp-top-actions">
+        {!signedIn && onConnectX && (
+          <button
+            type="button"
+            className="btn btn-x"
+            disabled={authBusy}
+            onClick={onConnectX}
+          >
+            {authBusy ? "…" : "Connect X"}
+          </button>
+        )}
         <button type="button" className="icon-btn" title="1vaults" aria-label="1vaults">
           <IconLink />
         </button>
         <button
           type="button"
           className={`pill${backendOk === false ? " bad" : backendOk ? "" : " warn"}`}
-          onClick={onLock}
-          title={onLock ? "Lock keyring" : undefined}
+          title={backendOk === false ? "Backend offline" : "Devnet"}
         >
           <span className="dot" />
           {backendOk === false ? "Offline" : "Devnet"}

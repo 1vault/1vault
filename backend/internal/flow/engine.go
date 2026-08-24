@@ -11,7 +11,7 @@ import (
 	"github.com/1vault/backend/internal/gmgn"
 	"github.com/1vault/backend/internal/indexer"
 	"github.com/1vault/backend/internal/signing"
-	"github.com/1vault/backend/internal/solana"
+	s "github.com/1vault/backend/internal/solana"
 	"github.com/1vault/backend/internal/txprep"
 	"github.com/1vault/backend/internal/vaults"
 	"github.com/gagliardetto/solana-go"
