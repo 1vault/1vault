@@ -272,7 +272,11 @@ export async function renderPassImage(
       width: PASS_WIDTH,
       height: PASS_HEIGHT,
       headers: {
-        "Cache-Control": "public, max-age=300, immutable",
+        // Crawlers give a link preview only a couple of seconds, and a cold
+        // render costs about three, so the edge has to answer instead of the
+        // function. Revalidation keeps a renamed avatar from sticking forever.
+        "Cache-Control":
+          "public, max-age=600, s-maxage=86400, stale-while-revalidate=604800",
       },
       fonts: display
         ? [
@@ -319,7 +323,10 @@ export async function ensureStoredPassImage(
 
     await savePassImageUrl(pass.userId, blob.url);
     return blob.url;
-  } catch {
+  } catch (error) {
+    // Falling back to live rendering keeps the card working, but a silent
+    // failure here is invisible in production, so leave a trace.
+    console.error("Failed to store pass image in Blob", error);
     return null;
   }
 }
