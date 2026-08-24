@@ -769,6 +769,132 @@ body {
   color: #f87171;
 }
 
+/* ── Early Pass ── */
+
+.pass {
+  position: relative;
+  z-index: 1;
+  margin-top: 1.75rem;
+  animation: pass-in 0.9s var(--ease-soft) both;
+}
+
+@keyframes pass-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.pass-title {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.58rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.pass-frame {
+  position: relative;
+  margin-top: 0.85rem;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(4, 6, 10, 0.9);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.5);
+  transition:
+    border-color 0.5s var(--ease-soft),
+    box-shadow 0.5s var(--ease-soft);
+}
+
+.pass-frame:hover {
+  border-color: rgba(127, 228, 255, 0.32);
+  box-shadow:
+    0 22px 60px rgba(0, 0, 0, 0.55),
+    0 0 44px rgba(58, 168, 240, 0.14);
+}
+
+.pass-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pass-loading {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03),
+    rgba(255, 255, 255, 0.08),
+    rgba(255, 255, 255, 0.03)
+  );
+  background-size: 200% 100%;
+  animation: wl-shimmer 1.6s ease-in-out infinite;
+}
+
+.pass-fallback {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.pass-actions {
+  display: flex;
+  gap: 0.6rem;
+  margin-top: 0.85rem;
+}
+
+.pass-btn {
+  flex: 1;
+}
+
+.pass-btn--ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line-strong);
+  padding: 0.95rem 1.25rem;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #fff;
+  transition:
+    border-color 0.45s var(--ease-soft),
+    background-color 0.45s var(--ease-soft);
+}
+
+.pass-btn--ghost:hover:not(:disabled) {
+  border-color: #fff;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.pass-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@media (max-width: 560px) {
+  .pass-actions {
+    flex-direction: column;
+  }
+
+  .pass-btn--ghost {
+    padding: 0.85rem 1rem;
+    font-size: 0.62rem;
+  }
+}
+
 @media (max-width: 560px) {
   .wf-shell {
     max-width: 22rem;

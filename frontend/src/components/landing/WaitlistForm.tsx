@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { XGlyph } from "./artwork";
+import { EarlyPass } from "./EarlyPass";
 import { ArrowIcon } from "./ui";
 import {
   fetchWaitlistMe,
@@ -21,16 +22,19 @@ type FormState =
 
 export function WaitlistForm() {
   const [state, setState] = useState<FormState>({ kind: "loading" });
+  const [accessToken, setAccessToken] = useState("");
 
   useEffect(() => {
     void (async () => {
+      const session = loadStoredSession();
+      if (session?.accessToken) setAccessToken(session.accessToken);
+
       const cached = loadCachedWaitlist();
       if (cached?.joined) {
         setState({ kind: "joined", waitlist: cached });
         return;
       }
 
-      const session = loadStoredSession();
       if (!session?.accessToken) {
         setState({ kind: "idle" });
         return;
@@ -86,6 +90,10 @@ export function WaitlistForm() {
         <p className="wf-note">
           We&apos;ll reach out on X when mainnet access opens.
         </p>
+
+        {accessToken ? (
+          <EarlyPass accessToken={accessToken} handle={state.waitlist.handle} />
+        ) : null}
       </div>
     );
   }
