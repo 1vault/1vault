@@ -564,7 +564,6 @@ export function SidePanelApp() {
     void startFlow("create-vault", {
       vaultName: result.vaultName,
       vaultType: result.vaultType,
-      parkSol: result.parkSol,
     }).catch(() => {
       /* startFlow already sets friendly error */
     });

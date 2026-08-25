@@ -92,21 +92,34 @@ func ConfirmAndIngest(ctx context.Context, signature string, opt Options) Result
 		}
 		if status == "confirmed" || status == "finalized" {
 			out.Status = status
-			if opt.AutoIngest && opt.Indexer != nil && opt.Indexer.Enabled() {
-				ing, err := opt.Indexer.Ingest(ctx, signature)
-				info := IngestInfo{OK: ing.OK, Events: ing.Events}
-				if err != nil {
-					info.OK = false
-					info.Error = err.Error()
-				} else if ing.Error != "" {
-					info.Error = ing.Error
-				}
-				out.Ingest = &info
-				if opt.OnConfirmed != nil {
-					opt.OnConfirmed(signature, info)
-				}
-			}
 			DefaultTracker.Set(signature, out)
+			// Ingest in background so flow AdvanceToReady is not blocked on indexer.
+			if opt.AutoIngest && opt.Indexer != nil && opt.Indexer.Enabled() {
+				sig := signature
+				go func() {
+					ingCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+					defer cancel()
+					ing, err := opt.Indexer.Ingest(ingCtx, sig)
+					info := IngestInfo{OK: ing.OK, Events: ing.Events}
+					if err != nil {
+						info.OK = false
+						info.Error = err.Error()
+					} else if ing.Error != "" {
+						info.Error = ing.Error
+					}
+					cur, _ := DefaultTracker.Get(sig)
+					cur.Ingest = &info
+					if cur.Signature == "" {
+						cur.Signature = sig
+						cur.Status = out.Status
+						cur.Slot = out.Slot
+					}
+					DefaultTracker.Set(sig, cur)
+					if opt.OnConfirmed != nil {
+						opt.OnConfirmed(sig, info)
+					}
+				}()
+			}
 			return out
 		}
 		time.Sleep(400 * time.Millisecond)

@@ -230,6 +230,7 @@ async function buildStartBody(
   switch (mode) {
     case "create-vault": {
       // Always pick a free vault id (ignore stale activeVault from a prior run).
+      // Strategist-only — investors park/config via deposit.
       const id = await nextVaultId(strategist);
       const vaultType = settings.vaultType === "sliced" ? "sliced" : "pooled";
       return {
@@ -238,7 +239,6 @@ async function buildStartBody(
         vaultId: id,
         name: vaultType === "sliced" ? `Sliced Demo ${id}` : `Pooled Demo ${id}`,
         vaultType,
-        investors,
       };
     }
     case "deposit":

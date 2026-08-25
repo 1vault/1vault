@@ -8,13 +8,12 @@ type VaultType = "pooled" | "sliced";
 export type CreateVaultResult = {
   vaultName: string;
   vaultType: VaultType;
-  parkSol: number;
 };
 
 const TERMS = [
   "You understand DeFi vault trading involves risk of partial or total loss of parked SOL.",
   "Creating a vault requires locking 1VL licence tokens as defined by the protocol.",
-  "Investors who park into your vault may copy your trades; close payouts settle by share weight.",
+  "Investors park and configure follow settings separately after the vault exists.",
   "You are responsible for your own risk management, fees, and on-chain transaction confirmations.",
   "Licence tokens locked for this vault are returned in full when the vault is closed.",
 ];
@@ -43,7 +42,6 @@ export function CreateVaultWizard({
   const [step, setStep] = useState<Step>(1);
   const [vaultName, setVaultName] = useState("");
   const [vaultType, setVaultType] = useState<VaultType>("pooled");
-  const [parkSol, setParkSol] = useState("0.1");
   const [agreed, setAgreed] = useState(false);
   const [lockConfirmed, setLockConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,8 +50,6 @@ export function CreateVaultWizard({
   const [licenseError, setLicenseError] = useState<string | null>(null);
 
   const nameOk = vaultName.trim().length >= 2 && vaultName.trim().length <= 32;
-  const parkN = parseFloat(parkSol);
-  const parkOk = Number.isFinite(parkN) && parkN > 0;
 
   async function loadLicense(silent = false) {
     if (!walletPubkey) {
@@ -87,10 +83,6 @@ export function CreateVaultWizard({
       setError("Vault name must be 2–32 characters");
       return;
     }
-    if (!parkOk) {
-      setError("Initial park must be greater than 0 SOL");
-      return;
-    }
     setStep(2);
   }
 
@@ -111,11 +103,10 @@ export function CreateVaultWizard({
   }
 
   function submit() {
-    if (!agreed || !nameOk || !parkOk || !license?.hasEnough || !lockConfirmed) return;
+    if (!agreed || !nameOk || !license?.hasEnough || !lockConfirmed) return;
     onCreate({
       vaultName: vaultName.trim(),
       vaultType,
-      parkSol: parkN,
     });
   }
 
@@ -176,19 +167,9 @@ export function CreateVaultWizard({
               </div>
             </div>
 
-            <div className="field">
-              <label htmlFor="create-park-sol">Initial park (SOL)</label>
-              <input
-                id="create-park-sol"
-                type="number"
-                inputMode="decimal"
-                min={0}
-                step={0.01}
-                value={parkSol}
-                disabled={busy}
-                onChange={(e) => setParkSol(e.target.value)}
-              />
-            </div>
+            <p className="muted" style={{ margin: 0, fontSize: "var(--fs-xs)" }}>
+              Investors will park SOL and set follow settings after the vault is created.
+            </p>
 
             {error ? <div className="err">{error}</div> : null}
 
@@ -261,8 +242,8 @@ export function CreateVaultWizard({
             <header className="flow-card-head">
               <h2 className="flow-card-title">Terms</h2>
               <p className="flow-card-sub">
-                Creating <strong>{vaultName.trim()}</strong> ({vaultType}) with {parkSol} SOL initial
-                park.
+                Creating <strong>{vaultName.trim()}</strong> ({vaultType}) as strategist only — no
+                initial park.
               </p>
             </header>
 

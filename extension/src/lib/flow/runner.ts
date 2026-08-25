@@ -70,7 +70,7 @@ async function buildStartBody(
         vaultId: id,
         name: trimmed || (vaultType === "sliced" ? `Sliced ${id}` : `Pooled ${id}`),
         vaultType,
-        investors,
+        // No investors — config / follow / park are separate deposit flows.
       };
     }
     case "deposit":
@@ -324,12 +324,7 @@ export async function runFlow(
         continue;
       }
 
-      job = await refreshFlow(job.id);
-      step = currentAwaiting(job);
-      if (!step?.prepared?.transaction) {
-        throw new Error("refresh returned no prepared transaction");
-      }
-
+      // Use the prepared tx as-is. Refresh only when blockhash expires (below).
       const details =
         step.prepared.signerDetails ??
         step.signerDetails ??
@@ -371,7 +366,6 @@ export async function runFlow(
       const sig = job.steps?.find((s) => s.seq === step!.seq)?.signature;
       push(step.name, "success", "Submitted", sig);
       seen.add(`${step.seq}:${step.name}`);
-      await sleep(200);
       job = await getFlow(job.id);
       continue;
     }

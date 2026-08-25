@@ -11,31 +11,12 @@ func PlanSteps(p StartParams) ([]plannedStep, error) {
 		if p.VaultID == 0 {
 			return nil, fmt.Errorf("vaultId required")
 		}
-		steps := []plannedStep{
+		// Strategist-only: register → lock → create. Investors config/follow/park via deposit later.
+		return []plannedStep{
 			{Name: "register_strategist", SignerRole: "strategist", SignerPubkey: p.Strategist},
 			{Name: "lock_license", SignerRole: "strategist", SignerPubkey: p.Strategist},
 			{Name: "create_vault", SignerRole: "vault_token", SignerPubkey: p.Strategist, Meta: map[string]any{"coSign": p.VaultTokenAccount}},
-		}
-		for i, inv := range p.Investors {
-			if inv.Pubkey == "" {
-				continue
-			}
-			steps = append(steps,
-				plannedStep{Name: "create_investor_config", SignerRole: "investor", SignerPubkey: inv.Pubkey, Meta: map[string]any{"i": i}},
-				plannedStep{Name: "update_investor_config", SignerRole: "investor", SignerPubkey: inv.Pubkey, Meta: map[string]any{"i": i}},
-			)
-			af := true
-			if inv.AutoFollow != nil {
-				af = *inv.AutoFollow
-			}
-			if af {
-				steps = append(steps, plannedStep{Name: "follow_on", SignerRole: "investor", SignerPubkey: inv.Pubkey, Meta: map[string]any{"i": i}})
-			}
-			if inv.Lamports > 0 {
-				steps = append(steps, plannedStep{Name: "park", SignerRole: "investor", SignerPubkey: inv.Pubkey, Meta: map[string]any{"i": i, "lamports": inv.Lamports}})
-			}
-		}
-		return steps, nil
+		}, nil
 
 	case ModeDeposit:
 		if len(p.Investors) == 0 {

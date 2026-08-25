@@ -14,17 +14,19 @@ func TestPlanCreateVault(t *testing.T) {
 		VaultID:           9,
 		Investors: []flow.InvestorIn{
 			{Pubkey: "Strat1111111111111111111111111111111111111", Role: "strategies", Lamports: 1e8},
-			{Pubkey: "Ret1111111111111111111111111111111111111111", Role: "investors", Lamports: 5e7},
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(steps) < 5 {
-		t.Fatalf("expected multi-step plan, got %d", len(steps))
+	want := []string{"register_strategist", "lock_license", "create_vault"}
+	if len(steps) != len(want) {
+		t.Fatalf("got %d steps want %d: %+v", len(steps), len(want), steps)
 	}
-	if steps[0].Name != "register_strategist" || steps[2].Name != "create_vault" {
-		t.Fatalf("unexpected order: %+v", steps)
+	for i := range want {
+		if steps[i].Name != want[i] {
+			t.Fatalf("step %d: got %s want %s", i, steps[i].Name, want[i])
+		}
 	}
 }
 

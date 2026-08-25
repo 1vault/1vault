@@ -11,6 +11,16 @@ function maxVaultId(rows: Array<Record<string, unknown>> | undefined): number {
   return max;
 }
 
+function vaultPda(program: PublicKey, strategist: PublicKey, id: number): PublicKey {
+  const idBuf = new Uint8Array(8);
+  new DataView(idBuf.buffer).setBigUint64(0, BigInt(id), true);
+  const [pda] = PublicKey.findProgramAddressSync(
+    [new TextEncoder().encode("vault"), strategist.toBuffer(), idBuf],
+    program
+  );
+  return pda;
+}
+
 /** Next unused on-chain vault id for this strategist (never global list max). */
 export async function nextVaultId(strategist: string): Promise<number> {
   const [strat, listed] = await Promise.all([
@@ -39,16 +49,12 @@ export async function nextVaultId(strategist: string): Promise<number> {
       const conn = new Connection(RPC_URL, "confirmed");
       const program = new PublicKey(programId);
       const st = new PublicKey(strategist);
-      for (let i = 0; i < 64; i++) {
-        const id = candidate + i;
-        const idBuf = new Uint8Array(8);
-        new DataView(idBuf.buffer).setBigUint64(0, BigInt(id), true);
-        const [pda] = PublicKey.findProgramAddressSync(
-          [new TextEncoder().encode("vault"), st.toBuffer(), idBuf],
-          program
-        );
-        const info = await conn.getAccountInfo(pda, "confirmed");
-        if (!info) return id;
+      const ids = Array.from({ length: 64 }, (_, i) => candidate + i);
+      const pdas = ids.map((id) => vaultPda(program, st, id));
+      // One RPC round-trip instead of up to 64 sequential getAccountInfo calls.
+      const infos = await conn.getMultipleAccountsInfo(pdas, "confirmed");
+      for (let i = 0; i < infos.length; i++) {
+        if (!infos[i]) return ids[i]!;
       }
     }
   } catch {
