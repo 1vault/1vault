@@ -8,6 +8,8 @@ export default defineConfig({
   lastUpdated: true,
   ignoreDeadLinks: true,
   appearance: "force-dark",
+  // Vercel (and most hosts) expect `dist` as the Output Directory
+  outDir: "dist",
 
   head: [
     [
