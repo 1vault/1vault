@@ -5,8 +5,6 @@ import { attachTradeIds, parseVaultPositions, type VaultPositionRow } from "../l
 import { sendBg } from "../lib/messaging";
 import { formatLamportsAsSol, type ParkBreakdown, type PipelineEstimate } from "../lib/estimate";
 import { solToLamports } from "../lib/signing";
-import { runParkGuest } from "../lib/investor-tx";
-import { getUnlockedKeypair } from "../lib/keyring";
 import {
   type AuthSession,
   type AuthUser,
@@ -112,8 +110,14 @@ function friendlyFlowError(raw: string): string {
   if (/Failed to fetch|NetworkError|BACKEND|backend request failed|ECONNREFUSED/i.test(raw)) {
     return "Cannot reach the 1vault backend. Check that the API is running, then retry.";
   }
-  if (/keyring locked|unlock first/i.test(raw)) {
-    return "Wallet is locked. Unlock your keyring, then retry.";
+  if (/keyring locked|unlock wallet password|unlock first/i.test(raw)) {
+    return "Wallet is locked. Enter your keyring password on the unlock screen, then retry.";
+  }
+  if (/ActiveVaultsRemain|still has .* active vault|cannot unlock 1VL/i.test(raw)) {
+    return "Cannot release 1VL while you still have active vaults. Close all vaults first, then Release.";
+  }
+  if (/licence already unlocked|LicenseNotActive/i.test(raw)) {
+    return "1VL licence is already released.";
   }
   if (/a flow is already running/i.test(raw)) {
     return "Another transaction is still running. Wait for it to finish or cancel it.";
@@ -439,6 +443,9 @@ export function SidePanelApp() {
   const canPark = Boolean(selected?.canPark);
   const canClose = Boolean(selected?.canClose);
   const canClaimFees = Boolean(selected?.layoutCompatible);
+  // Unlock 1VL only when every listed vault is Closed (or none left).
+  const openVaultCount = vaults.filter((v) => String(v.vaultStatus ?? "") !== "Closed").length;
+  const canUnlockLicense = openVaultCount === 0;
 
   const flowRunning = flowState?.status === "running";
 
@@ -492,6 +499,16 @@ export function SidePanelApp() {
 
   async function onUnlockLicense() {
     if (!status?.pubkey || flowRunning) return;
+    if (!status.unlocked) {
+      setError("Unlock your wallet password first, then use Unlock 1VL.");
+      return;
+    }
+    if (!canUnlockLicense) {
+      setError(
+        `Cannot release 1VL while ${openVaultCount} vault(s) are still open. Close all vaults first.`
+      );
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -507,7 +524,7 @@ export function SidePanelApp() {
       setToast("1VL licence unlocked");
       window.setTimeout(() => setToast(null), 3000);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(friendlyFlowError(e instanceof Error ? e.message : String(e)));
     } finally {
       setBusy(false);
     }
@@ -518,13 +535,10 @@ export function SidePanelApp() {
     setBusy(true);
     setError(null);
     try {
-      const kp = getUnlockedKeypair();
-      if (!kp) throw new Error("keyring locked");
-      await runParkGuest({
-        investor: status.pubkey,
+      await sendBg({
+        type: "PARK_GUEST",
         vault: vaultPubkey,
         lamports: solToLamports(parkSol),
-        keypair: kp,
       });
       setActiveVault(vaultPubkey);
       setToast("SOL parked");
@@ -1181,14 +1195,23 @@ export function SidePanelApp() {
                 <button
                   type="button"
                   className="vault-tool-row"
-                  disabled={busy || flowRunning || !status?.pubkey}
+                  disabled={busy || flowRunning || !status?.pubkey || !canUnlockLicense}
+                  title={
+                    !canUnlockLicense
+                      ? `Close ${openVaultCount} open vault(s) before releasing 1VL`
+                      : undefined
+                  }
                   onClick={() => void onUnlockLicense()}
                 >
                   <div className="vault-tool-copy">
                     <span className="vault-tool-title">Unlock 1VL</span>
-                    <span className="vault-tool-sub">Release locked licence tokens</span>
+                    <span className="vault-tool-sub">
+                      {canUnlockLicense
+                        ? "Release on-chain licence tokens (not wallet password)"
+                        : `Disabled — ${openVaultCount} vault(s) still open`}
+                    </span>
                   </div>
-                  <span className="vault-tool-cta">Unlock</span>
+                  <span className="vault-tool-cta">Release</span>
                 </button>
               </div>
             </div>

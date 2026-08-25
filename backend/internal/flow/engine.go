@@ -201,11 +201,36 @@ func (svc *Service) shouldSkip(ctx context.Context, rpc *txprep.RPC, b *txprep.B
 		}
 		return false, "", nil
 	case "unlock_license":
-		// skip if strategist still has active vaults in DB
-		var n int
-		_ = svc.Pool.QueryRow(ctx, `SELECT COALESCE(active_vault_count,0) FROM strategists WHERE pubkey=$1`, p.Strategist).Scan(&n)
-		if n > 0 {
-			return true, "other active vaults remain", nil
+		// Prefer on-chain active_vault_count (DB can lag).
+		stPK, err := s.ParsePK(p.Strategist)
+		if err != nil {
+			return false, "", err
+		}
+		pda := s.StrategistPDA(b.Program, stPK)
+		exists, err := rpc.AccountExists(pda)
+		if err != nil {
+			return false, "", err
+		}
+		if !exists {
+			return true, "no strategist account — nothing to unlock", nil
+		}
+		data, err := rpc.AccountData(pda)
+		if err != nil {
+			return false, "", err
+		}
+		active, err := s.DecodeStrategistActiveVaultCount(data)
+		if err != nil {
+			return false, "", err
+		}
+		if active > 0 {
+			return true, fmt.Sprintf("other active vaults remain (%d) — skip unlock_license", active), nil
+		}
+		licenseOn, err := s.DecodeStrategistLicenseActive(data)
+		if err != nil {
+			return false, "", err
+		}
+		if !licenseOn {
+			return true, "licence already unlocked", nil
 		}
 		return false, "", nil
 	case "close_position":

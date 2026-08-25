@@ -721,6 +721,37 @@ func (b *Builder) InitiateVaultClose(strategist, vault solana.PublicKey) (*Prepa
 }
 
 func (b *Builder) UnlockLicense(strategist solana.PublicKey) (*Prepared, error) {
+	if b.RPC != nil {
+		pda := s.StrategistPDA(b.Program, strategist)
+		exists, err := b.RPC.AccountExists(pda)
+		if err != nil {
+			return nil, fmt.Errorf("load strategist account %s: %w", pda, err)
+		}
+		if !exists {
+			return nil, fmt.Errorf("strategist %s has no on-chain account — lock a licence first", strategist)
+		}
+		data, err := b.RPC.AccountData(pda)
+		if err != nil {
+			return nil, fmt.Errorf("load strategist account %s: %w", pda, err)
+		}
+		active, err := s.DecodeStrategistActiveVaultCount(data)
+		if err != nil {
+			return nil, err
+		}
+		if active > 0 {
+			return nil, fmt.Errorf(
+				"cannot unlock 1VL: strategist still has %d active vault(s) on-chain (Anchor ActiveVaultsRemain 6017) — close all vaults first",
+				active,
+			)
+		}
+		licenseOn, err := s.DecodeStrategistLicenseActive(data)
+		if err != nil {
+			return nil, err
+		}
+		if !licenseOn {
+			return nil, fmt.Errorf("licence already unlocked for strategist %s", strategist)
+		}
+	}
 	ata := s.ATA(b.License, strategist)
 	ixs := []solana.Instruction{
 		s.SetComputeUnitLimit(300_000),

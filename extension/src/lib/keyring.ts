@@ -2,6 +2,8 @@ import { Keypair } from "@solana/web3.js";
 import { parseSecretKey } from "./signing";
 
 const STORAGE_KEY = "1v-keyring-v1";
+/** Survives MV3 service-worker restarts; cleared when the browser session ends. */
+const SESSION_KEY = "1v-keyring-session";
 const IDLE_LOCK_MS = 15 * 60 * 1000;
 
 type StoredBlob = {
@@ -12,12 +14,19 @@ type StoredBlob = {
   createdAt: string;
 };
 
+type SessionBlob = {
+  secretB64: string;
+  pubkey: string;
+  unlockedAt: number;
+};
+
 type MemorySession = {
   keypair: Keypair;
   unlockedAt: number;
 };
 
 let session: MemorySession | null = null;
+let restoreInflight: Promise<boolean> | null = null;
 
 function b64Encode(bytes: Uint8Array): string {
   let s = "";
@@ -55,6 +64,70 @@ async function deriveKey(password: string, salt: Uint8Array): Promise<CryptoKey>
   );
 }
 
+async function persistSession(keypair: Keypair): Promise<void> {
+  const unlockedAt = Date.now();
+  session = { keypair, unlockedAt };
+  const blob: SessionBlob = {
+    secretB64: b64Encode(keypair.secretKey),
+    pubkey: keypair.publicKey.toBase58(),
+    unlockedAt,
+  };
+  try {
+    await chrome.storage.session.set({ [SESSION_KEY]: blob });
+  } catch {
+    /* session storage unavailable — memory-only fallback */
+  }
+}
+
+async function clearPersistedSession(): Promise<void> {
+  try {
+    await chrome.storage.session.remove(SESSION_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Reload unlocked keypair after MV3 service-worker sleep.
+ * Call at the start of every background message handler.
+ */
+export async function restoreSession(): Promise<boolean> {
+  if (session && Date.now() - session.unlockedAt <= IDLE_LOCK_MS) {
+    return true;
+  }
+  if (session && Date.now() - session.unlockedAt > IDLE_LOCK_MS) {
+    session = null;
+    await clearPersistedSession();
+    return false;
+  }
+  if (restoreInflight) return restoreInflight;
+
+  restoreInflight = (async () => {
+    try {
+      const data = await chrome.storage.session.get(SESSION_KEY);
+      const blob = data[SESSION_KEY] as SessionBlob | undefined;
+      if (!blob?.secretB64) return false;
+      if (Date.now() - blob.unlockedAt > IDLE_LOCK_MS) {
+        await clearPersistedSession();
+        return false;
+      }
+      const keypair = Keypair.fromSecretKey(b64Decode(blob.secretB64));
+      if (keypair.publicKey.toBase58() !== blob.pubkey) {
+        await clearPersistedSession();
+        return false;
+      }
+      await persistSession(keypair);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      restoreInflight = null;
+    }
+  })();
+
+  return restoreInflight;
+}
+
 export async function hasKeyring(): Promise<boolean> {
   const data = await chrome.storage.local.get(STORAGE_KEY);
   return Boolean(data[STORAGE_KEY]);
@@ -70,17 +143,29 @@ export function isUnlocked(): boolean {
   if (!session) return false;
   if (Date.now() - session.unlockedAt > IDLE_LOCK_MS) {
     session = null;
+    void clearPersistedSession();
     return false;
   }
   return true;
 }
 
-export function lock(): void {
+export async function lock(): Promise<void> {
   session = null;
+  await clearPersistedSession();
 }
 
 export function touchSession(): void {
-  if (session) session.unlockedAt = Date.now();
+  if (!session) return;
+  session.unlockedAt = Date.now();
+  void chrome.storage.session
+    .set({
+      [SESSION_KEY]: {
+        secretB64: b64Encode(session.keypair.secretKey),
+        pubkey: session.keypair.publicKey.toBase58(),
+        unlockedAt: session.unlockedAt,
+      } satisfies SessionBlob,
+    })
+    .catch(() => {});
 }
 
 export function getUnlockedKeypair(): Keypair | null {
@@ -109,7 +194,7 @@ export async function importAndLock(secretInput: string, password: string): Prom
     createdAt: new Date().toISOString(),
   };
   await chrome.storage.local.set({ [STORAGE_KEY]: blob });
-  session = { keypair, unlockedAt: Date.now() };
+  await persistSession(keypair);
   return blob.pubkey;
 }
 
@@ -123,7 +208,11 @@ export async function unlock(password: string): Promise<string> {
   const key = await deriveKey(password, salt);
   let plain: ArrayBuffer;
   try {
-    plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: iv as BufferSource }, key, cipher as BufferSource);
+    plain = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: iv as BufferSource },
+      key,
+      cipher as BufferSource
+    );
   } catch {
     throw new Error("wrong password");
   }
@@ -131,11 +220,12 @@ export async function unlock(password: string): Promise<string> {
   if (keypair.publicKey.toBase58() !== blob.pubkey) {
     throw new Error("keyring integrity check failed");
   }
-  session = { keypair, unlockedAt: Date.now() };
+  await persistSession(keypair);
   return blob.pubkey;
 }
 
 export async function clearKeyring(): Promise<void> {
   session = null;
+  await clearPersistedSession();
   await chrome.storage.local.remove(STORAGE_KEY);
 }

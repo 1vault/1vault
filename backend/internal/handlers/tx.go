@@ -431,7 +431,7 @@ func (a *API) PrepUnlockLicense(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := a.txBuilder(r).UnlockLicense(st)
 	if err != nil {
-		httpx.Fail(w, r, 502, "TX_BUILD_FAILED", err.Error(), nil)
+		a.failTxBuild(w, r, err)
 		return
 	}
 	httpx.OK(w, r, p, http.StatusOK)

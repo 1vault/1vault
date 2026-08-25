@@ -8,6 +8,7 @@ import {
   importAndLock,
   isUnlocked,
   lock,
+  restoreSession,
   unlock,
 } from "../lib/keyring";
 import { getHealth, getProtocol, getStrategist, listVaults } from "../lib/api";
@@ -18,6 +19,7 @@ import { signWirePartial } from "../lib/signing";
 import { clearSession } from "../lib/auth";
 import { annotateVaultLayout } from "../lib/vault-layout";
 import { RPC_URL } from "../lib/config";
+import { runParkGuest } from "../lib/investor-tx";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
 import { runUnlockLicense } from "../lib/tx-run";
@@ -39,6 +41,11 @@ export type Msg =
   | { type: "SIGN_BIND_MESSAGE"; message: string }
   | { type: "UNLOCK_LICENSE"; strategist: string }
   | { type: "SIGN_WIRE"; transactionB64: string }
+  | {
+      type: "PARK_GUEST";
+      vault: string;
+      lamports: number;
+    }
   | {
       type: "RUN_FLOW";
       mode: FlowMode;
@@ -109,6 +116,9 @@ chrome.runtime.onMessage.addListener((message: Msg, sender, sendResponse) => {
 });
 
 async function handle(message: Msg): Promise<unknown> {
+  // MV3 SW may restart and wipe in-memory session — restore first.
+  await restoreSession();
+
   switch (message.type) {
     case "PING":
       return { pong: true, at: new Date().toISOString() };
@@ -131,13 +141,13 @@ async function handle(message: Msg): Promise<unknown> {
     case "KEYRING_UNLOCK":
       return { pubkey: await unlock(message.password) };
     case "KEYRING_LOCK":
-      lock();
+      await lock();
       return { unlocked: false };
     case "KEYRING_CLEAR":
       await clearKeyring();
       return { cleared: true };
     case "LOGOUT_ALL":
-      lock();
+      await lock();
       await clearKeyring();
       await clearSession();
       flowAbort?.abort();
@@ -209,20 +219,31 @@ async function handle(message: Msg): Promise<unknown> {
     }
     case "SIGN_BIND_MESSAGE": {
       const kp = getUnlockedKeypair();
-      if (!kp) throw new Error("keyring locked — unlock first");
+      if (!kp) throw new Error("keyring locked — unlock wallet password first");
       const bytes = new TextEncoder().encode(message.message);
       return { signature: bs58.encode(nacl.sign.detached(bytes, kp.secretKey)) };
     }
     case "UNLOCK_LICENSE": {
       const kp = getUnlockedKeypair();
-      if (!kp) throw new Error("keyring locked — unlock first");
+      if (!kp) throw new Error("keyring locked — unlock wallet password first");
       const sig = await runUnlockLicense(message.strategist, kp);
       return { signature: sig };
     }
     case "SIGN_WIRE": {
       const kp = getUnlockedKeypair();
-      if (!kp) throw new Error("keyring locked — unlock first");
+      if (!kp) throw new Error("keyring locked — unlock wallet password first");
       return { signedTransaction: signWirePartial(message.transactionB64, [kp]) };
+    }
+    case "PARK_GUEST": {
+      const kp = getUnlockedKeypair();
+      if (!kp) throw new Error("keyring locked — unlock wallet password first");
+      const signature = await runParkGuest({
+        investor: kp.publicKey.toBase58(),
+        vault: message.vault,
+        lamports: message.lamports,
+        keypair: kp,
+      });
+      return { signature };
     }
     case "FLOW_STATE":
       return flowState;
@@ -240,7 +261,7 @@ async function handle(message: Msg): Promise<unknown> {
       }
       const kp = getUnlockedKeypair();
       const pubkey = kp?.publicKey.toBase58() ?? (await getStoredPubkey());
-      if (!kp || !pubkey) throw new Error("keyring locked — unlock first");
+      if (!kp || !pubkey) throw new Error("keyring locked — unlock wallet password first");
 
       flowAbort = new AbortController();
       flowState = { status: "running", mode: message.mode, events: [] };
