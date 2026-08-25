@@ -11,14 +11,29 @@ function shortAddr(pk: string) {
 
 type HoldingRow = Record<string, unknown>;
 
+function hasShares(row: HoldingRow): boolean {
+  try {
+    const shares = BigInt(String(row.shares ?? "0"));
+    const parked = BigInt(
+      String(row.remaining_parked ?? row.remainingParked ?? row.shares ?? "0")
+    );
+    return shares > 0n || parked > 0n;
+  } catch {
+    return false;
+  }
+}
+
 export function HoldingsTab({
   investorPubkey,
   onWithdraw,
   busy,
+  refreshKey = 0,
 }: {
   investorPubkey: string | null;
-  onWithdraw?: (vault: string, shares: string) => void;
+  onWithdraw?: (vault: string, shares: string) => void | Promise<void>;
   busy?: boolean;
+  /** Bump to refetch holdings (e.g. after withdraw flow completes). */
+  refreshKey?: number;
 }) {
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -34,7 +49,7 @@ export function HoldingsTab({
     setError(null);
     void getInvestor(investorPubkey)
       .then((data) => {
-        if (!cancelled) setHoldings(data.holdings ?? []);
+        if (!cancelled) setHoldings((data.holdings ?? []).filter(hasShares));
       })
       .catch((e) => {
         if (!cancelled) {
@@ -48,7 +63,7 @@ export function HoldingsTab({
     return () => {
       cancelled = true;
     };
-  }, [investorPubkey]);
+  }, [investorPubkey, refreshKey]);
 
   if (!investorPubkey) {
     return <div className="empty-hint">Unlock wallet to view holdings.</div>;
@@ -65,6 +80,12 @@ export function HoldingsTab({
         const vault = String(h.vault ?? "");
         const parked = String(h.remaining_parked ?? h.remainingParked ?? h.shares ?? "0");
         const shares = String(h.shares ?? "0");
+        let canWithdraw = false;
+        try {
+          canWithdraw = Boolean(onWithdraw) && BigInt(shares) > 0n;
+        } catch {
+          canWithdraw = false;
+        }
         return (
           <div key={`${vault}-${i}`} className="row-card">
             <div className="token-icon">H</div>
@@ -76,13 +97,24 @@ export function HoldingsTab({
               <div className="row-value">
                 <SolAmount value={formatLamportsAsSol(parked, 3)} unit="SOL" size="md" />
               </div>
-              {onWithdraw && BigInt(shares) > 0n ? (
+              {canWithdraw ? (
                 <button
                   type="button"
                   className="btn btn-secondary"
                   style={{ marginTop: 6, fontSize: "var(--fs-xs)" }}
                   disabled={busy}
-                  onClick={() => onWithdraw(vault, shares)}
+                  onClick={() => {
+                    void (async () => {
+                      try {
+                        await onWithdraw?.(vault, shares);
+                        setHoldings((prev) =>
+                          prev.filter((row) => String(row.vault ?? "") !== vault)
+                        );
+                      } catch {
+                        /* parent surfaces error */
+                      }
+                    })();
+                  }}
                 >
                   Withdraw
                 </button>

@@ -537,6 +537,9 @@ func (b *Builder) WithdrawOpts(p WithdrawParams) (*Prepared, error) {
 	if p.Shares == 0 {
 		return nil, fmt.Errorf("shares required")
 	}
+	if err := b.requireCurrentVaultLayout(p.Vault); err != nil {
+		return nil, err
+	}
 	shareMint := s.ShareMintPDA(b.Program, p.Vault)
 	wsolATA := s.ATA(s.WSOL, p.Investor)
 	shareATA := s.ATA(shareMint, p.Investor)
@@ -680,6 +683,9 @@ func (b *Builder) InitiateVaultClose(strategist, vault solana.PublicKey) (*Prepa
 		data, err := b.RPC.AccountData(vault)
 		if err != nil {
 			return nil, fmt.Errorf("load vault %s: %w", vault, err)
+		}
+		if err := s.RequireVaultLiquidForClose(vault, data); err != nil {
+			return nil, err
 		}
 		st, err := s.DecodeVaultStatus(data)
 		if err != nil {

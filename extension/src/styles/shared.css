@@ -1254,6 +1254,44 @@ button {
   box-shadow: inset 0 0 0 1px rgba(58, 168, 240, 0.2);
 }
 
+.row-card--selectable {
+  cursor: pointer;
+}
+
+.row-card--selectable:focus-visible {
+  outline: 2px solid rgba(58, 168, 240, 0.45);
+  outline-offset: 1px;
+}
+
+.vault-grid .row-card .row-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 1px;
+  flex-shrink: 0;
+}
+
+.vault-row-detail {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  height: auto;
+  line-height: 1.1;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.01em;
+  color: var(--accent-bright);
+  cursor: pointer;
+}
+
+.vault-row-detail:hover {
+  text-decoration: underline;
+}
+
 .token-icon {
   width: 36px;
   height: 36px;
@@ -1480,8 +1518,8 @@ button {
   height: var(--nav-h);
   padding: 8px clamp(8px, 2.5vw, 12px) max(14px, env(safe-area-inset-bottom, 0px));
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 4px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 2px;
   background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.92) 28%, var(--ink));
   backdrop-filter: blur(8px);
   border-top: 1px solid var(--line);
@@ -1509,8 +1547,8 @@ button {
    labels are dropped on a narrow panel. */
 .nav-icon {
   width: 100%;
-  max-width: 46px;
-  height: 28px;
+  max-width: 40px;
+  height: 26px;
   border-radius: 999px;
   display: grid;
   place-items: center;
@@ -1524,6 +1562,7 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 9px;
 }
 
 .nav-item:hover:not(.active),
@@ -1545,8 +1584,8 @@ button {
 }
 
 .nav-item svg {
-  width: 21px;
-  height: 21px;
+  width: 18px;
+  height: 18px;
 }
 
 .nav-item:is(:hover, :focus-visible) .nav-icon svg {
@@ -1870,12 +1909,43 @@ button {
   gap: 10px;
 }
 
+.vault-detail-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+}
+
 .vault-detail-avatar {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   object-fit: cover;
-  flex-shrink: 0;
+  display: block;
+}
+
+.vault-detail-token-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+}
+
+.vault-detail-avatar-wrap .badge-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  font-size: var(--fs-2xs);
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--bg);
+}
+
+.vault-detail-avatar-wrap .badge-dot.badge-closed {
+  background: #e5484d;
+  color: #fff;
 }
 
 .vault-detail-title-block {
@@ -1883,11 +1953,109 @@ button {
   min-width: 0;
 }
 
+.vault-profile-name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.02em;
+  color: var(--text);
+  line-height: 1.2;
+}
+
 .vault-detail-chips {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
   margin-top: 4px;
+}
+
+.vault-profile-overview {
+  gap: 12px;
+}
+
+.vault-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+  padding: 4px 0;
+}
+
+.vault-stat-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.vault-stat-cell .vault-stat-label {
+  font-size: var(--fs-2xs);
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.vault-stat-cell .vault-stat-value {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.vault-profile-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.vault-profile-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.vault-profile-meta-label {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.vault-profile-meta-value {
+  font-size: var(--fs-xs);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vault-profile-own {
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  padding: 8px 0 2px;
+}
+
+.vault-profile-tab {
+  gap: 10px;
+}
+
+.vault-profile-wallet-avail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  padding: 0 2px;
+}
+
+.vault-profile .seg {
+  margin: 0;
 }
 
 .vault-holdings-group {
@@ -1899,9 +2067,10 @@ button {
 }
 
 .profile-back {
-  margin-bottom: 8px;
+  margin-bottom: 0;
   padding: 4px 0;
   font-size: var(--fs-sm);
+  align-self: flex-start;
 }
 
 .btn-ghost {

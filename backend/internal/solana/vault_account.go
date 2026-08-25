@@ -22,7 +22,7 @@ type VaultLayoutError struct {
 
 func (e *VaultLayoutError) Error() string {
 	return fmt.Sprintf(
-		"vault %s has incompatible on-chain layout (%s, len=%d); create a new vault after the book_mode upgrade — legacy vaults cannot initiate_close/close",
+		"vault %s has incompatible on-chain layout (%s, len=%d); create a new vault after the book_mode upgrade — legacy vaults fail UpdateNav/withdraw with ConstraintSeeds (2006) and cannot close",
 		e.Pubkey, e.Reason, e.Len,
 	)
 }
@@ -131,6 +131,69 @@ func RequireVaultActive(pubkey solana.PublicKey, data []byte) error {
 	return fmt.Errorf(
 		"vault %s is %s (not Active) — Anchor reports this as VaultPaused (6008); pick an Active vault or create a new one before Park",
 		pubkey, st,
+	)
+}
+
+// VaultCloseBlockers matches on-chain Vault::is_liquid_for_close.
+type VaultCloseBlockers struct {
+	OpenPositions  uint8
+	PendingTrades  uint8
+	PositionValue  uint64
+}
+
+func (b VaultCloseBlockers) Liquid() bool {
+	return b.OpenPositions == 0 && b.PendingTrades == 0 && b.PositionValue == 0
+}
+
+// DecodeVaultCloseBlockers reads open_positions_count, pending_trades_count, position_value.
+func DecodeVaultCloseBlockers(data []byte) (VaultCloseBlockers, error) {
+	if len(data) != CurrentVaultAccountLen {
+		return VaultCloseBlockers{}, fmt.Errorf("vault account len %d want %d", len(data), CurrentVaultAccountLen)
+	}
+	o := 8 + 32 + 8
+	var err error
+	o, err = skipBorshString(data, o)
+	if err != nil {
+		return VaultCloseBlockers{}, err
+	}
+	o, err = skipBorshString(data, o)
+	if err != nil {
+		return VaultCloseBlockers{}, err
+	}
+	o += 32 + 1 + 32*vaultAcceptedMintsSlots + 32 + 32 // mints + share + vta
+	o += 8 // total_shares
+	o += 8 // total_assets
+	if o+8 > len(data) {
+		return VaultCloseBlockers{}, fmt.Errorf("truncated before position_value")
+	}
+	posVal := binary.LittleEndian.Uint64(data[o : o+8])
+	o += 8 + 8 // position_value + high_water_mark
+	o += 2 + 1 + 2 + 1 + 2 // perf, book, early, status, slippage
+	if o+2 > len(data) {
+		return VaultCloseBlockers{}, fmt.Errorf("truncated before open_positions")
+	}
+	return VaultCloseBlockers{
+		OpenPositions: data[o],
+		PendingTrades: data[o+1],
+		PositionValue: posVal,
+	}, nil
+}
+
+// RequireVaultLiquidForClose returns a clear error before initiate_vault_close sim fails with 6015.
+func RequireVaultLiquidForClose(pubkey solana.PublicKey, data []byte) error {
+	if err := ValidateVaultAccountData(pubkey, data); err != nil {
+		return err
+	}
+	b, err := DecodeVaultCloseBlockers(data)
+	if err != nil {
+		return err
+	}
+	if b.Liquid() {
+		return nil
+	}
+	return fmt.Errorf(
+		"vault %s still has open activity (open_positions=%d pending_trades=%d position_value=%d) — exit all positions on Trade first (Anchor VaultHasOpenPositions 6015)",
+		pubkey, b.OpenPositions, b.PendingTrades, b.PositionValue,
 	)
 }
 

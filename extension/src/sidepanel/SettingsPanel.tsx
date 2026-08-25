@@ -6,6 +6,7 @@ export function SettingsPanel({
   session,
   walletPubkey,
   walletSol,
+  backendOk,
   onVerifyWallet,
   onLock,
   onLogout,
@@ -13,10 +14,14 @@ export function SettingsPanel({
   session: AuthSession | null;
   walletPubkey: string | null;
   walletSol: string | null;
+  backendOk?: boolean | null;
   onVerifyWallet: () => void;
   onLock: () => void;
   onLogout: () => void;
 }) {
+  const apiStatus =
+    backendOk === true ? "Online" : backendOk === false ? "Offline" : "Checking…";
+
   return (
     <section className="settings hero">
       <h1 className="hero-title">Settings</h1>
@@ -45,6 +50,13 @@ export function SettingsPanel({
           <div className="row-main">
             <div className="row-title">{CLUSTER}</div>
             <div className="row-sub">Cluster</div>
+          </div>
+        </div>
+        <div className="row-card">
+          <div className="token-icon">API</div>
+          <div className="row-main">
+            <div className="row-title">{apiStatus}</div>
+            <div className="row-sub">Backend</div>
           </div>
         </div>
       </div>

@@ -112,6 +112,19 @@ export async function listVaultTrades(pubkey: string): Promise<{
   return api(`/v1/vaults/${encodeURIComponent(pubkey)}/trades`);
 }
 
+export type VaultFees = {
+  accrued?: string | number | null;
+  claimed?: string | number | null;
+  performanceFeeBps?: number | null;
+  managementFeeBps?: number | null;
+  items?: Array<Record<string, unknown>>;
+  [k: string]: unknown;
+};
+
+export async function getVaultFees(pubkey: string): Promise<VaultFees> {
+  return api(`/v1/vaults/${encodeURIComponent(pubkey)}/fees`);
+}
+
 export async function getTokenResearch(mint: string): Promise<Record<string, unknown>> {
   return api(`/v1/tokens/${encodeURIComponent(mint)}/research`);
 }

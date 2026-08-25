@@ -73,6 +73,32 @@ function vaultType(v: VaultRow) {
   return String(v.vaultType ?? v.vault_type ?? "pooled").toUpperCase();
 }
 
+function closeVaultBlockedMessage(selected: VaultRow | null): string {
+  const reason = String(selected?.closeBlockedReason ?? "");
+  const st = String(selected?.vaultStatus ?? "unknown");
+  if (st === "Closed" || reason === "closed") return "Vault is already Closed.";
+  if (reason === "open_positions") {
+    const n = Number(selected?.openPositions ?? 0);
+    return n > 0
+      ? `Vault still has ${n} open position(s). Exit them on Trade first, then Close.`
+      : "Vault still has open positions or pending trades. Exit them on Trade first, then Close.";
+  }
+  if (reason === "legacy") {
+    return "Cannot close this vault (legacy layout or missing account). Create a new vault.";
+  }
+  return "Cannot close this vault right now.";
+}
+
+function friendlyFlowError(raw: string): string {
+  if (/VaultHasOpenPositions|0x177f|error number: 6015|open_positions|still has open activity/i.test(raw)) {
+    return "Vault still has open positions. Exit them on Trade first, then Close.";
+  }
+  if (/ConstraintSeeds|0x7d6|error code: 2006|incompatible on-chain layout/i.test(raw)) {
+    return "This vault uses an old on-chain layout. Create a new vault and park there — legacy vaults cannot withdraw/close.";
+  }
+  return raw;
+}
+
 export function SidePanelApp() {
   const [nav, setNav] = useState<NavId>("home");
   const [listTab, setListTab] = useState<ListTab>("vaults");
@@ -104,6 +130,7 @@ export function SidePanelApp() {
   const [parkBreakdownLoading, setParkBreakdownLoading] = useState(false);
   const [txHistory, setTxHistory] = useState<TxHistoryItem[]>([]);
   const [detailVault, setDetailVault] = useState<string | null>(null);
+  const [holdingsTick, setHoldingsTick] = useState(0);
   const [parkScreen, setParkScreen] = useState<{
     vault: string | null;
     role: "strategist" | "investor";
@@ -205,7 +232,20 @@ export function SidePanelApp() {
     void sendBg<{ lamports: string }>({ type: "WALLET_BALANCE", pubkey: status.pubkey })
       .then((b) => setWalletSol(formatLamportsAsSol(b.lamports, 2)))
       .catch(() => setWalletSol(null));
-  }, [status?.unlocked, status?.pubkey]);
+  }, [status?.unlocked, status?.pubkey, holdingsTick]);
+
+  const refreshWalletSol = useCallback(async () => {
+    if (!status?.pubkey) return;
+    try {
+      const b = await sendBg<{ lamports: string }>({
+        type: "WALLET_BALANCE",
+        pubkey: status.pubkey,
+      });
+      setWalletSol(formatLamportsAsSol(b.lamports, 2));
+    } catch {
+      /* keep previous */
+    }
+  }, [status?.pubkey]);
 
   useEffect(() => {
     if (!accountMenuOpen) return;
@@ -297,17 +337,27 @@ export function SidePanelApp() {
           void loadVaults();
           if (s.result?.vault) setActiveVault(s.result.vault);
           void refreshPipeline();
+          setHoldingsTick((n) => n + 1);
+          void refreshWalletSol();
           appendHistory(s.mode, s.events);
           setToast(completedLabel(s.mode));
           window.setTimeout(() => setToast(null), 3000);
         }
         if (s.status === "failed" && s.error) {
-          setError(s.error);
+          setError(friendlyFlowError(s.error));
+          setHoldingsTick((n) => n + 1);
         }
       });
     }, 600);
     return () => window.clearInterval(id);
-  }, [flowState?.status, pollFlowState, loadVaults, refreshPipeline, appendHistory]);
+  }, [
+    flowState?.status,
+    pollFlowState,
+    loadVaults,
+    refreshPipeline,
+    appendHistory,
+    refreshWalletSol,
+  ]);
 
   useEffect(() => {
     if (listTab !== "positions" || !activeVault) return;
@@ -403,7 +453,7 @@ export function SidePanelApp() {
       });
       await pollFlowState();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(friendlyFlowError(e instanceof Error ? e.message : String(e)));
     } finally {
       setBusy(false);
     }
@@ -489,7 +539,8 @@ export function SidePanelApp() {
   const overlayOpen = Boolean(detailVault || parkScreen || createScreenOpen);
 
   async function onInvestorWithdraw(vault: string, shares: string) {
-    if (!status?.pubkey || flowRunning) return;
+    if (!status?.pubkey) throw new Error("Unlock wallet first");
+    if (flowRunning) throw new Error("A flow is already running");
     setBusy(true);
     setError(null);
     try {
@@ -501,7 +552,10 @@ export function SidePanelApp() {
       });
       await pollFlowState();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      const raw = e instanceof Error ? e.message : String(e);
+      const msg = friendlyFlowError(raw);
+      setError(msg);
+      throw e instanceof Error ? e : new Error(msg);
     } finally {
       setBusy(false);
     }
@@ -591,7 +645,6 @@ export function SidePanelApp() {
             authUser={authUser}
             roleLabel={roleLabel}
             walletAddr={status?.pubkey ? shortAddr(status.pubkey) : undefined}
-            backendOk={backendOk}
             menuOpen={accountMenuOpen}
             menuRef={accountMenuRef}
             onToggleMenu={() => setAccountMenuOpen((v) => !v)}
@@ -667,7 +720,6 @@ export function SidePanelApp() {
           authUser={authUser}
           roleLabel={roleLabel}
           walletAddr={status.pubkey ? shortAddr(status.pubkey) : undefined}
-          backendOk={backendOk}
           menuOpen={accountMenuOpen}
           menuRef={accountMenuRef}
           onToggleMenu={() => setAccountMenuOpen((v) => !v)}
@@ -741,6 +793,7 @@ export function SidePanelApp() {
                   layoutOk={selectedLayoutOk}
                   canPark={canPark}
                   canClose={canClose}
+                  closeHint={closeVaultBlockedMessage(selected)}
                   onCreate={() => {
                     setDetailVault(null);
                     setParkScreen(null);
@@ -769,12 +822,7 @@ export function SidePanelApp() {
                   onTrade={() => void startFlow("open-position")}
                   onClose={() => {
                     if (!canClose) {
-                      const st = String(selected?.vaultStatus ?? "unknown");
-                      setError(
-                        st === "Closed"
-                          ? "Vault is already Closed."
-                          : "Cannot close this vault (legacy layout or missing account). Create a new vault."
-                      );
+                      setError(closeVaultBlockedMessage(selected));
                       return;
                     }
                     void startFlow("close-vault");
@@ -848,14 +896,17 @@ export function SidePanelApp() {
                         const isClosed = status.toLowerCase() === "closed";
                         const isLegacy = v.layoutCompatible === false;
                         return (
-                          <button
+                          <div
                             key={pk}
-                            type="button"
-                            className={`row-card${active ? " active" : ""}`}
-                            onClick={() => {
-                              setActiveVault(pk);
-                              setDetailVault(pk);
-                              setNav("home");
+                            role="button"
+                            tabIndex={0}
+                            className={`row-card row-card--selectable${active ? " active" : ""}`}
+                            onClick={() => setActiveVault(pk)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                setActiveVault(pk);
+                              }
                             }}
                           >
                             <div className="token-icon">
@@ -889,8 +940,19 @@ export function SidePanelApp() {
                                   size="md"
                                 />
                               </div>
+                              <button
+                                type="button"
+                                className="vault-row-detail"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setActiveVault(pk);
+                                  setDetailVault(pk);
+                                }}
+                              >
+                                Detail
+                              </button>
                             </div>
-                          </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -921,7 +983,8 @@ export function SidePanelApp() {
               <HoldingsTab
                 investorPubkey={status.pubkey}
                 busy={busy || flowRunning}
-                onWithdraw={(vault, shares) => void onInvestorWithdraw(vault, shares)}
+                refreshKey={holdingsTick}
+                onWithdraw={(vault, shares) => onInvestorWithdraw(vault, shares)}
               />
             )}
 
@@ -1034,12 +1097,7 @@ export function SidePanelApp() {
                   disabled={busy || flowRunning || !activeVault || !canClose}
                   onClick={() => {
                     if (!canClose) {
-                      const st = String(selected?.vaultStatus ?? "unknown");
-                      setError(
-                        st === "Closed"
-                          ? "Vault is already Closed."
-                          : "Cannot close this vault (legacy layout or missing account)."
-                      );
+                      setError(closeVaultBlockedMessage(selected));
                       return;
                     }
                     void startFlow("close-vault");
@@ -1074,6 +1132,7 @@ export function SidePanelApp() {
             session={authSession}
             walletPubkey={status.pubkey}
             walletSol={walletSol}
+            backendOk={backendOk}
             onVerifyWallet={() => setBindModalOpen(true)}
             onLock={() => void onLock()}
             onLogout={() => void onLogout()}
@@ -1106,11 +1165,10 @@ export function SidePanelApp() {
             walletPubkey={status.pubkey}
             walletSol={walletSol}
             busy={busy || flowRunning}
+            refreshKey={holdingsTick}
             onBack={() => setParkScreen(null)}
             onPark={(sol) => void onParkConfirm(sol)}
-            onWithdraw={(vault, shares) => {
-              void onInvestorWithdraw(vault, shares);
-            }}
+            onWithdraw={(vault, shares) => onInvestorWithdraw(vault, shares)}
           />
         ) : null}
 
@@ -1148,6 +1206,7 @@ function VaultQuickActions({
   layoutOk,
   canPark,
   canClose,
+  closeHint,
   onCreate,
   onPark,
   onTrade,
@@ -1160,6 +1219,7 @@ function VaultQuickActions({
   layoutOk?: boolean;
   canPark?: boolean;
   canClose?: boolean;
+  closeHint?: string;
   onCreate: () => void;
   onPark: () => void;
   onTrade: () => void;
@@ -1220,11 +1280,7 @@ function VaultQuickActions({
         className="quick-item"
         data-action="close"
         disabled={locked || closeBlocked}
-        title={
-          canClose === false
-            ? "Vault already Closed or incompatible"
-            : undefined
-        }
+        title={canClose === false ? closeHint ?? "Cannot close vault" : undefined}
         onClick={onClose}
       >
         <div className="quick-icon">
@@ -1243,7 +1299,6 @@ function TopBar({
   roleLabel,
   walletAddr,
   walletSol,
-  backendOk,
   menuOpen,
   menuRef,
   onToggleMenu,
@@ -1256,7 +1311,6 @@ function TopBar({
   roleLabel: string | null;
   walletAddr?: string;
   walletSol?: string | null;
-  backendOk: boolean | null;
   menuOpen?: boolean;
   menuRef?: React.RefObject<HTMLDivElement | null>;
   onToggleMenu?: () => void;
@@ -1322,14 +1376,6 @@ function TopBar({
       <div className="sp-top-actions">
         <button type="button" className="icon-btn" title="1vaults" aria-label="1vaults">
           <IconLink />
-        </button>
-        <button
-          type="button"
-          className={`pill${backendOk === false ? " bad" : backendOk ? "" : " warn"}`}
-          title={backendOk === false ? "Backend offline" : "Devnet"}
-        >
-          <span className="dot" />
-          {backendOk === false ? "Offline" : "Devnet"}
         </button>
       </div>
     </div>

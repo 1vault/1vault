@@ -4,6 +4,7 @@ export {
   getVaultHoldings,
   getVaultNav,
   getVaultProfile,
+  getVaultFees,
   getWalletStats,
   getInvestor,
   getWalletNonce,
@@ -16,5 +17,12 @@ export {
   listVaultTrades,
   getTokenResearch,
 } from "./client";
-export type { ApiEnvelope, LeaderboardRow, VaultHoldingRow, VaultProfile, VaultProfileTwitter } from "./client";
+export type {
+  ApiEnvelope,
+  LeaderboardRow,
+  VaultHoldingRow,
+  VaultProfile,
+  VaultProfileTwitter,
+  VaultFees,
+} from "./client";
 export * from "./undocumented";

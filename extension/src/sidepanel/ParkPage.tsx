@@ -21,6 +21,7 @@ export function ParkPage({
   walletPubkey,
   walletSol,
   busy,
+  refreshKey = 0,
   onBack,
   onPark,
   onWithdraw,
@@ -31,9 +32,11 @@ export function ParkPage({
   walletPubkey?: string | null;
   walletSol?: string | null;
   busy?: boolean;
+  /** Bump to refetch My parks after withdraw completes. */
+  refreshKey?: number;
   onBack: () => void;
   onPark: (sol: number) => void;
-  onWithdraw?: (vault: string, shares: string) => void;
+  onWithdraw?: (vault: string, shares: string) => void | Promise<void>;
 }) {
   const [tab, setTab] = useState<ParkTab>("park");
   const [amount, setAmount] = useState("0.1");
@@ -66,7 +69,7 @@ export function ParkPage({
 
   useEffect(() => {
     if (tab === "list") void loadHoldings();
-  }, [tab, loadHoldings]);
+  }, [tab, loadHoldings, refreshKey]);
 
   useEffect(() => {
     setError(null);
@@ -224,7 +227,18 @@ export function ParkPage({
                             className="btn btn-secondary"
                             style={{ marginTop: 6, fontSize: "var(--fs-xs)", minWidth: 0 }}
                             disabled={busy}
-                            onClick={() => onWithdraw?.(vault, shares)}
+                            onClick={() => {
+                              void (async () => {
+                                try {
+                                  await onWithdraw?.(vault, shares);
+                                  setHoldings((prev) =>
+                                    prev.filter((row) => String(row.vault ?? "") !== vault)
+                                  );
+                                } catch {
+                                  /* parent surfaces error */
+                                }
+                              })();
+                            }}
                           >
                             Withdraw
                           </button>
