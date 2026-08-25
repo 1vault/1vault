@@ -22,13 +22,14 @@ type VaultLayoutError struct {
 
 func (e *VaultLayoutError) Error() string {
 	return fmt.Sprintf(
-		"vault %s has incompatible on-chain layout (%s, len=%d); create a new vault after the book_mode upgrade — legacy vaults fail UpdateNav/withdraw with ConstraintSeeds (2006) and cannot close",
+		"vault %s has incompatible on-chain layout (%s, len=%d); create a new vault after the book_mode upgrade — legacy vaults cannot AccrueFees/ClaimFees/close (Anchor AccountDidNotDeserialize 3003)",
 		e.Pubkey, e.Reason, e.Len,
 	)
 }
 
 // ValidateVaultAccountData checks the account can be deserialized as the current Vault struct.
-// Legacy sizes: 594 (pre-simplification), 562 (pre-book_mode). Those hit Anchor 3003 AccountDidNotDeserialize.
+// Legacy sizes: 594 (pre-simplification), 562 (pre-book_mode). Those hit Anchor 3003 AccountDidNotDeserialize
+// on AccrueFees, ClaimFees, InitiateVaultClose, and other vault instructions.
 func ValidateVaultAccountData(pubkey solana.PublicKey, data []byte) error {
 	if len(data) < 8 {
 		return &VaultLayoutError{Pubkey: pubkey.String(), Len: len(data), Reason: "empty or missing account"}

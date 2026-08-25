@@ -596,6 +596,9 @@ func (b *Builder) WithdrawOpts(p WithdrawParams) (*Prepared, error) {
 }
 
 func (b *Builder) AccrueFees(payer, vault solana.PublicKey) (*Prepared, error) {
+	if err := b.requireCurrentVaultLayout(vault); err != nil {
+		return nil, err
+	}
 	ix := s.Ix(b.Program, s.DiscAccrueFees,
 		s.Meta(b.Protocol, false, false),
 		s.Meta(vault, false, true),
@@ -610,6 +613,9 @@ func (b *Builder) AccrueFees(payer, vault solana.PublicKey) (*Prepared, error) {
 }
 
 func (b *Builder) ClaimFees(strategist, vault, vaultTokenAccount, degenFeeWallet solana.PublicKey) (*Prepared, error) {
+	if err := b.requireCurrentVaultLayout(vault); err != nil {
+		return nil, err
+	}
 	if b.RPC != nil {
 		feePDA := s.VaultFeePDA(b.Program, vault)
 		exists, err := b.RPC.AccountExists(feePDA)
@@ -778,6 +784,9 @@ type RequestTradeParams struct {
 }
 
 func (b *Builder) RequestTrade(p RequestTradeParams) (*Prepared, error) {
+	if err := b.requireCurrentVaultLayout(p.Vault); err != nil {
+		return nil, err
+	}
 	if p.TradeID == 0 {
 		return nil, fmt.Errorf("tradeId required")
 	}
@@ -913,6 +922,9 @@ type OpenPositionParams struct {
 }
 
 func (b *Builder) OpenPosition(p OpenPositionParams) (*Prepared, error) {
+	if err := b.requireCurrentVaultLayout(p.Vault); err != nil {
+		return nil, err
+	}
 	if p.TradeID == 0 || p.PositionID == 0 {
 		return nil, fmt.Errorf("tradeId and positionId required")
 	}
@@ -968,6 +980,9 @@ type ExitPositionParams struct {
 }
 
 func (b *Builder) ClosePositionOpts(p ExitPositionParams) (*Prepared, error) {
+	if err := b.requireCurrentVaultLayout(p.Vault); err != nil {
+		return nil, err
+	}
 	pos := s.VaultPositionPDA(b.Program, p.Vault, p.PositionID)
 	data := s.Concat(s.DiscClosePosition, s.U64LE(p.Proceeds))
 	ix := s.Ix(b.Program, data,
@@ -1152,6 +1167,9 @@ func (b *Builder) FollowOff(investor, vault solana.PublicKey) (*Prepared, error)
 }
 
 func (b *Builder) UpdateNav(payer, vault, vaultTokenAccount solana.PublicKey) (*Prepared, error) {
+	if err := b.requireCurrentVaultLayout(vault); err != nil {
+		return nil, err
+	}
 	ix := s.Ix(b.Program, s.DiscUpdateNav,
 		s.Meta(vault, false, true),
 		s.Meta(vaultTokenAccount, false, false),
@@ -1202,6 +1220,9 @@ func (b *Builder) CloseVault(strategist, vault, vaultTokenAccount solana.PublicK
 }
 
 func (b *Builder) KeeperRefresh(payer, vault, vaultTokenAccount solana.PublicKey) (*Prepared, error) {
+	if err := b.requireCurrentVaultLayout(vault); err != nil {
+		return nil, err
+	}
 	ix := s.Ix(b.Program, s.DiscKeeperRefresh,
 		s.Meta(vault, false, true),
 		s.Meta(vaultTokenAccount, false, false),

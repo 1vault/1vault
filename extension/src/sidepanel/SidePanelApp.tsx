@@ -438,6 +438,7 @@ export function SidePanelApp() {
   const selectedLayoutOk = selected?.layoutCompatible !== false;
   const canPark = Boolean(selected?.canPark);
   const canClose = Boolean(selected?.canClose);
+  const canClaimFees = Boolean(selected?.layoutCompatible);
 
   const flowRunning = flowState?.status === "running";
 
@@ -1132,12 +1133,29 @@ export function SidePanelApp() {
                 <button
                   type="button"
                   className="vault-tool-row"
-                  disabled={busy || flowRunning || !activeVault}
-                  onClick={() => void startFlow("claim-fees")}
+                  disabled={busy || flowRunning || !activeVault || !canClaimFees}
+                  title={
+                    !canClaimFees
+                      ? "Legacy vault layout — create a new vault to claim fees"
+                      : undefined
+                  }
+                  onClick={() => {
+                    if (!canClaimFees) {
+                      setError(
+                        "This vault has a legacy on-chain layout and cannot accrue/claim fees. Create a new vault after the book_mode upgrade."
+                      );
+                      return;
+                    }
+                    void startFlow("claim-fees");
+                  }}
                 >
                   <div className="vault-tool-copy">
                     <span className="vault-tool-title">Claim fees</span>
-                    <span className="vault-tool-sub">Collect performance fees to wallet</span>
+                    <span className="vault-tool-sub">
+                      {canClaimFees
+                        ? "Collect performance fees to wallet"
+                        : "Unavailable — legacy vault layout"}
+                    </span>
                   </div>
                   <span className="vault-tool-cta">Claim</span>
                 </button>

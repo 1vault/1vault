@@ -52,6 +52,9 @@ func (svc *Service) Start(ctx context.Context, p StartParams) (*Job, error) {
 		p.VaultTokenAccount = kp.PublicKey().String()
 		vaultTokenSecret = kp.PrivateKey.String()
 	}
+	if err := svc.preflightExistingVault(p); err != nil {
+		return nil, err
+	}
 	steps, err := PlanSteps(p)
 	if err != nil {
 		return nil, err
@@ -210,12 +213,32 @@ func (svc *Service) shouldSkip(ctx context.Context, rpc *txprep.RPC, b *txprep.B
 			return true, "skipClosePosition", nil
 		}
 		return false, "", nil
+	case "accrue_fees":
+		vault, err := svc.resolveVault(p, job)
+		if err != nil {
+			return false, "", err
+		}
+		data, err := rpc.AccountData(vault)
+		if err != nil {
+			return false, "", err
+		}
+		if err := s.ValidateVaultAccountData(vault, data); err != nil {
+			return false, "", err
+		}
+		return false, "", nil
 	case "claim_fees":
 		if p.SkipClaimFees {
 			return true, "skipClaimFees", nil
 		}
 		vault, err := svc.resolveVault(p, job)
 		if err != nil {
+			return false, "", err
+		}
+		data, err := rpc.AccountData(vault)
+		if err != nil {
+			return false, "", err
+		}
+		if err := s.ValidateVaultAccountData(vault, data); err != nil {
 			return false, "", err
 		}
 		feePDA := s.VaultFeePDA(b.Program, vault)
@@ -226,11 +249,11 @@ func (svc *Service) shouldSkip(ctx context.Context, rpc *txprep.RPC, b *txprep.B
 		if !exists {
 			return true, "no vault fee state — nothing to claim", nil
 		}
-		data, err := rpc.AccountData(feePDA)
+		feeData, err := rpc.AccountData(feePDA)
 		if err != nil {
 			return false, "", err
 		}
-		claimable, err := s.DecodeVaultFeeClaimable(data)
+		claimable, err := s.DecodeVaultFeeClaimable(feeData)
 		if err != nil {
 			return false, "", err
 		}
@@ -245,6 +268,9 @@ func (svc *Service) shouldSkip(ctx context.Context, rpc *txprep.RPC, b *txprep.B
 		}
 		data, err := rpc.AccountData(vault)
 		if err != nil {
+			return false, "", err
+		}
+		if err := s.ValidateVaultAccountData(vault, data); err != nil {
 			return false, "", err
 		}
 		st, err := s.DecodeVaultStatus(data)
@@ -268,6 +294,9 @@ func (svc *Service) shouldSkip(ctx context.Context, rpc *txprep.RPC, b *txprep.B
 		}
 		data, err := rpc.AccountData(vault)
 		if err != nil {
+			return false, "", err
+		}
+		if err := s.ValidateVaultAccountData(vault, data); err != nil {
 			return false, "", err
 		}
 		st, err := s.DecodeVaultStatus(data)
@@ -431,8 +460,10 @@ func (svc *Service) resolveOpenTradeID(ctx context.Context, b *txprep.Builder, v
 }
 
 func (svc *Service) resolveVault(p StartParams, job *Job) (solana.PublicKey, error) {
-	if v, ok := job.Context["vault"].(string); ok && v != "" {
-		return s.ParsePK(v)
+	if job != nil {
+		if v, ok := job.Context["vault"].(string); ok && v != "" {
+			return s.ParsePK(v)
+		}
 	}
 	if p.Vault != "" {
 		return s.ParsePK(p.Vault)
@@ -445,6 +476,27 @@ func (svc *Service) resolveVault(p StartParams, job *Job) (solana.PublicKey, err
 		return s.VaultPDA(svc.builder().Program, st, p.VaultID), nil
 	}
 	return solana.PublicKey{}, fmt.Errorf("vault or strategist+vaultId required")
+}
+
+// preflightExistingVault rejects legacy/incompatible vault accounts before any tx is built
+// (avoids RPC simulation AccountDidNotDeserialize 3003).
+func (svc *Service) preflightExistingVault(p StartParams) error {
+	switch p.Mode {
+	case ModeDeposit, ModeWithdraw, ModeConfigureFollow, ModeOpenPosition, ModeExitPosition,
+		ModeClaimFees, ModeCloseVault:
+		// ok — need current vault layout
+	default:
+		return nil
+	}
+	vault, err := svc.resolveVault(p, nil)
+	if err != nil {
+		return err
+	}
+	data, err := txprep.NewRPC(svc.Cfg.RPCURL).AccountData(vault)
+	if err != nil {
+		return fmt.Errorf("load vault %s: %w", vault, err)
+	}
+	return s.ValidateVaultAccountData(vault, data)
 }
 
 func (svc *Service) resolveVTA(ctx context.Context, p StartParams, job *Job) (solana.PublicKey, error) {

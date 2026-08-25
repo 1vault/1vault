@@ -346,7 +346,7 @@ func (a *API) PrepAccrueFees(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := a.txBuilder(r).AccrueFees(payer, vault)
 	if err != nil {
-		httpx.Fail(w, r, 502, "TX_BUILD_FAILED", err.Error(), nil)
+		a.failTxBuild(w, r, err)
 		return
 	}
 	httpx.OK(w, r, p, http.StatusOK)
@@ -385,7 +385,7 @@ func (a *API) PrepClaimFees(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := a.txBuilder(r).ClaimFees(st, vault, vta, feeWallet)
 	if err != nil {
-		httpx.Fail(w, r, 502, "TX_BUILD_FAILED", err.Error(), nil)
+		a.failTxBuild(w, r, err)
 		return
 	}
 	httpx.OK(w, r, p, http.StatusOK)
