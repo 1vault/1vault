@@ -40,7 +40,7 @@ func Load() Config {
 		JWTSecret:         mustEnv("JWT_SECRET"),
 		JWTAccessTTL:      ttl,
 		JWTRefreshTTLDays: getenvInt("JWT_REFRESH_TTL_DAYS", 30),
-		CORSOrigins:       splitCSV(getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:5173,http://localhost:5174")),
+		CORSOrigins:       splitCSV(getenv("CORS_ORIGINS", "")),
 		DefaultCluster:    getenv("DEFAULT_CLUSTER", "devnet"),
 		TwitterClientID:   os.Getenv("TWITTER_CLIENT_ID"),
 		TwitterSecret:     os.Getenv("TWITTER_CLIENT_SECRET"),
