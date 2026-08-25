@@ -4,7 +4,8 @@ export type FlowMode =
   | "open-position"
   | "exit-position"
   | "claim-fees"
-  | "close-vault";
+  | "close-vault"
+  | "withdraw";
 
 export type FlowEventStatus = "running" | "success" | "error" | "skipped";
 
@@ -38,6 +39,7 @@ export type FlowRunInput = {
   vault?: string;
   vaultId?: number;
   vaultType?: "pooled" | "sliced";
+  vaultName?: string;
   parkSol?: number;
   takeProfitBps?: number;
   stopLossBps?: number;
@@ -46,6 +48,8 @@ export type FlowRunInput = {
   inputMint?: string;
   exitPercent?: number;
   baseAmount?: number;
+  shares?: number | string;
+  vaultTokenAccount?: string;
 };
 
 export const DEFAULT_FLOW_SETTINGS = {

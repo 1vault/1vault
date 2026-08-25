@@ -6,10 +6,11 @@ import {
   listDepositsByVault,
   listMandatesByVault,
   normalizeRole,
+  type ApiRole,
   type DepositIntent,
   type InvestorMandate,
 } from "./indexer/client";
-import { getVault } from "./api";
+import { getVault, getVaultHoldings } from "./api";
 
 export function calculateNav(totalAssets: bigint, positionValue: bigint): bigint {
   return totalAssets + positionValue;
@@ -195,4 +196,126 @@ export function formatLamportsAsSol(lamports: string | bigint, digits = 4): stri
   const frac = n % 1_000_000_000n;
   const fracStr = frac.toString().padStart(9, "0").slice(0, digits);
   return `${whole}.${fracStr}`;
+}
+
+export type RoleParkSlice = {
+  committed: string;
+  incoming: string;
+  mandated: string;
+};
+
+export type ParkBreakdown = {
+  strategist: RoleParkSlice;
+  investor: RoleParkSlice;
+  total: RoleParkSlice & { projected: string };
+  walletAvailable: string | null;
+  strategistPubkey: string | null;
+};
+
+function sumDepositsByRole(
+  deposits: DepositIntent[],
+  role: ApiRole,
+  statusFilter?: (s: string) => boolean
+): bigint {
+  let sum = 0n;
+  for (const d of deposits) {
+    if (normalizeRole(d.role) !== role) continue;
+    if (statusFilter && !statusFilter(String(d.status ?? ""))) continue;
+    sum += asBigInt(d.amount);
+  }
+  return sum;
+}
+
+function sumMandatesByRole(mandates: InvestorMandate[], role: ApiRole): bigint {
+  let sum = 0n;
+  for (const m of mandates) {
+    if (normalizeRole(m.role) !== role) continue;
+    sum += asBigInt(m.park_amount);
+  }
+  return sum;
+}
+
+function sumHoldingsByRole(
+  items: Array<Record<string, unknown>>,
+  role: ApiRole
+): bigint {
+  let sum = 0n;
+  for (const row of items) {
+    const r = normalizeRole(String(row.role ?? ""));
+    if (r !== role) continue;
+    sum += asBigInt(row.remaining_parked ?? row.remainingParked ?? 0);
+  }
+  return sum;
+}
+
+export async function estimateParkBreakdown(
+  vaultPubkey: string,
+  pipeline?: PipelineEstimate | null,
+  walletPubkey?: string | null,
+  walletBalanceLamports?: string | null
+): Promise<ParkBreakdown> {
+  const [pipelineResult, holdingsResult] = await Promise.allSettled([
+    pipeline ? Promise.resolve(pipeline) : estimatePipeline(vaultPubkey),
+    getVaultHoldings(vaultPubkey),
+  ]);
+
+  const pipe =
+    pipelineResult.status === "fulfilled"
+      ? pipelineResult.value
+      : await estimatePipeline(vaultPubkey).catch(() => null);
+
+  const holdings =
+    holdingsResult.status === "fulfilled"
+      ? (holdingsResult.value.items ?? [])
+      : [];
+
+  const deposits = pipe?.deposits ?? [];
+  const mandates = pipe?.mandates ?? [];
+
+  const incomingFilter = (s: string) => s === "pending" || s === "submitted";
+
+  const strategistCommitted = sumHoldingsByRole(holdings, "strategies");
+  const investorCommitted = sumHoldingsByRole(holdings, "investors");
+  const strategistIncoming = sumDepositsByRole(deposits, "strategies", incomingFilter);
+  const investorIncoming = sumDepositsByRole(deposits, "investors", incomingFilter);
+  const strategistMandated = sumMandatesByRole(mandates, "strategies");
+  const investorMandated = sumMandatesByRole(mandates, "investors");
+
+  const totalCommitted = strategistCommitted + investorCommitted;
+  const totalIncoming = strategistIncoming + investorIncoming;
+  const totalMandated = strategistMandated + investorMandated;
+  const projected = pipe?.projected.nav ?? totalCommitted.toString();
+
+  let strategistPubkey: string | null = null;
+  try {
+    const vaultRaw = await getVault(vaultPubkey);
+    const vault =
+      (vaultRaw.vault as Record<string, unknown> | undefined) ??
+      (vaultRaw as Record<string, unknown>);
+    strategistPubkey = String(vault.strategist ?? vault.strategist_pubkey ?? "") || null;
+    if (strategistPubkey && strategistPubkey.length < 32) strategistPubkey = null;
+  } catch {
+    strategistPubkey = null;
+  }
+
+  return {
+    strategist: {
+      committed: strategistCommitted.toString(),
+      incoming: strategistIncoming.toString(),
+      mandated: strategistMandated.toString(),
+    },
+    investor: {
+      committed: investorCommitted.toString(),
+      incoming: investorIncoming.toString(),
+      mandated: investorMandated.toString(),
+    },
+    total: {
+      committed: totalCommitted.toString(),
+      incoming: totalIncoming.toString(),
+      mandated: totalMandated.toString(),
+      projected,
+    },
+    walletAvailable: walletBalanceLamports ?? null,
+    strategistPubkey,
+  };
 }

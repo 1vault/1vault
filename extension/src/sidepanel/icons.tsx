@@ -133,6 +133,16 @@ export function IconVault(p: Props) {
   );
 }
 
+export function IconDiscover(p: Props) {
+  return (
+    <I {...p} strokeWidth={NAV_STROKE}>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="M16.5 16.5 21 21" strokeLinecap="round" />
+      <path d="M8.2 11h5.6M11 8.2v5.6" strokeLinecap="round" />
+    </I>
+  );
+}
+
 export function IconLink(p: Props) {
   return (
     <I width={p.width ?? 16} height={p.height ?? 16} className={p.className} strokeWidth={2.2}>
@@ -160,6 +170,14 @@ export function IconCheck(p: Props) {
   return (
     <I width={p.width ?? 10} height={p.height ?? 10} className={p.className} strokeWidth={3}>
       <path d="M5 12l5 5L20 7" strokeLinecap="round" strokeLinejoin="round" />
+    </I>
+  );
+}
+
+export function IconX(p: Props) {
+  return (
+    <I width={p.width ?? 10} height={p.height ?? 10} className={p.className} strokeWidth={3}>
+      <path d="M7 7l10 10M17 7 7 17" strokeLinecap="round" />
     </I>
   );
 }

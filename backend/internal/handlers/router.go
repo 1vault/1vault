@@ -102,6 +102,7 @@ func (a *API) Routes() http.Handler {
 		r.Get("/v1/protocol/state", a.ProtocolState)
 		r.Get("/v1/vaults", a.ListVaults)
 		r.Get("/v1/vaults/{pubkey}", a.GetVault)
+		r.Get("/v1/vaults/{pubkey}/profile", a.VaultProfile)
 		r.Get("/v1/vaults/{pubkey}/holdings", a.VaultHoldings)
 		r.Get("/v1/vaults/{pubkey}/positions", a.VaultPositions)
 		r.Get("/v1/vaults/{pubkey}/fees", a.VaultFees)

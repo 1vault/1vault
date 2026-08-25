@@ -3,7 +3,10 @@ import { listVaultPositions, listVaultTrades } from "../lib/api/client";
 import type { FlowMode, FlowState } from "../lib/flow";
 import { attachTradeIds, parseVaultPositions, type VaultPositionRow } from "../lib/trade/positions";
 import { sendBg } from "../lib/messaging";
-import { formatLamportsAsSol, type PipelineEstimate } from "../lib/estimate";
+import { formatLamportsAsSol, type ParkBreakdown, type PipelineEstimate } from "../lib/estimate";
+import { solToLamports } from "../lib/signing";
+import { runParkGuest } from "../lib/investor-tx";
+import { getUnlockedKeypair } from "../lib/keyring";
 import {
   type AuthSession,
   type AuthUser,
@@ -19,6 +22,7 @@ import {
   IconCheck,
   IconClose,
   IconCreate,
+  IconDiscover,
   IconDown,
   IconHome,
   IconLink,
@@ -26,15 +30,26 @@ import {
   IconPark,
   IconTrade,
   IconVault,
+  IconX,
 } from "./icons";
 import { HeroHead } from "./InfoTip";
 import { ListPager, ShimmerHero, ShimmerList, usePagedSlice } from "./Shimmer";
 import { SolAmount } from "./SolAmount";
 import { TradePanel } from "./TradePanel";
 import { VaultSummary, VaultSummaryShimmer } from "./VaultSummary";
+import { BindWalletModal } from "./BindWalletModal";
+import { CapitalDetail } from "./CapitalDetail";
+import { CreateVaultWizard, type CreateVaultResult } from "./CreateVaultWizard";
+import { DiscoverPanel } from "./DiscoverPanel";
+import { HoldingsTab } from "./HoldingsTab";
+import { HistoryPanel, historyEntryFromMode, type TxHistoryItem } from "./HistoryPanel";
+import { ProcessingBanner, completedLabel } from "./ProcessingBanner";
+import { ParkPage } from "./ParkPage";
+import { SettingsPanel } from "./SettingsPanel";
+import { VaultProfileView } from "./VaultProfileView";
 
-type NavId = "home" | "trade" | "activity" | "vault";
-type ListTab = "vaults" | "capital" | "positions";
+type NavId = "home" | "discover" | "trade" | "activity" | "vault" | "settings";
+type ListTab = "vaults" | "capital" | "positions" | "holdings";
 type KeyStatus = { has: boolean; unlocked: boolean; pubkey: string | null };
 type VaultRow = Record<string, unknown>;
 
@@ -43,6 +58,11 @@ const PIPELINE_POLL_MS = 20_000;
 function shortAddr(pk: string) {
   if (pk.length < 10) return pk;
   return `${pk.slice(0, 4)}…${pk.slice(-4)}`;
+}
+
+function vaultAddrShort(pk: string) {
+  if (pk.length < 12) return pk;
+  return `${pk.slice(0, 3)}.........${pk.slice(-4)}`;
 }
 
 function vaultName(v: VaultRow) {
@@ -78,6 +98,18 @@ export function SidePanelApp() {
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [authBusy, setAuthBusy] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [bindModalOpen, setBindModalOpen] = useState(false);
+  const [walletSol, setWalletSol] = useState<string | null>(null);
+  const [parkBreakdown, setParkBreakdown] = useState<ParkBreakdown | null>(null);
+  const [parkBreakdownLoading, setParkBreakdownLoading] = useState(false);
+  const [txHistory, setTxHistory] = useState<TxHistoryItem[]>([]);
+  const [detailVault, setDetailVault] = useState<string | null>(null);
+  const [parkScreen, setParkScreen] = useState<{
+    vault: string | null;
+    role: "strategist" | "investor";
+    vaultLabel?: string;
+  } | null>(null);
+  const [createScreenOpen, setCreateScreenOpen] = useState(false);
   const accountMenuRef = useRef<HTMLDivElement>(null);
 
   const authUser = authSession?.user;
@@ -166,6 +198,16 @@ export function SidePanelApp() {
   }, []);
 
   useEffect(() => {
+    if (!status?.unlocked || !status.pubkey) {
+      setWalletSol(null);
+      return;
+    }
+    void sendBg<{ lamports: string }>({ type: "WALLET_BALANCE", pubkey: status.pubkey })
+      .then((b) => setWalletSol(formatLamportsAsSol(b.lamports, 2)))
+      .catch(() => setWalletSol(null));
+  }, [status?.unlocked, status?.pubkey]);
+
+  useEffect(() => {
     if (!accountMenuOpen) return;
     const onDoc = (e: MouseEvent) => {
       if (!accountMenuRef.current?.contains(e.target as Node)) setAccountMenuOpen(false);
@@ -190,10 +232,57 @@ export function SidePanelApp() {
   }, [activeVault, status?.unlocked, refreshPipeline]);
 
   useEffect(() => {
+    if (!activeVault || !status?.unlocked || !pipeline) {
+      setParkBreakdown(null);
+      return;
+    }
+    let cancelled = false;
+    setParkBreakdownLoading(true);
+    void sendBg<ParkBreakdown>({
+      type: "PARK_BREAKDOWN",
+      vault: activeVault,
+      walletPubkey: status.pubkey ?? undefined,
+    })
+      .then((b) => {
+        if (!cancelled) setParkBreakdown(b);
+      })
+      .catch(() => {
+        if (!cancelled) setParkBreakdown(null);
+      })
+      .finally(() => {
+        if (!cancelled) setParkBreakdownLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeVault, status?.unlocked, status?.pubkey, pipeline]);
+
+  useEffect(() => {
     if (!activeVault || !status?.unlocked) return;
     const id = window.setInterval(() => void refreshPipeline(), PIPELINE_POLL_MS);
     return () => window.clearInterval(id);
   }, [activeVault, status?.unlocked, refreshPipeline]);
+
+  useEffect(() => {
+    void chrome.storage.session.get("txHistory").then((stored) => {
+      if (Array.isArray(stored.txHistory)) {
+        setTxHistory(stored.txHistory as TxHistoryItem[]);
+      }
+    });
+  }, []);
+
+  const appendHistory = useCallback((mode: FlowMode | undefined, events: FlowState["events"]) => {
+    const lastTx = [...events].reverse().find((e) => e.tx)?.tx;
+    const entry: TxHistoryItem = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      ...historyEntryFromMode(mode, lastTx),
+    };
+    setTxHistory((prev) => {
+      const next = [entry, ...prev].slice(0, 30);
+      void chrome.storage.session.set({ txHistory: next });
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     if (!status?.unlocked) return;
@@ -208,7 +297,8 @@ export function SidePanelApp() {
           void loadVaults();
           if (s.result?.vault) setActiveVault(s.result.vault);
           void refreshPipeline();
-          setToast(`${s.mode?.replace("-", " ")} complete`);
+          appendHistory(s.mode, s.events);
+          setToast(completedLabel(s.mode));
           window.setTimeout(() => setToast(null), 3000);
         }
         if (s.status === "failed" && s.error) {
@@ -217,7 +307,7 @@ export function SidePanelApp() {
       });
     }, 600);
     return () => window.clearInterval(id);
-  }, [flowState?.status, pollFlowState, loadVaults, refreshPipeline]);
+  }, [flowState?.status, pollFlowState, loadVaults, refreshPipeline, appendHistory]);
 
   useEffect(() => {
     if (listTab !== "positions" || !activeVault) return;
@@ -281,10 +371,13 @@ export function SidePanelApp() {
     mode: FlowMode,
     opts?: {
       vaultType?: "pooled" | "sliced";
+      vaultName?: string;
+      parkSol?: number;
       positionId?: number;
       tradeId?: number;
       inputMint?: string;
       exitPercent?: number;
+      shares?: number | string;
     }
   ) {
     if (flowRunning) return;
@@ -300,14 +393,113 @@ export function SidePanelApp() {
         vault: activeVault ?? undefined,
         vaultId,
         vaultType: opts?.vaultType,
-        parkSol: 0.1,
+        vaultName: opts?.vaultName,
+        parkSol: opts?.parkSol ?? 0.1,
         positionId: opts?.positionId,
         tradeId: opts?.tradeId,
         inputMint: opts?.inputMint,
         exitPercent: opts?.exitPercent,
+        shares: opts?.shares,
       });
       await pollFlowState();
-      setNav("activity");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onUnlockLicense() {
+    if (!status?.pubkey || flowRunning) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await sendBg({ type: "UNLOCK_LICENSE", strategist: status.pubkey });
+      setTxHistory((prev) => {
+        const next = [
+          { id: `${Date.now()}-unlock`, label: "1VL unlocked", at: new Date().toISOString() },
+          ...prev,
+        ].slice(0, 30);
+        void chrome.storage.session.set({ txHistory: next });
+        return next;
+      });
+      setToast("1VL licence unlocked");
+      window.setTimeout(() => setToast(null), 3000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onInvestorPark(vaultPubkey: string, parkSol: number) {
+    if (!status?.pubkey || flowRunning) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const kp = getUnlockedKeypair();
+      if (!kp) throw new Error("keyring locked");
+      await runParkGuest({
+        investor: status.pubkey,
+        vault: vaultPubkey,
+        lamports: solToLamports(parkSol),
+        keypair: kp,
+      });
+      setActiveVault(vaultPubkey);
+      setToast("SOL parked");
+      window.setTimeout(() => setToast(null), 3000);
+      setTxHistory((prev) => {
+        const next = [
+          {
+            id: `${Date.now()}-park`,
+            ...historyEntryFromMode("deposit"),
+          },
+          ...prev,
+        ].slice(0, 30);
+        void chrome.storage.session.set({ txHistory: next });
+        return next;
+      });
+      void refreshPipeline();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onParkConfirm(sol: number) {
+    if (!parkScreen) return;
+    const { vault, role } = parkScreen;
+    if (role === "strategist") {
+      void startFlow("deposit", { parkSol: sol }).then(() => setParkScreen(null));
+    } else if (vault) {
+      void onInvestorPark(vault, sol).then(() => setParkScreen(null));
+    }
+  }
+
+  function onCreateVault(result: CreateVaultResult) {
+    setCreateScreenOpen(false);
+    void startFlow("create-vault", {
+      vaultName: result.vaultName,
+      vaultType: result.vaultType,
+      parkSol: result.parkSol,
+    });
+  }
+
+  const overlayOpen = Boolean(detailVault || parkScreen || createScreenOpen);
+
+  async function onInvestorWithdraw(vault: string, shares: string) {
+    if (!status?.pubkey || flowRunning) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await sendBg({
+        type: "RUN_FLOW",
+        mode: "withdraw",
+        vault,
+        shares,
+      });
+      await pollFlowState();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -400,13 +592,14 @@ export function SidePanelApp() {
             roleLabel={roleLabel}
             walletAddr={status?.pubkey ? shortAddr(status.pubkey) : undefined}
             backendOk={backendOk}
-            authBusy={authBusy}
             menuOpen={accountMenuOpen}
             menuRef={accountMenuRef}
             onToggleMenu={() => setAccountMenuOpen((v) => !v)}
-            onConnectX={() => void onConnectX()}
             onLogout={() => void onLogout()}
             onLock={status?.has && status.unlocked ? () => void onLock() : undefined}
+            walletSol={walletSol}
+            onOpenSettings={() => setNav("settings")}
+            onVerifyWallet={() => setBindModalOpen(true)}
           />
 
           <section className="hero">
@@ -475,16 +668,51 @@ export function SidePanelApp() {
           roleLabel={roleLabel}
           walletAddr={status.pubkey ? shortAddr(status.pubkey) : undefined}
           backendOk={backendOk}
-          authBusy={authBusy}
           menuOpen={accountMenuOpen}
           menuRef={accountMenuRef}
           onToggleMenu={() => setAccountMenuOpen((v) => !v)}
-          onConnectX={() => void onConnectX()}
           onLogout={() => void onLogout()}
           onLock={() => void onLock()}
+          walletSol={walletSol}
+          onOpenSettings={() => setNav("settings")}
+          onVerifyWallet={() => setBindModalOpen(true)}
         />
 
-        {nav === "home" && (
+        {flowRunning ? (
+          <ProcessingBanner
+            mode={flowState?.mode}
+            onCancel={() => void sendBg({ type: "FLOW_CANCEL" }).then(() => pollFlowState())}
+          />
+        ) : null}
+
+        {detailVault ? (
+          <VaultProfileView
+            vaultPubkey={detailVault}
+            viewerPubkey={status.pubkey}
+            seed={(() => {
+              const row = vaults.find((v) => String(v.pubkey) === detailVault);
+              if (!row) return undefined;
+              return {
+                name: vaultName(row),
+                nav: (row.nav ?? row.total_assets ?? "0") as string | number,
+                vaultType: vaultType(row),
+                vaultStatus: typeof row.vaultStatus === "string" ? row.vaultStatus : null,
+                strategist: status.pubkey,
+              };
+            })()}
+            onBack={() => setDetailVault(null)}
+            onPark={(vault) =>
+              setParkScreen({
+                vault,
+                role: "investor",
+                vaultLabel: shortAddr(vault),
+              })
+            }
+            busy={busy || flowRunning}
+          />
+        ) : null}
+
+        {!overlayOpen && nav === "home" && (
           <div className="home-panels">
             {vaultsLoading && !hasVaults ? (
               <ShimmerHero />
@@ -499,9 +727,9 @@ export function SidePanelApp() {
                   <VaultSummaryShimmer />
                 ) : (
                   <VaultSummary
-                    name={selected ? vaultName(selected) : "Active vault"}
                     typeLabel={selected ? vaultType(selected) : undefined}
                     pipeline={pipeline}
+                    parkBreakdown={parkBreakdown}
                     bar={bar}
                   />
                 )}
@@ -513,7 +741,11 @@ export function SidePanelApp() {
                   layoutOk={selectedLayoutOk}
                   canPark={canPark}
                   canClose={canClose}
-                  onCreate={() => void startFlow("create-vault")}
+                  onCreate={() => {
+                    setDetailVault(null);
+                    setParkScreen(null);
+                    setCreateScreenOpen(true);
+                  }}
                   onPark={() => {
                     if (!canPark) {
                       const st = String(selected?.vaultStatus ?? "unknown");
@@ -522,7 +754,17 @@ export function SidePanelApp() {
                       );
                       return;
                     }
-                    void startFlow("deposit");
+                    setDetailVault(null);
+                    setCreateScreenOpen(false);
+                    setParkScreen({
+                      vault: activeVault,
+                      role: "strategist",
+                      vaultLabel: selected
+                        ? `${vaultName(selected)} · ${shortAddr(String(selected.pubkey ?? activeVault ?? ""))}`
+                        : activeVault
+                          ? shortAddr(activeVault)
+                          : undefined,
+                    });
                   }}
                   onTrade={() => void startFlow("open-position")}
                   onClose={() => {
@@ -537,8 +779,17 @@ export function SidePanelApp() {
                     }
                     void startFlow("close-vault");
                   }}
-                  loading={hasVaults && pipelineLoading && !pipeline}
+                  loading={hasVaults && (pipelineLoading || parkBreakdownLoading) && !pipeline}
                 />
+
+                {activeVault ? (
+                  <div className="vault-summary-address">
+                    <span className="vault-summary-address-label">Vault Address</span>
+                    <span className="vault-summary-address-value mono">
+                      {vaultAddrShort(activeVault)}
+                    </span>
+                  </div>
+                ) : null}
               </section>
             )}
 
@@ -565,6 +816,7 @@ export function SidePanelApp() {
                     ["vaults", "Vaults"],
                     ["capital", "Capital"],
                     ["positions", "Positions"],
+                    ["holdings", "Holdings"],
                   ] as const
                 ).map(([id, label]) => (
                   <button
@@ -592,33 +844,40 @@ export function SidePanelApp() {
                       {pagedVaults.slice.map((v) => {
                         const pk = String(v.pubkey ?? "");
                         const active = pk === activeVault;
+                        const status = typeof v.vaultStatus === "string" ? v.vaultStatus : "";
+                        const isClosed = status.toLowerCase() === "closed";
+                        const isLegacy = v.layoutCompatible === false;
                         return (
                           <button
                             key={pk}
                             type="button"
                             className={`row-card${active ? " active" : ""}`}
-                            onClick={() => setActiveVault(pk)}
+                            onClick={() => {
+                              setActiveVault(pk);
+                              setDetailVault(pk);
+                              setNav("home");
+                            }}
                           >
                             <div className="token-icon">
                               1V
-                              <span className="badge-dot">
-                                <IconCheck />
-                              </span>
+                              {isClosed ? (
+                                <span className="badge-dot badge-closed" title="Closed">
+                                  <IconX />
+                                </span>
+                              ) : isLegacy ? (
+                                <span className="badge-dot badge-legacy" title="Legacy account">
+                                  !
+                                </span>
+                              ) : (
+                                <span className="badge-dot" title="Active">
+                                  <IconCheck />
+                                </span>
+                              )}
                             </div>
                             <div className="row-main">
                               <div className="row-title">
                                 {vaultName(v)}
                                 <span className="chip">{vaultType(v)}</span>
-                                {v.layoutCompatible === false && (
-                                  <span className="chip chip-warn" title="Legacy account — cannot close with current program">
-                                    LEGACY
-                                  </span>
-                                )}
-                                {typeof v.vaultStatus === "string" && v.vaultStatus !== "Active" && (
-                                  <span className="chip chip-warn" title="On-chain vault status">
-                                    {String(v.vaultStatus).toUpperCase()}
-                                  </span>
-                                )}
                               </div>
                               <div className="row-sub mono">{shortAddr(pk)}</div>
                             </div>
@@ -649,75 +908,21 @@ export function SidePanelApp() {
 
             {listTab === "capital" && (
               <div className="list">
-                {pipelineLoading && !pipeline ? (
-                  <ShimmerList count={3} />
-                ) : !pipeline ? (
-                  <div className="empty-hint">Select a vault to load capital pipeline.</div>
-                ) : (
-                  <>
-                    <div className="row-card">
-                      <div className="token-icon">IN</div>
-                      <div className="row-main">
-                        <div className="row-title">Incoming intents</div>
-                        <div className="row-sub">
-                          {pipeline.incoming.count} pending + submitted
-                        </div>
-                      </div>
-                      <div className="row-right">
-                        <div className="row-value">
-                          <SolAmount
-                            value={formatLamportsAsSol(
-                              (
-                                BigInt(pipeline.incoming.pendingLamports) +
-                                BigInt(pipeline.incoming.submittedLamports)
-                              ).toString(),
-                              3,
-                            )}
-                            unit="SOL"
-                            size="md"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    <div className="row-card">
-                      <div className="token-icon">MD</div>
-                      <div className="row-main">
-                        <div className="row-title">Mandates</div>
-                        <div className="row-sub">
-                          {pipeline.mandated.count} retail · TP{" "}
-                          {pipeline.mandated.avgTakeProfitBps ?? "—"} / SL{" "}
-                          {pipeline.mandated.avgStopLossBps ?? "—"} bps
-                        </div>
-                      </div>
-                      <div className="row-right">
-                        <div className="row-value">
-                          <SolAmount
-                            value={formatLamportsAsSol(pipeline.mandated.lamports, 3)}
-                            unit="SOL"
-                            size="md"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    <div className="row-card">
-                      <div className="token-icon">BP</div>
-                      <div className="row-main">
-                        <div className="row-title">Buying power</div>
-                        <div className="row-sub">Assets + incoming</div>
-                      </div>
-                      <div className="row-right">
-                        <div className="row-value">
-                          <SolAmount
-                            value={formatLamportsAsSol(pipeline.projected.buyingPower, 3)}
-                            unit="SOL"
-                            size="md"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
+                <CapitalDetail
+                  pipeline={pipeline}
+                  activeVault={activeVault}
+                  walletPubkey={status.pubkey}
+                  pipelineLoading={pipelineLoading}
+                />
               </div>
+            )}
+
+            {listTab === "holdings" && (
+              <HoldingsTab
+                investorPubkey={status.pubkey}
+                busy={busy || flowRunning}
+                onWithdraw={(vault, shares) => void onInvestorWithdraw(vault, shares)}
+              />
             )}
 
             {listTab === "positions" && (
@@ -767,7 +972,17 @@ export function SidePanelApp() {
           </div>
         )}
 
-        {nav === "trade" && (
+        {!overlayOpen && nav === "discover" && (
+          <DiscoverPanel
+            busy={busy || flowRunning}
+            onOpenVault={(vault) => {
+              setActiveVault(vault);
+              setDetailVault(vault);
+            }}
+          />
+        )}
+
+        {!overlayOpen && nav === "trade" && (
           <TradePanel
             activeVault={activeVault}
             vaultId={
@@ -779,81 +994,148 @@ export function SidePanelApp() {
           />
         )}
 
-        {nav === "activity" && (
-          <section className="activity">
-            <h1>Activity</h1>
-            {flowState?.status === "running" && (
-              <p className="muted">Running {flowState.mode?.replace("-", " ")}…</p>
-            )}
-            {flowState?.status === "failed" && flowState.error && (
-              <div className="err">{flowState.error}</div>
-            )}
-            {flowState?.status === "completed" && (
-              <div className="ok">Last flow completed</div>
-            )}
-            <div className="flow-log">
-              {(flowState?.events ?? []).length === 0 && (
-                <div className="empty-hint">No flow steps yet — run Create vault or Park SOL.</div>
-              )}
-              {[...(flowState?.events ?? [])].reverse().map((ev, i) => (
-                <div key={`${ev.at}-${i}`} className={`flow-row ${ev.status}`}>
-                  <div className="flow-step">{ev.step}</div>
-                  <div className="flow-detail">{ev.detail ?? ev.status}</div>
-                  {ev.tx && <div className="flow-tx mono">{ev.tx.slice(0, 16)}…</div>}
-                </div>
-              ))}
+        {!overlayOpen && nav === "activity" && <HistoryPanel items={txHistory} />}
+
+        {!overlayOpen && nav === "vault" && (
+          <section className="flow-page">
+            <div className="flow-card">
+              <header className="flow-card-head">
+                <h2 className="flow-card-title">Vault tools</h2>
+                <p className="flow-card-sub">
+                  Claim fees, close vault, or unlock your 1VL licence.
+                  {activeVault ? (
+                    <>
+                      {" "}
+                      Active · <span className="mono">{shortAddr(activeVault)}</span>
+                    </>
+                  ) : (
+                    " Select a vault on Home first."
+                  )}
+                </p>
+              </header>
+
+              <div className="flow-card-body vault-tools-list">
+                <button
+                  type="button"
+                  className="vault-tool-row"
+                  disabled={busy || flowRunning || !activeVault}
+                  onClick={() => void startFlow("claim-fees")}
+                >
+                  <div className="vault-tool-copy">
+                    <span className="vault-tool-title">Claim fees</span>
+                    <span className="vault-tool-sub">Collect performance fees to wallet</span>
+                  </div>
+                  <span className="vault-tool-cta">Claim</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="vault-tool-row"
+                  disabled={busy || flowRunning || !activeVault || !canClose}
+                  onClick={() => {
+                    if (!canClose) {
+                      const st = String(selected?.vaultStatus ?? "unknown");
+                      setError(
+                        st === "Closed"
+                          ? "Vault is already Closed."
+                          : "Cannot close this vault (legacy layout or missing account)."
+                      );
+                      return;
+                    }
+                    void startFlow("close-vault");
+                  }}
+                >
+                  <div className="vault-tool-copy">
+                    <span className="vault-tool-title">Close vault</span>
+                    <span className="vault-tool-sub">Wind down and settle by share weight</span>
+                  </div>
+                  <span className="vault-tool-cta">Close</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="vault-tool-row"
+                  disabled={busy || flowRunning || !status?.pubkey}
+                  onClick={() => void onUnlockLicense()}
+                >
+                  <div className="vault-tool-copy">
+                    <span className="vault-tool-title">Unlock 1VL</span>
+                    <span className="vault-tool-sub">Release locked licence tokens</span>
+                  </div>
+                  <span className="vault-tool-cta">Unlock</span>
+                </button>
+              </div>
             </div>
-            <button
-              className="btn btn-secondary btn-block"
-              disabled={busy}
-              onClick={() => void loadVaults().then(() => refreshPipeline())}
-            >
-              Refresh vaults
-            </button>
           </section>
         )}
 
-        {nav === "vault" && (
-          <section className="hero">
-            <HeroHead
-              title="Vault tools"
-              info="Licence lock, claim fees, initiate close, unlock 1VL — Fees & Close flows."
-            />
-            <div className="hero-actions">
-              <button
-                className="btn btn-primary"
-                disabled={busy || flowRunning || !activeVault}
-                onClick={() => void startFlow("claim-fees")}
-              >
-                Claim fees
-              </button>
-              <button
-                className="btn btn-secondary"
-                disabled={busy || flowRunning || !activeVault || !canClose}
-                onClick={() => {
-                  if (!canClose) {
-                    const st = String(selected?.vaultStatus ?? "unknown");
-                    setError(
-                      st === "Closed"
-                        ? "Vault is already Closed."
-                        : "Cannot close this vault (legacy layout or missing account)."
-                    );
-                    return;
-                  }
-                  void startFlow("close-vault");
-                }}
-              >
-                Close vault
-              </button>
-            </div>
-          </section>
+        {!overlayOpen && nav === "settings" && (
+          <SettingsPanel
+            session={authSession}
+            walletPubkey={status.pubkey}
+            walletSol={walletSol}
+            onVerifyWallet={() => setBindModalOpen(true)}
+            onLock={() => void onLock()}
+            onLogout={() => void onLogout()}
+          />
         )}
+
+        {createScreenOpen ? (
+          <CreateVaultWizard
+            authUser={authUser}
+            walletPubkey={status.pubkey}
+            walletBound={Boolean(
+              authUser?.wallets?.some((w) => w.pubkey === status.pubkey)
+            )}
+            busy={busy || flowRunning}
+            onClose={() => setCreateScreenOpen(false)}
+            onConnectX={() => void onConnectX()}
+            onVerifyWallet={() => {
+              setCreateScreenOpen(false);
+              setBindModalOpen(true);
+            }}
+            onCreate={onCreateVault}
+          />
+        ) : null}
+
+        {parkScreen ? (
+          <ParkPage
+            title={parkScreen.role === "strategist" ? "Park SOL" : "Park into vault"}
+            vaultLabel={parkScreen.vaultLabel}
+            vaultPubkey={parkScreen.vault}
+            walletPubkey={status.pubkey}
+            walletSol={walletSol}
+            busy={busy || flowRunning}
+            onBack={() => setParkScreen(null)}
+            onPark={(sol) => void onParkConfirm(sol)}
+            onWithdraw={(vault, shares) => {
+              void onInvestorWithdraw(vault, shares);
+            }}
+          />
+        ) : null}
+
+        {bindModalOpen && authSession && status.pubkey ? (
+          <BindWalletModal
+            session={authSession}
+            pubkey={status.pubkey}
+            onClose={() => setBindModalOpen(false)}
+            onBound={(s) => setAuthSession(s)}
+          />
+        ) : null}
 
         {error && <div className="err">{error}</div>}
         {toast && <div className="ok">{toast}</div>}
       </div>
 
-      <BottomNav nav={nav} onNav={setNav} />
+      <BottomNav
+        nav={nav}
+        onNav={(n) => {
+          setDetailVault(null);
+          setParkScreen(null);
+          setCreateScreenOpen(false);
+          setNav(n);
+        }}
+      />
     </div>
   );
 }
@@ -960,26 +1242,28 @@ function TopBar({
   authUser,
   roleLabel,
   walletAddr,
+  walletSol,
   backendOk,
-  authBusy,
   menuOpen,
   menuRef,
   onToggleMenu,
-  onConnectX,
   onLogout,
   onLock,
+  onOpenSettings,
+  onVerifyWallet,
 }: {
   authUser?: AuthUser;
   roleLabel: string | null;
   walletAddr?: string;
+  walletSol?: string | null;
   backendOk: boolean | null;
-  authBusy?: boolean;
   menuOpen?: boolean;
   menuRef?: React.RefObject<HTMLDivElement | null>;
   onToggleMenu?: () => void;
-  onConnectX?: () => void;
   onLogout?: () => void;
   onLock?: () => void;
+  onOpenSettings?: () => void;
+  onVerifyWallet?: () => void;
 }) {
   const signedIn = Boolean(authUser);
   const statusLine = signedIn
@@ -1008,7 +1292,22 @@ function TopBar({
         </button>
         {menuOpen && signedIn && (
           <div className="sp-account-menu">
-            {walletAddr && <div className="sp-account-menu-wallet mono">{walletAddr}</div>}
+            {walletAddr && (
+              <div className="sp-account-menu-wallet mono">
+                {walletAddr}
+                {walletSol ? <span className="sp-wallet-sol"> · {walletSol} SOL</span> : null}
+              </div>
+            )}
+            {onOpenSettings && (
+              <button type="button" className="sp-account-menu-item" onClick={onOpenSettings}>
+                Settings
+              </button>
+            )}
+            {onVerifyWallet && (
+              <button type="button" className="sp-account-menu-item" onClick={onVerifyWallet}>
+                Verify wallet
+              </button>
+            )}
             {onLock && (
               <button type="button" className="sp-account-menu-item" onClick={onLock}>
                 Lock wallet
@@ -1021,16 +1320,6 @@ function TopBar({
         )}
       </div>
       <div className="sp-top-actions">
-        {!signedIn && onConnectX && (
-          <button
-            type="button"
-            className="btn btn-x"
-            disabled={authBusy}
-            onClick={onConnectX}
-          >
-            {authBusy ? "…" : "Connect X"}
-          </button>
-        )}
         <button type="button" className="icon-btn" title="1vaults" aria-label="1vaults">
           <IconLink />
         </button>
@@ -1050,8 +1339,9 @@ function TopBar({
 function BottomNav({ nav, onNav }: { nav: NavId; onNav: (n: NavId) => void }) {
   const items: Array<{ id: NavId; label: string; icon: ReactNode }> = [
     { id: "home", label: "Home", icon: <IconHome /> },
+    { id: "discover", label: "Discover", icon: <IconDiscover /> },
     { id: "trade", label: "Trade", icon: <IconMarket /> },
-    { id: "activity", label: "Activity", icon: <IconActivity /> },
+    { id: "activity", label: "History", icon: <IconActivity /> },
     { id: "vault", label: "Vault", icon: <IconVault /> },
   ];
   return (
@@ -1061,6 +1351,7 @@ function BottomNav({ nav, onNav }: { nav: NavId; onNav: (n: NavId) => void }) {
           key={it.id}
           type="button"
           className={`nav-item${nav === it.id ? " active" : ""}`}
+          data-nav={it.id}
           aria-current={nav === it.id ? "page" : undefined}
           onClick={() => onNav(it.id)}
         >

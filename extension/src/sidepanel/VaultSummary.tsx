@@ -1,4 +1,4 @@
-import { formatLamportsAsSol, type PipelineEstimate } from "../lib/estimate";
+import { formatLamportsAsSol, type ParkBreakdown, type PipelineEstimate } from "../lib/estimate";
 import { SolAmount } from "./SolAmount";
 
 type PipelineBar = {
@@ -9,40 +9,63 @@ type PipelineBar = {
 };
 
 type VaultSummaryProps = {
-  name: string;
   typeLabel?: string;
   pipeline: PipelineEstimate | null;
+  parkBreakdown: ParkBreakdown | null;
   bar: PipelineBar | null;
 };
 
-export function VaultSummary({ name, typeLabel, pipeline, bar }: VaultSummaryProps) {
-  const nav = pipeline ? formatLamportsAsSol(pipeline.nav, 3) : "—";
-  const buyingPower = pipeline ? formatLamportsAsSol(pipeline.projected.buyingPower, 3) : "—";
-  const incoming = bar ? formatLamportsAsSol(bar.incoming.toString(), 3) : "0";
+export function VaultSummary({
+  typeLabel,
+  pipeline,
+  parkBreakdown,
+  bar,
+}: VaultSummaryProps) {
+  const walletBal =
+    parkBreakdown?.walletAvailable != null
+      ? formatLamportsAsSol(parkBreakdown.walletAvailable, 1)
+      : "—";
+  const myPark = parkBreakdown
+    ? formatLamportsAsSol(parkBreakdown.strategist.committed, 0)
+    : "—";
+  const investorPark = parkBreakdown
+    ? formatLamportsAsSol(parkBreakdown.investor.committed, 0)
+    : "—";
+  const totalPark = parkBreakdown
+    ? formatLamportsAsSol(parkBreakdown.total.committed, 0)
+    : "—";
 
   return (
     <div className="vault-summary">
       <div className="vault-summary-head">
-        <span className="vault-summary-name">{name}</span>
+        <span className="vault-summary-name">Wallet Balance</span>
         {typeLabel ? <span className="chip">{typeLabel}</span> : null}
       </div>
 
       <div className="vault-summary-nav">
-        <SolAmount value={nav} unit="SOL NAV" size="display" />
+        <SolAmount value={walletBal} unit="SOL" size="display" />
       </div>
 
-      <div className="vault-summary-stats">
-        <div className="vault-stat">
-          <span className="vault-stat-label">Buying power</span>
-          <span className="vault-stat-value">
-            <SolAmount value={buyingPower} unit="SOL" size="sm" />
-          </span>
-        </div>
-        <div className="vault-stat">
-          <span className="vault-stat-label">Incoming</span>
-          <span className="vault-stat-value">
-            <SolAmount value={incoming} unit="SOL" size="sm" />
-          </span>
+      <div className="vault-summary-park-panel">
+        <div className="vault-summary-stats vault-summary-stats--3">
+          <div className="vault-stat">
+            <span className="vault-stat-label">My Park</span>
+            <span className="vault-stat-value">
+              <SolAmount value={myPark} unit="SOL" size="sm" />
+            </span>
+          </div>
+          <div className="vault-stat">
+            <span className="vault-stat-label">Investor Park</span>
+            <span className="vault-stat-value">
+              <SolAmount value={investorPark} unit="SOL" size="sm" />
+            </span>
+          </div>
+          <div className="vault-stat">
+            <span className="vault-stat-label">Total Park</span>
+            <span className="vault-stat-value">
+              <SolAmount value={totalPark} unit="SOL" size="sm" />
+            </span>
+          </div>
         </div>
       </div>
 
@@ -68,6 +91,8 @@ export function VaultSummary({ name, typeLabel, pipeline, bar }: VaultSummaryPro
             </span>
           </div>
         </div>
+      ) : pipeline ? (
+        <div className="vault-pipeline vault-pipeline--empty" aria-hidden />
       ) : null}
     </div>
   );
@@ -77,15 +102,19 @@ export function VaultSummaryShimmer() {
   return (
     <div className="vault-summary" aria-hidden>
       <div className="vault-summary-head">
-        <span className="shimmer shimmer-line shimmer-line-sm" style={{ width: "32%" }} />
+        <span className="shimmer shimmer-line shimmer-line-sm" style={{ width: "40%" }} />
         <span className="shimmer shimmer-line shimmer-line-xs" style={{ width: 52, borderRadius: 999 }} />
       </div>
       <span className="shimmer shimmer-line shimmer-nav" />
-      <div className="vault-summary-stats">
-        <span className="shimmer vault-stat-shimmer" />
-        <span className="shimmer vault-stat-shimmer" />
+      <div className="vault-summary-park-panel">
+        <div className="vault-summary-stats vault-summary-stats--3">
+          <span className="shimmer vault-stat-shimmer" />
+          <span className="shimmer vault-stat-shimmer" />
+          <span className="shimmer vault-stat-shimmer" />
+        </div>
       </div>
       <span className="shimmer shimmer-bar" />
+      <span className="shimmer shimmer-line shimmer-line-xs" style={{ width: "55%", margin: "0 auto" }} />
     </div>
   );
 }

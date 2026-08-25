@@ -154,3 +154,70 @@ func (a *API) ProtocolState(w http.ResponseWriter, r *http.Request) {
 		return map[string]any{"state": state}, nil
 	})
 }
+
+func (a *API) VaultProfile(w http.ResponseWriter, r *http.Request) {
+	pk := chi.URLParam(r, "pubkey")
+	a.okCachedErr(w, r, a.DBCache, "vault-profile:"+pk, 15*time.Second, func() (any, error) {
+		ctx := r.Context()
+		var name, strategist string
+		var nav any
+		var activeFollowers int
+		var estCapital any
+		err := a.Pool.QueryRow(ctx, `
+			SELECT v.name, v.strategist, v.nav, v.active_followers, v.estimated_follower_capital
+			FROM vaults v WHERE v.pubkey=$1`, pk).Scan(&name, &strategist, &nav, &activeFollowers, &estCapital)
+		if err != nil {
+			return nil, err
+		}
+		var returnPct any
+		_ = a.Pool.QueryRow(ctx, `
+			SELECT return_pct FROM vault_leaderboard WHERE pubkey=$1`, pk).Scan(&returnPct)
+
+		var resolvedType string
+		_ = a.Pool.QueryRow(ctx, `
+			SELECT COALESCE(NULLIF(r.vault_type,''), NULLIF(v.vault_type,''), 'pooled')
+			FROM vaults v
+			LEFT JOIN vault_type_registry r ON r.vault_pubkey = v.pubkey
+			WHERE v.pubkey=$1`, pk).Scan(&resolvedType)
+		vt := vaults.FromResolved(resolvedType)
+
+		var twitter map[string]any
+		row := a.Pool.QueryRow(ctx, `
+			SELECT u.handle, u.display_name, u.avatar_url, uw.verified_at
+			FROM user_wallets uw
+			JOIN users u ON u.id = uw.user_id
+			WHERE uw.pubkey = $1
+			ORDER BY uw.is_primary DESC, uw.verified_at DESC
+			LIMIT 1`, strategist)
+		var handle, displayName, avatarURL string
+		var verifiedAt time.Time
+		if err := row.Scan(&handle, &displayName, &avatarURL, &verifiedAt); err == nil {
+			twitter = map[string]any{
+				"handle":      handle,
+				"displayName": displayName,
+				"avatarUrl":   avatarURL,
+				"verifiedAt":  verifiedAt.UTC().Format(time.RFC3339),
+			}
+		}
+
+		out := map[string]any{
+			"pubkey":                    pk,
+			"name":                      name,
+			"strategist":                strategist,
+			"vaultType":                 string(vt),
+			"vaultTypeLabel":            vt.Label(),
+			"returnPct":                 returnPct,
+			"nav":                       nav,
+			"activeFollowers":           activeFollowers,
+			"estimatedFollowerCapital":  estCapital,
+			"twitter":                   twitter,
+		}
+		return vaults.Attach(out, vt), nil
+	}, func(err error) bool {
+		if errors.Is(err, pgx.ErrNoRows) {
+			httpx.Fail(w, r, 404, "VAULT_NOT_FOUND", "Vault not found", nil)
+			return true
+		}
+		return false
+	})
+}

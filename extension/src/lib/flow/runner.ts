@@ -63,11 +63,12 @@ async function buildStartBody(
     case "create-vault": {
       const id = await nextVaultId(strategist);
       const vaultType = input.vaultType === "sliced" ? "sliced" : "pooled";
+      const trimmed = input.vaultName?.trim();
       return {
         mode: "create-vault",
         strategist,
         vaultId: id,
-        name: vaultType === "sliced" ? `Sliced ${id}` : `Pooled ${id}`,
+        name: trimmed || (vaultType === "sliced" ? `Sliced ${id}` : `Pooled ${id}`),
         vaultType,
         investors,
       };
@@ -168,6 +169,26 @@ async function buildStartBody(
         baseAmount: input.baseAmount ?? 0,
         priorityFeeMicroLamports: DEFAULT_PRIORITY_FEE,
         computeUnitLimit: DEFAULT_CU_LIMIT,
+      };
+    }
+    case "withdraw": {
+      if (!input.vault) throw new Error("vault required");
+      if (input.shares == null || input.shares === "") throw new Error("shares required");
+      const shares =
+        typeof input.shares === "string" ? Number(BigInt(input.shares)) : input.shares;
+      return {
+        mode: "withdraw",
+        strategist,
+        vault: input.vault,
+        vaultId: input.vaultId,
+        investors: [
+          {
+            pubkey: strategist,
+            role: "investors",
+            lamports: 0,
+            shares,
+          },
+        ],
       };
     }
     default:
