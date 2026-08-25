@@ -10,7 +10,15 @@ export default defineConfig({
   appearance: "force-dark",
 
   head: [
+    [
+      "meta",
+      {
+        name: "viewport",
+        content: "width=device-width, initial-scale=1, viewport-fit=cover",
+      },
+    ],
     ["meta", { name: "theme-color", content: "#093C5D" }],
+    ["meta", { name: "mobile-web-app-capable", content: "yes" }],
     ["meta", { property: "og:title", content: "1Vault Docs" }],
     [
       "meta",

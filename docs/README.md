@@ -11,4 +11,8 @@ npm run dev
 npm run build
 ```
 
+## Vercel
+
+Root Directory: `docs`. Output is set in `vercel.json` to `.vitepress/dist`.
+
 This site is for **public usage**. Engineering / internal notes live outside this folder.
