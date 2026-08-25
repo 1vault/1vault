@@ -1,0 +1,16 @@
+{
+  "name": "1vault-docs",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "1Vault user documentation — Capital in Motion",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.4",
+    "vue": "^3.5.13"
+  }
+}

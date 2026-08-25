@@ -1,0 +1,896 @@
+/**
+ * GitBook Clean (dark) recreation for VitePress
+ * Tokens measured from https://gitbook.com/docs (theme-clean + sidebar-list-line)
+ */
+
+:root {
+  /* GitBook tint scale (dark) */
+  --tint-1: 29 29 29;
+  --tint-2: 34 34 34;
+  --tint-3: 44 44 44;
+  --tint-4: 48 48 48;
+  --tint-5: 53 53 53;
+  --tint-6: 57 57 57;
+  --tint-7: 67 67 67;
+  --tint-8: 78 78 78;
+  --tint-9: 144 144 144;
+  --tint-10: 144 144 144;
+  --tint-11: 192 192 192;
+  --tint-12: 255 255 255;
+
+  /* 1Vault accents (match extension shared.css) */
+  --primary-9: 58 168 240; /* #3aa8f0 */
+  --primary-10: 127 228 255; /* #7fe4ff */
+  --primary-11: 127 228 255;
+  --primary-12: 245 251 255;
+
+  --gb-bg: #000000;
+  --gb-bg-soft: #0a0b0d;
+  --gb-border: rgba(255, 255, 255, 0.1);
+  --gb-border-subtle: rgba(255, 255, 255, 0.08);
+  --gb-text: #ffffff;
+  --gb-text-muted: rgba(255, 255, 255, 0.72);
+  --gb-text-soft: rgba(255, 255, 255, 0.42);
+  --gb-primary: #3aa8f0;
+  --gb-primary-text: #7fe4ff;
+
+  --vp-c-brand-1: #7fe4ff;
+  --vp-c-brand-2: #3aa8f0;
+  --vp-c-brand-3: #093c5d;
+  --vp-c-brand-soft: rgba(58, 168, 240, 0.14);
+
+  --vp-c-bg: transparent;
+  --vp-c-bg-alt: transparent;
+  --vp-c-bg-elv: rgba(16, 18, 21, 0.72);
+  --vp-c-bg-soft: rgba(255, 255, 255, 0.04);
+
+  --vp-c-text-1: var(--gb-text);
+  --vp-c-text-2: var(--gb-text-muted);
+  --vp-c-text-3: var(--gb-text-soft);
+
+  --vp-c-border: var(--gb-border);
+  --vp-c-divider: var(--gb-border-subtle);
+  --vp-c-gutter: transparent;
+
+  --vp-button-brand-bg: #3aa8f0;
+  --vp-button-brand-hover-bg: #7fe4ff;
+  --vp-button-brand-text: #041018;
+  --vp-button-brand-hover-text: #041018;
+
+  --vp-nav-height: 64px;
+  --vp-sidebar-width: 280px;
+  --vp-sidebar-bg-color: transparent;
+  --vp-nav-bg-color: transparent;
+  --vp-layout-max-width: 1536px;
+
+  --vp-code-block-bg: rgba(16, 18, 21, 0.72);
+  --vp-font-family-base: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --vp-font-family-mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+
+.dark {
+  --vp-c-brand-1: #7fe4ff;
+  --vp-c-brand-2: #3aa8f0;
+  --vp-c-bg: transparent;
+  --vp-c-bg-alt: transparent;
+  --vp-c-bg-elv: rgba(16, 18, 21, 0.72);
+  --vp-c-bg-soft: rgba(255, 255, 255, 0.04);
+}
+
+html {
+  color-scheme: dark;
+  font-size: 16px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Extension shell: black + soft blue accent glow */
+body {
+  color: var(--gb-text);
+  background-color: #000000;
+  background-image:
+    radial-gradient(90% 50% at 50% -10%, rgba(15, 40, 84, 0.78) 0%, transparent 55%),
+    radial-gradient(60% 40% at 80% 0%, rgba(58, 168, 240, 0.22) 0%, transparent 50%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+.VPNavBarAppearance,
+.VPNavScreenAppearance,
+.VPSwitchAppearance {
+  display: none !important;
+}
+
+/* ========== Header (GitBook sticky 64px + blur) ========== */
+.VPNav {
+  z-index: 30;
+}
+
+.VPNavBar {
+  height: var(--vp-nav-height) !important;
+  background: rgba(0, 0, 0, 0.72) !important;
+  backdrop-filter: blur(16px) saturate(1.1);
+  -webkit-backdrop-filter: blur(16px) saturate(1.1);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.VPNavBar .wrapper,
+.VPNavBar .container,
+.VPNavBar .content-body,
+.VPNavBar.has-sidebar .title {
+  background: transparent !important;
+  border: none !important;
+}
+
+.VPNavBar .divider,
+.VPNavBar .divider-line {
+  display: none !important;
+}
+
+.VPNavBarTitle .logo {
+  height: 28px !important;
+  width: auto !important;
+  object-fit: contain;
+}
+
+.VPNavBarTitle .title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--gb-text);
+}
+
+.VPNavBarMenuLink {
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  color: var(--gb-text-muted) !important;
+  opacity: 1 !important;
+  line-height: 64px !important;
+  height: 64px !important;
+  padding: 0 4px !important;
+  margin: 0 12px !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.VPNavBarMenuLink:hover {
+  color: var(--gb-primary-text) !important;
+  background: transparent !important;
+}
+
+.VPNavBarMenuLink.active {
+  color: var(--gb-text) !important;
+  background: transparent !important;
+}
+
+/* Search — wider header chip, keep Ctrl+K keys horizontal */
+.VPNavBarSearch {
+  flex-grow: 1;
+  display: flex;
+  justify-content: flex-start;
+  max-width: 360px;
+  margin-right: auto;
+  padding-left: 8px;
+}
+
+#local-search,
+.VPNavBarSearch .DocSearch-Button {
+  width: 100%;
+}
+
+.VPNavBarSearch .DocSearch-Button {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px;
+  width: 100% !important;
+  min-width: 260px !important;
+  max-width: 360px !important;
+  height: 36px !important;
+  margin: 0 !important;
+  padding: 0 12px !important;
+  border-radius: 8px !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  background: #12141a !important;
+  color: var(--gb-text-soft) !important;
+}
+
+.VPNavBarSearch .DocSearch-Button:hover {
+  border-color: rgba(255, 255, 255, 0.2) !important;
+  background: #1a1d24 !important;
+}
+
+.VPNavBarSearch .DocSearch-Button-Container {
+  display: flex !important;
+  align-items: center !important;
+  min-width: 0;
+}
+
+.VPNavBarSearch .DocSearch-Button-Placeholder {
+  display: inline-block !important;
+  padding-right: 8px !important;
+  white-space: nowrap;
+}
+
+.VPNavBarSearch .DocSearch-Button-Keys {
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.VPNavBarSearch .DocSearch-Button-Key {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: 20px !important;
+  line-height: 20px !important;
+  margin: 0 !important;
+  white-space: nowrap !important;
+}
+
+/* ========== Sidebar (sidebar-default + list-line) ========== */
+.VPSidebar {
+  background: rgba(0, 0, 0, 0.35) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: none !important;
+  padding-top: calc(var(--vp-nav-height) + 16px) !important;
+  padding-bottom: 0 !important;
+  overflow: hidden !important;
+}
+
+.VPSidebar .curtain {
+  background: transparent !important;
+}
+
+.VPSidebar .nav {
+  height: calc(100% - var(--vp-nav-height) - 78px) !important;
+  max-height: none !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  padding-bottom: 12px !important;
+  box-sizing: border-box;
+}
+
+/* Sticky social / community buttons at sidebar bottom */
+.sidebar-social {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  background: #0a0b0d;
+}
+
+.sidebar-social__btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 54px;
+  padding: 8px 4px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  background: #12141a;
+  color: rgba(255, 255, 255, 0.88) !important;
+  text-decoration: none !important;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-align: center;
+  line-height: 1.15;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.sidebar-social__btn:hover {
+  background: #1a1d24;
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #fff !important;
+}
+
+.sidebar-social__btn[aria-disabled="true"] {
+  opacity: 0.55;
+}
+
+.sidebar-social__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: rgba(255, 255, 255, 0.85);
+  flex-shrink: 0;
+}
+
+.sidebar-social__btn:hover .sidebar-social__icon {
+  color: #7fe4ff;
+}
+
+.sidebar-social__label {
+  line-height: 1.1;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Thin scrollbars (Firefox + WebKit) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 3px;
+  height: 3px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 99px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(58, 168, 240, 0.45);
+}
+
+.VPSidebar .nav {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.VPSidebar .nav::-webkit-scrollbar {
+  width: 2px;
+}
+
+.VPSidebar .nav::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 99px;
+}
+
+/* Section group labels */
+.VPSidebarItem.level-0 {
+  padding-bottom: 20px !important;
+}
+
+.VPSidebarItem.level-0 + .VPSidebarItem.level-0 {
+  margin-top: 4px;
+  padding-top: 20px;
+  border-top: 1px solid rgb(var(--tint-3));
+}
+
+.VPSidebarItem.level-0 > .item {
+  padding: 0 8px !important;
+  margin-bottom: 6px;
+}
+
+.VPSidebarItem.level-0 .text {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: rgba(220, 230, 240, 0.72) !important;
+  line-height: 1.4 !important;
+  padding: 4px 8px !important;
+}
+
+.VPSidebarItem.level-0 .caret {
+  color: var(--gb-text-soft) !important;
+  width: 18px !important;
+  height: 18px !important;
+}
+
+.VPSidebarItem .indicator {
+  display: none !important;
+}
+
+/* list-line: nested links with left rule */
+.VPSidebarItem.level-0 > .items {
+  margin-left: 12px;
+  padding-left: 0;
+  border-left: 1px solid rgb(var(--tint-4));
+}
+
+.VPSidebarItem.level-1 > .item {
+  padding: 0 !important;
+}
+
+.VPSidebarItem.level-1 .link {
+  position: relative;
+  display: flex !important;
+  align-items: center;
+  width: 100%;
+  margin: 0;
+  padding: 4px 12px !important;
+  min-height: 0;
+  border-radius: 0 8px 8px 0;
+  border-left: 2px solid transparent;
+  margin-left: -1px;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.VPSidebarItem.level-1 .text {
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  line-height: 1.35 !important;
+  padding: 4px 0 !important;
+  color: var(--gb-text-muted) !important;
+  letter-spacing: -0.01em;
+}
+
+.VPSidebarItem.level-1.is-link > .item > .link:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.VPSidebarItem.level-1.is-link > .item > .link:hover .text {
+  color: var(--gb-text) !important;
+}
+
+.VPSidebarItem.level-1.is-active > .item > .link {
+  background: rgba(58, 168, 240, 0.1);
+  border-left-color: #3aa8f0;
+}
+
+.VPSidebarItem.level-1.is-active > .item .link > .text {
+  color: var(--gb-text) !important;
+  font-weight: 600 !important;
+}
+
+/* ========== Content column (max-w-3xl feel) ========== */
+.VPDoc {
+  padding-top: 32px !important;
+}
+
+@media (min-width: 960px) {
+  .VPDoc {
+    padding: 32px 32px 96px !important;
+  }
+
+  .VPDoc.has-aside .content-container {
+    max-width: 48rem !important; /* GitBook max-w-3xl */
+  }
+
+  .VPDoc .aside {
+    padding-left: 32px;
+    max-width: 240px;
+  }
+
+  .VPDoc .aside-container,
+  .VPDoc .aside-curtain {
+    width: 220px !important;
+  }
+
+  .VPDoc .aside-curtain {
+    background: linear-gradient(transparent, rgba(0, 0, 0, 0.92) 70%) !important;
+  }
+}
+
+.vp-doc {
+  font-size: 16px;
+  line-height: 1.7;
+  letter-spacing: -0.011em;
+  color: color-mix(in oklab, rgb(var(--tint-12)) 88%, transparent);
+}
+
+.vp-doc h1 {
+  margin: 0 0 12px !important;
+  font-size: 2.25rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.025em;
+  line-height: 1.15 !important;
+  border: none !important;
+  color: var(--gb-text) !important;
+  font-family: var(--vp-font-family-base) !important;
+}
+
+@media (min-width: 640px) {
+  .vp-doc h1 {
+    font-size: 2.5rem !important;
+  }
+}
+
+.vp-doc h2 {
+  margin: 2.5em 0 0.75em !important;
+  padding-top: 0.25em !important;
+  font-size: 1.5rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.02em;
+  border-top: none !important;
+  color: var(--gb-text) !important;
+  font-family: var(--vp-font-family-base) !important;
+}
+
+.vp-doc h2 .header-anchor {
+  top: 0.25em;
+}
+
+.vp-doc h3 {
+  margin: 1.75em 0 0.5em !important;
+  font-size: 1.125rem !important;
+  font-weight: 650 !important;
+  letter-spacing: -0.015em;
+  color: var(--gb-text) !important;
+  font-family: var(--vp-font-family-base) !important;
+}
+
+.vp-doc p {
+  margin: 1em 0;
+  color: color-mix(in oklab, rgb(var(--tint-12)) 82%, transparent);
+}
+
+.vp-doc li {
+  margin: 0.35em 0;
+  color: color-mix(in oklab, rgb(var(--tint-12)) 82%, transparent);
+}
+
+.vp-doc ul,
+.vp-doc ol {
+  padding-left: 1.35em;
+  margin: 1em 0;
+}
+
+.vp-doc a {
+  color: var(--gb-primary-text);
+  font-weight: 500;
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+.vp-doc a:hover {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklab, rgb(var(--primary-11)) 55%, transparent);
+}
+
+.vp-doc strong {
+  color: var(--gb-text);
+  font-weight: 600;
+}
+
+.vp-doc blockquote {
+  margin: 1.25em 0;
+  padding: 0 0 0 1em;
+  border-left: 2px solid rgb(var(--tint-5));
+  color: var(--gb-text-muted);
+  font-style: normal;
+  background: transparent;
+}
+
+.vp-doc hr {
+  border-color: rgb(var(--tint-3));
+  margin: 2em 0;
+}
+
+.vp-doc table {
+  display: table;
+  width: 100%;
+  margin: 1.35em 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  background:
+    linear-gradient(
+      160deg,
+      rgba(255, 255, 255, 0.07) 0%,
+      rgba(16, 18, 21, 0.62) 40%,
+      rgba(10, 11, 13, 0.72) 100%
+    );
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+  box-shadow:
+    0 10px 36px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.vp-doc tr {
+  background-color: transparent !important;
+}
+
+.vp-doc tr:nth-child(2n) {
+  background-color: rgba(255, 255, 255, 0.03) !important;
+}
+
+.vp-doc th,
+.vp-doc td {
+  border: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 12px 16px;
+  font-size: 14px;
+  background: transparent !important;
+}
+
+.vp-doc tr:last-child td {
+  border-bottom: none;
+}
+
+.vp-doc th {
+  background: rgba(255, 255, 255, 0.06) !important;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.88);
+  text-align: left;
+  text-transform: none;
+  letter-spacing: -0.01em;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.vp-doc th:first-child {
+  border-top-left-radius: 13px;
+}
+
+.vp-doc th:last-child {
+  border-top-right-radius: 13px;
+}
+
+.vp-doc tr:hover td {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+.vp-doc td {
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.vp-doc :not(pre) > code {
+  border-radius: 6px;
+  padding: 0.15em 0.4em;
+  font-size: 0.875em;
+  background: rgb(var(--tint-3));
+  color: var(--gb-text);
+  border: none;
+}
+
+.vp-doc div[class*="language-"] {
+  border-radius: 12px !important;
+  border: 1px solid rgb(var(--tint-4));
+  margin: 1.25em 0 !important;
+  background: rgb(var(--tint-2)) !important;
+}
+
+/* Hints / custom blocks — GitBook style */
+.custom-block {
+  border-radius: 12px !important;
+  border: 1px solid rgb(var(--tint-4)) !important;
+  padding: 14px 16px !important;
+  margin: 1.25em 0 !important;
+  background: rgb(var(--tint-2)) !important;
+}
+
+.custom-block.tip,
+.custom-block.info {
+  border-color: rgba(14, 111, 168, 0.35) !important;
+  background: rgba(14, 111, 168, 0.12) !important;
+}
+
+.custom-block.warning {
+  border-color: rgba(234, 179, 8, 0.3) !important;
+  background: rgba(234, 179, 8, 0.08) !important;
+}
+
+.custom-block.danger {
+  border-color: rgba(244, 63, 94, 0.3) !important;
+  background: rgba(244, 63, 94, 0.08) !important;
+}
+
+.custom-block .custom-block-title {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+/* FAQ accordion (::: details) */
+.vp-doc details {
+  margin: 10px 0 !important;
+  padding: 0 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 12px !important;
+  background: rgba(16, 18, 21, 0.55) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.vp-doc details:hover {
+  border-color: rgba(255, 255, 255, 0.16) !important;
+}
+
+.vp-doc details[open] {
+  border-color: rgba(255, 255, 255, 0.14) !important;
+  background: rgba(16, 18, 21, 0.72) !important;
+}
+
+.vp-doc details + details {
+  margin-top: 8px !important;
+}
+
+.vp-doc details summary {
+  position: relative;
+  display: flex !important;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 44px 14px 16px !important;
+  margin: 0 !important;
+  font-size: 14.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em;
+  line-height: 1.4 !important;
+  color: rgba(255, 255, 255, 0.92) !important;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.vp-doc details summary::-webkit-details-marker {
+  display: none;
+}
+
+.vp-doc details summary::marker {
+  content: "";
+}
+
+.vp-doc details summary::after {
+  content: "";
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-right: 1.5px solid rgba(255, 255, 255, 0.45);
+  border-bottom: 1.5px solid rgba(255, 255, 255, 0.45);
+  transform: translateY(-65%) rotate(45deg);
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.vp-doc details[open] summary::after {
+  transform: translateY(-20%) rotate(225deg);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.vp-doc details summary:hover {
+  color: #fff !important;
+}
+
+.vp-doc details .details-content,
+.vp-doc details > :not(summary) {
+  margin: 0 !important;
+  padding: 0 16px 14px !important;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 14.5px;
+  line-height: 1.65;
+  border-top: none;
+}
+
+.vp-doc details > p,
+.vp-doc details > ul,
+.vp-doc details > ol {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 12px !important;
+}
+
+.vp-doc .faq-page h2,
+.vp-doc h2 {
+  margin-top: 2.2em;
+}
+
+/* Tighter FAQ section rhythm when details follow h2 */
+.vp-doc h2 + details {
+  margin-top: 14px !important;
+}
+
+/* ========== Right outline (On this page) ========== */
+.VPDocAside .outline-title {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.01em !important;
+  text-transform: none !important;
+  color: rgba(220, 230, 240, 0.62) !important;
+  padding-bottom: 12px !important;
+  line-height: 1.3 !important;
+}
+
+.VPDocAsideOutline .content {
+  border: none !important;
+  background: transparent !important;
+  padding-left: 0 !important;
+}
+
+.VPDocAside .outline-marker {
+  width: 2px !important;
+  left: 0 !important;
+  border-radius: 1px;
+  background: #3aa8f0 !important;
+}
+
+.VPDocAside .outline-link {
+  font-size: 13px !important;
+  line-height: 1.4 !important;
+  color: var(--gb-text-soft) !important;
+  padding: 4px 0 4px 12px !important;
+  border-left: 1px solid rgb(var(--tint-4));
+  border-radius: 0 !important;
+  transition: color 0.15s ease;
+}
+
+.VPDocAside .outline-link:hover,
+.VPDocAside .outline-link.active {
+  color: var(--gb-text) !important;
+}
+
+/* ========== Pager / footer ========== */
+.pager-link {
+  border-radius: 12px !important;
+  border: 1px solid rgb(var(--tint-4)) !important;
+  background: transparent !important;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.pager-link:hover {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border-color: rgb(var(--tint-6)) !important;
+}
+
+.pager-link .title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pager-link .desc {
+  font-size: 12px;
+  color: var(--gb-text-soft);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.VPDocFooter {
+  margin-top: 48px !important;
+  border-top: 1px solid rgb(var(--tint-3));
+  padding-top: 24px;
+}
+
+.VPDocFooter .last-updated {
+  font-size: 13px;
+  color: var(--gb-text-soft);
+}
+
+.VPFooter {
+  border-top: 1px solid rgb(var(--tint-3)) !important;
+  background: transparent !important;
+}
+
+.VPFooter .message,
+.VPFooter .copyright {
+  font-size: 13px;
+  color: var(--gb-text-soft);
+}
+
+.VPLocalSearchBox .shell {
+  border-radius: 12px !important;
+  border: 1px solid rgb(var(--tint-4)) !important;
+  background: rgb(var(--tint-2)) !important;
+  overflow: hidden;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+}
+
+.VPLocalNav {
+  background: rgba(0, 0, 0, 0.72) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px);
+}
