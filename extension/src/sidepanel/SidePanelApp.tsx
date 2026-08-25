@@ -9,6 +9,7 @@ import {
   type AuthSession,
   type AuthUser,
   displayXName,
+  formatXHandle,
   loadStoredSession,
   logoutAuth,
   refreshAuthSession,
@@ -19,6 +20,7 @@ import {
   IconActivity,
   IconCheck,
   IconClose,
+  IconCopy,
   IconCreate,
   IconDiscover,
   IconDown,
@@ -59,8 +61,8 @@ function shortAddr(pk: string) {
 }
 
 function vaultAddrShort(pk: string) {
-  if (pk.length < 12) return pk;
-  return `${pk.slice(0, 3)}.........${pk.slice(-4)}`;
+  if (pk.length < 10) return pk;
+  return `${pk.slice(0, 4)}…${pk.slice(-4)}`;
 }
 
 function vaultName(v: VaultRow) {
@@ -109,10 +111,10 @@ function friendlyFlowError(raw: string): string {
       raw
     )
   ) {
-    return "Not enough 1VL licence tokens to create a vault. Get 1VL (swap), then try again.";
+    return "Not enough $1VAULT licence tokens to create a vault. Get $1VAULT (swap), then try again.";
   }
   if (/LicenseAlreadyActive|license already active|already locked/i.test(raw)) {
-    return "Licence record already active. Retry Create, or unlock 1VL after closing other vaults.";
+    return "Licence record already active. Retry Create, or unlock $1VAULT after closing other vaults.";
   }
   if (/insufficient.?sol|insufficient.?funds|Attempt to debit an account but found no record of a prior credit/i.test(raw)) {
     return "Not enough SOL for fees and initial park. Add SOL to your wallet and retry.";
@@ -123,11 +125,11 @@ function friendlyFlowError(raw: string): string {
   if (/keyring locked|unlock wallet password|unlock first/i.test(raw)) {
     return "Wallet is locked. Enter your keyring password on the unlock screen, then retry.";
   }
-  if (/ActiveVaultsRemain|still has .* active vault|cannot unlock 1VL/i.test(raw)) {
-    return "Cannot release 1VL while you still have active vaults. Close all vaults first, then Release.";
+  if (/ActiveVaultsRemain|still has .* active vault|cannot unlock 1VL|cannot unlock \$1VAULT/i.test(raw)) {
+    return "Cannot release $1VAULT while you still have active vaults. Close all vaults first, then Release.";
   }
   if (/licence already unlocked|LicenseNotActive/i.test(raw)) {
-    return "1VL licence is already released.";
+    return "$1VAULT licence is already released.";
   }
   if (/a flow is already running/i.test(raw)) {
     return "Another transaction is still running. Wait for it to finish or cancel it.";
@@ -161,6 +163,8 @@ export function SidePanelApp() {
   const [authBusy, setAuthBusy] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [bindModalOpen, setBindModalOpen] = useState(false);
+  const [vaultAddrCopied, setVaultAddrCopied] = useState(false);
+  const vaultCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [walletSol, setWalletSol] = useState<string | null>(null);
   const [parkBreakdown, setParkBreakdown] = useState<ParkBreakdown | null>(null);
   const [parkBreakdownLoading, setParkBreakdownLoading] = useState(false);
@@ -453,7 +457,7 @@ export function SidePanelApp() {
   const canPark = Boolean(selected?.canPark);
   const canClose = Boolean(selected?.canClose);
   const canClaimFees = Boolean(selected?.layoutCompatible);
-  // Unlock 1VL only when every listed vault is Closed (or none left).
+  // Unlock $1VAULT only when every listed vault is Closed (or none left).
   const openVaultCount = vaults.filter((v) => String(v.vaultStatus ?? "") !== "Closed").length;
   const canUnlockLicense = openVaultCount === 0;
 
@@ -465,6 +469,8 @@ export function SidePanelApp() {
       vault?: string;
       vaultType?: "pooled" | "sliced";
       vaultName?: string;
+      performanceFeeBps?: number;
+      earlyExitFeeBps?: number;
       parkSol?: number;
       positionId?: number;
       tradeId?: number;
@@ -498,6 +504,8 @@ export function SidePanelApp() {
         vaultId,
         vaultType: opts?.vaultType,
         vaultName: opts?.vaultName,
+        performanceFeeBps: opts?.performanceFeeBps,
+        earlyExitFeeBps: opts?.earlyExitFeeBps,
         parkSol: opts?.parkSol ?? 0.1,
         positionId: opts?.positionId,
         tradeId: opts?.tradeId,
@@ -516,12 +524,12 @@ export function SidePanelApp() {
   async function onUnlockLicense() {
     if (!status?.pubkey || flowRunning) return;
     if (!status.unlocked) {
-      setError("Unlock your wallet password first, then use Unlock 1VL.");
+      setError("Unlock your wallet password first, then use Unlock $1VAULT.");
       return;
     }
     if (!canUnlockLicense) {
       setError(
-        `Cannot release 1VL while ${openVaultCount} vault(s) are still open. Close all vaults first.`
+        `Cannot release $1VAULT while ${openVaultCount} vault(s) are still open. Close all vaults first.`
       );
       return;
     }
@@ -531,13 +539,13 @@ export function SidePanelApp() {
       await sendBg({ type: "UNLOCK_LICENSE", strategist: status.pubkey });
       setTxHistory((prev) => {
         const next = [
-          { id: `${Date.now()}-unlock`, label: "1VL unlocked", at: new Date().toISOString() },
+          { id: `${Date.now()}-unlock`, label: "$1VAULT unlocked", at: new Date().toISOString() },
           ...prev,
         ].slice(0, 30);
         void chrome.storage.session.set({ txHistory: next });
         return next;
       });
-      setToast("1VL licence unlocked");
+      setToast("$1VAULT licence unlocked");
       window.setTimeout(() => setToast(null), 3000);
     } catch (e) {
       setError(friendlyFlowError(e instanceof Error ? e.message : String(e)));
@@ -594,6 +602,8 @@ export function SidePanelApp() {
     void startFlow("create-vault", {
       vaultName: result.vaultName,
       vaultType: result.vaultType,
+      performanceFeeBps: result.performanceFeeBps,
+      earlyExitFeeBps: result.earlyExitFeeBps,
     }).catch(() => {
       /* startFlow already sets friendly error */
     });
@@ -920,11 +930,58 @@ export function SidePanelApp() {
                 />
 
                 {activeVault ? (
-                  <div className="vault-summary-address">
-                    <span className="vault-summary-address-label">Vault Address</span>
-                    <span className="vault-summary-address-value mono">
-                      {vaultAddrShort(activeVault)}
-                    </span>
+                  <div className="vault-summary-meta">
+                    <div className="vault-summary-meta-left">
+                      <span className="vault-summary-meta-label">Vault</span>
+                      <span className="vault-summary-meta-addr mono" title={activeVault}>
+                        {vaultAddrShort(activeVault)}
+                      </span>
+                      <button
+                        type="button"
+                        className="vault-summary-copy"
+                        title={vaultAddrCopied ? "Copied" : "Copy vault address"}
+                        aria-label={vaultAddrCopied ? "Copied" : "Copy vault address"}
+                        onClick={() => {
+                          void navigator.clipboard.writeText(activeVault).then(() => {
+                            setVaultAddrCopied(true);
+                            if (vaultCopyTimer.current) clearTimeout(vaultCopyTimer.current);
+                            vaultCopyTimer.current = setTimeout(() => setVaultAddrCopied(false), 1200);
+                          });
+                        }}
+                      >
+                        {vaultAddrCopied ? <IconCheck width={11} height={11} /> : <IconCopy width={11} height={11} />}
+                      </button>
+                    </div>
+                    <div className="vault-summary-meta-right">
+                      {authUser &&
+                      status?.pubkey &&
+                      authUser.wallets?.some((w) => w.pubkey === status.pubkey) ? (
+                        <div className="vault-summary-x verified">
+                          <span className="vault-summary-x-handle">
+                            {formatXHandle(authUser) || displayXName(authUser)}
+                          </span>
+                          <span className="vault-summary-x-badge">Verified</span>
+                        </div>
+                      ) : authUser ? (
+                        <button
+                          type="button"
+                          className="vault-summary-x-btn"
+                          disabled={authBusy || busy}
+                          onClick={() => setBindModalOpen(true)}
+                        >
+                          Verify X
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="vault-summary-x-btn"
+                          disabled={authBusy || busy}
+                          onClick={() => void onConnectX()}
+                        >
+                          {authBusy ? "…" : "Connect X"}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ) : null}
               </section>
@@ -1162,7 +1219,7 @@ export function SidePanelApp() {
               <header className="flow-card-head">
                 <h2 className="flow-card-title">Vault tools</h2>
                 <p className="flow-card-sub">
-                  Claim fees, close vault, or unlock your 1VL licence.
+                  Claim fees, close vault, or unlock your $1VAULT licence.
                   {activeVault ? (
                     <>
                       {" "}
@@ -1230,13 +1287,13 @@ export function SidePanelApp() {
                   disabled={busy || flowRunning || !status?.pubkey || !canUnlockLicense}
                   title={
                     !canUnlockLicense
-                      ? `Close ${openVaultCount} open vault(s) before releasing 1VL`
+                      ? `Close ${openVaultCount} open vault(s) before releasing $1VAULT`
                       : undefined
                   }
                   onClick={() => void onUnlockLicense()}
                 >
                   <div className="vault-tool-copy">
-                    <span className="vault-tool-title">Unlock 1VL</span>
+                    <span className="vault-tool-title">Unlock $1VAULT</span>
                     <span className="vault-tool-sub">
                       {canUnlockLicense
                         ? "Release on-chain licence tokens (not wallet password)"

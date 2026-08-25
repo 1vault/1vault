@@ -292,7 +292,18 @@ export function VaultProfileView({
       });
     }
     if (fees.performanceFeeBps != null) {
-      rows.push({ label: "Performance", value: `${fees.performanceFeeBps} bps` });
+      const pct = Number(fees.performanceFeeBps) / 100;
+      rows.push({
+        label: "Performance",
+        value: `${pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1)}% of profit`,
+      });
+    }
+    if (fees.earlyExitFeeBps != null && Number(fees.earlyExitFeeBps) > 0) {
+      const pct = Number(fees.earlyExitFeeBps) / 100;
+      rows.push({
+        label: "Early exit",
+        value: `${pct % 1 === 0 ? pct.toFixed(0) : pct.toFixed(1)}% of profit`,
+      });
     }
     if (fees.managementFeeBps != null) {
       rows.push({ label: "Management", value: `${fees.managementFeeBps} bps` });

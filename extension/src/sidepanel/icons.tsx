@@ -158,6 +158,15 @@ export function IconLink(p: Props) {
   );
 }
 
+export function IconCopy(p: Props) {
+  return (
+    <I width={p.width ?? 12} height={p.height ?? 12} className={p.className} strokeWidth={2}>
+      <rect x="9" y="9" width="10" height="10" rx="1.5" />
+      <path d="M5 15V5.5A1.5 1.5 0 0 1 6.5 4H15" strokeLinecap="round" />
+    </I>
+  );
+}
+
 export function IconDown(p: Props) {
   return (
     <I width={p.width ?? 16} height={p.height ?? 16} className={p.className} strokeWidth={2.4}>

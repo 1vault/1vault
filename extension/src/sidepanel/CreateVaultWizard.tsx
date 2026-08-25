@@ -8,17 +8,36 @@ type VaultType = "pooled" | "sliced";
 export type CreateVaultResult = {
   vaultName: string;
   vaultType: VaultType;
+  /** Performance fee on eligible profit above HWM (default 20% = 2000 bps). */
+  performanceFeeBps: number;
+  /** Sliced only: fee on realized profit when an investor exits early (pooled must be 0). */
+  earlyExitFeeBps: number;
 };
+
+const DEFAULT_PERFORMANCE_FEE_PCT = 20;
+const DEFAULT_EARLY_EXIT_FEE_PCT = 10;
+const MAX_PERFORMANCE_FEE_PCT = 50;
+const MAX_EARLY_EXIT_FEE_PCT = 20;
 
 const TERMS = [
   "You understand DeFi vault trading involves risk of partial or total loss of parked SOL.",
-  "Creating a vault requires locking 1VL licence tokens as defined by the protocol.",
+  "Creating a vault requires locking $1VAULT licence tokens as defined by the protocol.",
   "Investors park and configure follow settings separately after the vault exists.",
   "You are responsible for your own risk management, fees, and on-chain transaction confirmations.",
   "Licence tokens locked for this vault are returned in full when the vault is closed.",
 ];
 
 type Step = 1 | 2 | 3 | 4;
+
+function pctToBps(pct: number): number {
+  return Math.round(Math.max(0, pct) * 100);
+}
+
+function parsePct(raw: string): number | null {
+  const n = Number(String(raw).trim().replace(",", "."));
+  if (!Number.isFinite(n)) return null;
+  return n;
+}
 
 export function CreateVaultWizard({
   authUser,
@@ -42,6 +61,8 @@ export function CreateVaultWizard({
   const [step, setStep] = useState<Step>(1);
   const [vaultName, setVaultName] = useState("");
   const [vaultType, setVaultType] = useState<VaultType>("pooled");
+  const [performanceFeePct, setPerformanceFeePct] = useState(String(DEFAULT_PERFORMANCE_FEE_PCT));
+  const [earlyExitFeePct, setEarlyExitFeePct] = useState(String(DEFAULT_EARLY_EXIT_FEE_PCT));
   const [agreed, setAgreed] = useState(false);
   const [lockConfirmed, setLockConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,10 +72,33 @@ export function CreateVaultWizard({
 
   const nameOk = vaultName.trim().length >= 2 && vaultName.trim().length <= 32;
 
+  function selectVaultType(next: VaultType) {
+    setVaultType(next);
+    if (next === "pooled") setEarlyExitFeePct("0");
+    else if (Number(earlyExitFeePct) === 0) setEarlyExitFeePct(String(DEFAULT_EARLY_EXIT_FEE_PCT));
+  }
+
+  function validateFees(): { performanceFeeBps: number; earlyExitFeeBps: number } | null {
+    const perf = parsePct(performanceFeePct);
+    if (perf == null || perf < 0 || perf > MAX_PERFORMANCE_FEE_PCT) {
+      setError(`Performance fee must be 0–${MAX_PERFORMANCE_FEE_PCT}% of eligible profit`);
+      return null;
+    }
+    if (vaultType === "pooled") {
+      return { performanceFeeBps: pctToBps(perf), earlyExitFeeBps: 0 };
+    }
+    const early = parsePct(earlyExitFeePct);
+    if (early == null || early < 0 || early > MAX_EARLY_EXIT_FEE_PCT) {
+      setError(`Early exit fee must be 0–${MAX_EARLY_EXIT_FEE_PCT}% of realized profit`);
+      return null;
+    }
+    return { performanceFeeBps: pctToBps(perf), earlyExitFeeBps: pctToBps(early) };
+  }
+
   async function loadLicense(silent = false) {
     if (!walletPubkey) {
       setLicense(null);
-      setLicenseError("Unlock your wallet to check 1VL balance.");
+      setLicenseError("Unlock your wallet to check $1VAULT balance.");
       return;
     }
     if (!silent) setLicenseLoading(true);
@@ -83,6 +127,7 @@ export function CreateVaultWizard({
       setError("Vault name must be 2–32 characters");
       return;
     }
+    if (!validateFees()) return;
     setStep(2);
   }
 
@@ -104,9 +149,13 @@ export function CreateVaultWizard({
 
   function submit() {
     if (!agreed || !nameOk || !license?.hasEnough || !lockConfirmed) return;
+    const fees = validateFees();
+    if (!fees) return;
     onCreate({
       vaultName: vaultName.trim(),
       vaultType,
+      performanceFeeBps: fees.performanceFeeBps,
+      earlyExitFeeBps: vaultType === "pooled" ? 0 : fees.earlyExitFeeBps,
     });
   }
 
@@ -159,7 +208,7 @@ export function CreateVaultWizard({
                     type="button"
                     className={`seg-btn${vaultType === id ? " active" : ""}`}
                     disabled={busy}
-                    onClick={() => setVaultType(id)}
+                    onClick={() => selectVaultType(id)}
                   >
                     {label}
                   </button>
@@ -167,8 +216,71 @@ export function CreateVaultWizard({
               </div>
             </div>
 
+            <p className="muted field-hint">
+              {vaultType === "pooled"
+                ? "Shared book — investors ride your trades. Set a performance fee on eligible profit."
+                : "Sliced book — investors can exit early. Set performance fee + early-exit fee to you."}
+            </p>
+
+            <div className="wizard-fee-block">
+              <div className="wizard-fee-head">
+                <h3 className="wizard-fee-title">Fee settings</h3>
+                <p className="wizard-fee-sub">
+                  {vaultType === "pooled"
+                    ? "Investors see this before they park."
+                    : "Performance + early exit. Investors see both before they park."}
+                </p>
+              </div>
+
+              <div className="field">
+                <label htmlFor="perf-fee">Performance fee (%)</label>
+                <input
+                  id="perf-fee"
+                  type="number"
+                  min={0}
+                  max={MAX_PERFORMANCE_FEE_PCT}
+                  step={1}
+                  inputMode="decimal"
+                  placeholder={`e.g. ${DEFAULT_PERFORMANCE_FEE_PCT}`}
+                  value={performanceFeePct}
+                  disabled={busy}
+                  onChange={(e) => setPerformanceFeePct(e.target.value)}
+                />
+                <span className="field-hint muted">
+                  % of eligible profit above high-water mark. Default {DEFAULT_PERFORMANCE_FEE_PCT}%,
+                  max {MAX_PERFORMANCE_FEE_PCT}%.
+                </span>
+              </div>
+
+              {vaultType === "sliced" ? (
+                <div className="field">
+                  <label htmlFor="early-exit-fee">Early exit fee (%)</label>
+                  <input
+                    id="early-exit-fee"
+                    type="number"
+                    min={0}
+                    max={MAX_EARLY_EXIT_FEE_PCT}
+                    step={1}
+                    inputMode="decimal"
+                    placeholder={`e.g. ${DEFAULT_EARLY_EXIT_FEE_PCT}`}
+                    value={earlyExitFeePct}
+                    disabled={busy}
+                    onChange={(e) => setEarlyExitFeePct(e.target.value)}
+                  />
+                  <span className="field-hint muted">
+                    % of realized profit when an investor exits while your book is still active.
+                    Default {DEFAULT_EARLY_EXIT_FEE_PCT}%, max {MAX_EARLY_EXIT_FEE_PCT}%.
+                  </span>
+                </div>
+              ) : (
+                <p className="muted field-hint" style={{ margin: 0 }}>
+                  Early exit fee is not used for Pooled (always 0 on-chain).
+                </p>
+              )}
+            </div>
+
             <p className="muted" style={{ margin: 0, fontSize: "var(--fs-xs)" }}>
-              Investors will park SOL and set follow settings after the vault is created.
+              Investors park SOL and set follow settings after the vault is created.
             </p>
 
             {error ? <div className="err">{error}</div> : null}
@@ -242,8 +354,12 @@ export function CreateVaultWizard({
             <header className="flow-card-head">
               <h2 className="flow-card-title">Terms</h2>
               <p className="flow-card-sub">
-                Creating <strong>{vaultName.trim()}</strong> ({vaultType}) as strategist only — no
-                initial park.
+                Creating <strong>{vaultName.trim()}</strong> ({vaultType}) as strategist — performance
+                fee {performanceFeePct || "0"}%
+                {vaultType === "sliced"
+                  ? ` · early exit fee ${earlyExitFeePct || "0"}%`
+                  : ""}
+                . No initial park on create.
               </p>
             </header>
 
@@ -284,16 +400,16 @@ export function CreateVaultWizard({
         {step === 4 && (
           <div className="flow-card-body">
             <header className="flow-card-head">
-              <h2 className="flow-card-title">1VL licence</h2>
+              <h2 className="flow-card-title">$1VAULT licence</h2>
               <p className="flow-card-sub">
-                Vault creation locks 1VL into the vault. When the vault is closed, those tokens are
-                returned in full.
+                Vault creation locks <strong>$1VAULT</strong> into the vault. When the vault is closed,
+                those tokens are returned in full.
               </p>
             </header>
 
             {licenseLoading && !license ? (
               <div className="wizard-x-card">
-                <p className="muted">Checking wallet 1VL balance…</p>
+                <p className="muted">Checking wallet $1VAULT balance…</p>
               </div>
             ) : null}
 
@@ -317,8 +433,8 @@ export function CreateVaultWizard({
                 {!license.hasEnough ? (
                   <div className="wizard-x-card wizard-license-need">
                     <p className="muted" style={{ margin: "0 0 10px" }}>
-                      You do not hold enough 1VL yet. Open Swap to buy licence tokens, then come back
-                      and refresh.
+                      You do not hold enough $1VAULT yet. Open Swap to buy licence tokens, then come
+                      back and refresh.
                     </p>
                     <div className="wizard-license-actions">
                       <button
@@ -342,8 +458,9 @@ export function CreateVaultWizard({
                 ) : (
                   <div className="wizard-x-card">
                     <p className="muted" style={{ margin: "0 0 10px" }}>
-                      You hold enough 1VL. Confirm locking <strong>{license.lockDisplay}</strong> into
-                      this vault. On close, the full amount is returned to your wallet.
+                      You hold enough $1VAULT. Confirm locking{" "}
+                      <strong>{license.lockDisplay}</strong> into this vault. On close, the full
+                      amount is returned to your wallet.
                     </p>
                     <label className="wizard-check">
                       <input
@@ -371,7 +488,7 @@ export function CreateVaultWizard({
             ) : !licenseLoading ? (
               <div className="wizard-x-card wizard-license-need">
                 <p className="muted" style={{ margin: "0 0 10px" }}>
-                  Could not read 1VL balance. Open Swap to get licence tokens, or retry the check.
+                  Could not read $1VAULT balance. Open Swap to get licence tokens, or retry the check.
                 </p>
                 <div className="wizard-license-actions">
                   <button type="button" className="btn btn-primary btn-block" disabled={busy} onClick={openSwap}>

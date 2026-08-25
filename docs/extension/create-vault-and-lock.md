@@ -21,15 +21,17 @@ Subtitle: this name shows on Discover and your vault profile.
 | Field | Rules |
 |-------|--------|
 | **Vault name** | 2–32 characters (example: `Night Runner`) |
-| **Type** | **Pooled** (shared book) or **Sliced** (future-style badge; shipping book is pooled) |
-| **Initial park (SOL)** | Must be **greater than 0** (default often `0.1`) |
+| **Type** | **Pooled** (shared book) or **Sliced** (early investor exits) |
+| **Performance fee (%)** | % of eligible profit above high-water mark (default **20%**, max 50%) |
+| **Early exit fee (%)** | **Sliced only** — % of realized profit when an investor exits while the strategist book is still active (default **10%**, max 20%). **Pooled** forces this to **0** on-chain. |
 
 Buttons: **Cancel** · **Next**
 
 | If you see… | Fix |
 |-------------|-----|
+| Name too short / long | Use 2–32 characters |
+| Fee out of range | Keep performance ≤ 50%; early exit ≤ 20% |
 | Vault name must be 2–32 characters | Shorten or lengthen the name |
-| Initial park must be greater than 0 SOL | Enter a positive amount |
 
 ---
 
@@ -55,7 +57,7 @@ More: [Connect X](/extension/connect-x).
 
 You see a short summary, for example:
 
-> Creating **{name}** ({type}) with {park} SOL initial park
+> Creating **{name}** ({type}) as strategist — performance fee X% · early exit fee Y% (sliced only). No initial park on create.
 
 Bullets cover:
 

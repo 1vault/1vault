@@ -64,12 +64,24 @@ async function buildStartBody(
       const id = await nextVaultId(strategist);
       const vaultType = input.vaultType === "sliced" ? "sliced" : "pooled";
       const trimmed = input.vaultName?.trim();
+      const performanceFeeBps =
+        input.performanceFeeBps != null && Number.isFinite(input.performanceFeeBps)
+          ? Math.max(0, Math.min(10_000, Math.round(input.performanceFeeBps)))
+          : 2000;
+      const earlyExitFeeBps =
+        vaultType === "pooled"
+          ? 0
+          : input.earlyExitFeeBps != null && Number.isFinite(input.earlyExitFeeBps)
+            ? Math.max(0, Math.min(10_000, Math.round(input.earlyExitFeeBps)))
+            : 1000;
       return {
         mode: "create-vault",
         strategist,
         vaultId: id,
         name: trimmed || (vaultType === "sliced" ? `Sliced ${id}` : `Pooled ${id}`),
         vaultType,
+        performanceFeeBps,
+        earlyExitFeeBps,
         // No investors — config / follow / park are separate deposit flows.
       };
     }

@@ -1,55 +1,46 @@
 # Capital pipeline
 
-Home estimates how capital sits around the **active vault**: settled vs still in flight.
+Home tracks **capital in / out** for the selected vault, plus a compact park summary on the hero.
 
-## Why it matters
+## Capital tab (activity)
 
-A park can show up as **incoming** before it fully settles. The pipeline helps you avoid trading as if every pending park were already spendable inventory.
+The **Capital** tab is a feed of money moving into and out of the vault:
 
-## Layers (what the numbers mean)
+| Direction | What it is |
+|-----------|------------|
+| **In (+)** | Park / deposit intents (strategist or investor) with status |
+| **Out (−)** | Withdrawals (net SOL back to wallet) |
+
+Top pills show totals **In** and **Out** for the listed activity. Newest first.
+
+## Hero layers (still on Home)
 
 | Layer | Plain meaning |
 |-------|----------------|
-| **Committed** | Already settled on-chain for this role |
-| **Incoming** | Parks still confirming / settling |
-| **Mandated** | Amounts you are expected to park (policy / mandates) |
+| **Committed** | Already settled on-chain |
+| **Incoming** | Parks still confirming |
+| **Mandated** | Amounts expected to park |
 | **Projected** | Estimate if incoming lands |
-
-Breakdown often splits **My Park** (strategist) · **Investor Park** · **Total Park**, plus wallet available.
 
 ## Where you see it
 
 | Place | What shows |
 |-------|------------|
-| Home hero | Compact park stats + Committed / Incoming / Mandated bar |
-| Home → **Capital** tab | Fuller pipeline (intents, buying power, breakdown) |
-| Vault detail → **Capital** | Park breakdown for that vault |
+| Home hero | My / Investor / Total park + Committed / Incoming / Mandated bar |
+| Home → **Capital** | In/out activity list |
 | Incoming banner | “Capital in motion” when incoming > 0 |
 
 ## How to read it
 
 1. Select an active vault on Home  
-2. Glance at **My / Investor / Total Park**  
-3. If **Incoming** is large, wait for confirms before sizing a big trade  
-4. Treat **Projected** as an estimate - after confirm, trust the settled numbers  
+2. Open **Capital** for park/withdraw history  
+3. If status is pending/submitted, wait for confirms before treating size as spendable  
 
-### Buying power intuition
-
-```text
-What the vault can spend ≈ settled vault assets (+ incoming when counted)
-```
-
-Wallet SOL alone is **not** vault buying power.
-
-## Refresh
-
-Pipeline updates when you change vault and while you stay unlocked. After a park, return to Home or reopen Capital if numbers look stale.
-
-## Empty / unavailable
+## Empty
 
 | Message | Meaning |
 |---------|---------|
-| Select a vault to load capital pipeline | Nothing selected |
-| Park breakdown unavailable | Data not ready - retry later |
+| Select a vault… | Nothing selected |
+| No park / withdraw activity yet | No ledger rows for this vault |
 
-Next: [Park SOL](/extension/park-and-capital) / [Home & Discover](/extension/home-and-discover) / [Concepts](/guide/concepts)
+Next: [Park SOL](/extension/park-and-capital) / [Home & Discover](/extension/home-and-discover)

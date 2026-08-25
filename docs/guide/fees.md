@@ -8,7 +8,8 @@ What you pay today on 1Vault.
 |-------|-----|----------------|
 | **Park / deposit** | **0** | - |
 | **Withdraw to wallet** | **0** | - |
-| **Eligible profit** (above high-water mark) | Performance fee (default **20%**) | To the strategist fee wallet |
+| **Eligible profit** (above high-water mark) | Performance fee (default **20%**, set at create) | To the strategist fee wallet |
+| **Early exit** (Sliced vaults) | Early exit fee (default **10%** of realized profit, set at create) | To the strategist when an investor exits while the book is still active |
 | Referral / protocol cut of that fee | **Not in current product** | - |
 
 ## What you still pay

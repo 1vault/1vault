@@ -116,6 +116,7 @@ export type VaultFees = {
   accrued?: string | number | null;
   claimed?: string | number | null;
   performanceFeeBps?: number | null;
+  earlyExitFeeBps?: number | null;
   managementFeeBps?: number | null;
   items?: Array<Record<string, unknown>>;
   [k: string]: unknown;

@@ -53,6 +53,8 @@ export type Msg =
       vaultId?: number;
       vaultType?: "pooled" | "sliced";
       vaultName?: string;
+      performanceFeeBps?: number;
+      earlyExitFeeBps?: number;
       parkSol?: number;
       positionId?: number;
       tradeId?: number;
@@ -274,6 +276,8 @@ async function handle(message: Msg): Promise<unknown> {
         vaultId: message.vaultId,
         vaultType: message.vaultType,
         vaultName: message.vaultName,
+        performanceFeeBps: message.performanceFeeBps,
+        earlyExitFeeBps: message.earlyExitFeeBps,
         parkSol: message.parkSol,
         positionId: message.positionId,
         tradeId: message.tradeId,

@@ -57,8 +57,8 @@ export async function fetchLicenseStatus(walletPubkey: string): Promise<LicenseS
     lockRaw,
     balanceRaw,
     hasEnough: balanceRaw >= lockRaw,
-    lockDisplay: `${formatWhole(lockRaw)} 1VL`,
-    balanceDisplay: `${formatWhole(balanceRaw)} 1VL`,
+    lockDisplay: `${formatWhole(lockRaw)} $1VAULT`,
+    balanceDisplay: `${formatWhole(balanceRaw)} $1VAULT`,
     swapUrl,
   };
 }

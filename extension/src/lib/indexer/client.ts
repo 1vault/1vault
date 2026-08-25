@@ -27,6 +27,20 @@ export type DepositIntent = {
   [k: string]: unknown;
 };
 
+export type WithdrawalRow = {
+  id?: number;
+  vault?: string;
+  investor?: string;
+  shares_burned?: string | number;
+  gross_amount?: string | number;
+  net_amount?: string | number;
+  fee_amount?: string | number;
+  signature?: string | null;
+  block_time?: string | number | null;
+  created_at?: string;
+  [k: string]: unknown;
+};
+
 export type InvestorMandate = {
   vault?: string;
   investor?: string;
@@ -57,6 +71,15 @@ async function indexerGet<T>(path: string, query?: Record<string, string | undef
 export async function listDepositsByVault(vault: string): Promise<DepositIntent[]> {
   const rows = await indexerGet<DepositIntent[]>("/api/ledger/deposits", { vault });
   return Array.isArray(rows) ? rows : [];
+}
+
+export async function listWithdrawalsByVault(vault: string): Promise<WithdrawalRow[]> {
+  try {
+    const rows = await indexerGet<WithdrawalRow[]>("/api/ledger/withdrawals", { vault });
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function listMandatesByVault(vault: string): Promise<InvestorMandate[]> {

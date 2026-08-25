@@ -1,15 +1,90 @@
-import { useEffect, useState } from "react";
-import type { PipelineEstimate, ParkBreakdown as ParkBreakdownType } from "../lib/estimate";
+import { useEffect, useMemo, useState } from "react";
+import type { PipelineEstimate } from "../lib/estimate";
 import { formatLamportsAsSol } from "../lib/estimate";
-import { sendBg } from "../lib/messaging";
-import { normalizeRole } from "../lib/indexer/client";
-import { ParkBreakdown } from "./ParkBreakdown";
+import {
+  listWithdrawalsByVault,
+  normalizeRole,
+  type DepositIntent,
+  type WithdrawalRow,
+} from "../lib/indexer/client";
 import { ShimmerList } from "./Shimmer";
 import { SolAmount } from "./SolAmount";
 
 function shortAddr(pk: string) {
   if (pk.length < 10) return pk;
   return `${pk.slice(0, 4)}…${pk.slice(-4)}`;
+}
+
+function formatWhen(raw: string | number | null | undefined) {
+  if (raw == null || raw === "") return "—";
+  try {
+    const d =
+      typeof raw === "number"
+        ? new Date(raw > 1e12 ? raw : raw * 1000)
+        : new Date(raw);
+    if (Number.isNaN(d.getTime())) return String(raw);
+    return d.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return String(raw);
+  }
+}
+
+function asBigInt(v: unknown): bigint {
+  if (typeof v === "bigint") return v;
+  if (typeof v === "number") return BigInt(Math.trunc(v));
+  if (typeof v === "string" && /^-?\d+$/.test(v)) return BigInt(v);
+  return 0n;
+}
+
+type CapitalActivity = {
+  id: string;
+  kind: "in" | "out";
+  title: string;
+  sub: string;
+  lamports: string;
+  at: number;
+  status?: string;
+};
+
+function depositToActivity(d: DepositIntent, i: number): CapitalActivity {
+  const role = normalizeRole(d.role) === "strategies" ? "Strategist" : "Investor";
+  const status = String(d.status ?? "—");
+  const when = d.created_at ?? d.updated_at;
+  return {
+    id: `in-${d.id ?? d.signature ?? i}`,
+    kind: "in",
+    title: `Park in · ${role}`,
+    sub: `${shortAddr(String(d.investor ?? ""))} · ${status} · ${formatWhen(when as string)}`,
+    lamports: String(d.amount ?? "0"),
+    at: when ? new Date(String(when)).getTime() || 0 : 0,
+    status,
+  };
+}
+
+function withdrawalToActivity(w: WithdrawalRow, i: number): CapitalActivity {
+  const net = w.net_amount ?? w.gross_amount ?? "0";
+  const when = w.block_time ?? w.created_at;
+  const at =
+    typeof when === "number"
+      ? when > 1e12
+        ? when
+        : when * 1000
+      : when
+        ? new Date(String(when)).getTime() || 0
+        : 0;
+  return {
+    id: `out-${w.id ?? w.signature ?? i}`,
+    kind: "out",
+    title: "Withdraw out",
+    sub: `${shortAddr(String(w.investor ?? ""))} · ${formatWhen(when)}`,
+    lamports: String(net),
+    at,
+  };
 }
 
 type CapitalDetailProps = {
@@ -22,157 +97,101 @@ type CapitalDetailProps = {
 export function CapitalDetail({
   pipeline,
   activeVault,
-  walletPubkey,
   pipelineLoading,
 }: CapitalDetailProps) {
-  const [breakdown, setBreakdown] = useState<ParkBreakdownType | null>(null);
-  const [breakdownLoading, setBreakdownLoading] = useState(false);
+  const [withdrawals, setWithdrawals] = useState<WithdrawalRow[]>([]);
+  const [withdrawalsLoading, setWithdrawalsLoading] = useState(false);
 
   useEffect(() => {
-    if (!activeVault || !pipeline) {
-      setBreakdown(null);
+    if (!activeVault) {
+      setWithdrawals([]);
       return;
     }
     let cancelled = false;
-    setBreakdownLoading(true);
-    void sendBg<ParkBreakdownType>({
-      type: "PARK_BREAKDOWN",
-      vault: activeVault,
-      walletPubkey: walletPubkey ?? undefined,
-    })
-      .then((b) => {
-        if (!cancelled) setBreakdown(b);
+    setWithdrawalsLoading(true);
+    void listWithdrawalsByVault(activeVault)
+      .then((rows) => {
+        if (!cancelled) setWithdrawals(rows);
       })
       .catch(() => {
-        if (!cancelled) setBreakdown(null);
+        if (!cancelled) setWithdrawals([]);
       })
       .finally(() => {
-        if (!cancelled) setBreakdownLoading(false);
+        if (!cancelled) setWithdrawalsLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [activeVault, pipeline, walletPubkey]);
+  }, [activeVault]);
+
+  const activities = useMemo(() => {
+    const deposits = pipeline?.deposits ?? [];
+    const items: CapitalActivity[] = [
+      ...deposits.map(depositToActivity),
+      ...withdrawals.map(withdrawalToActivity),
+    ];
+    items.sort((a, b) => b.at - a.at);
+    return items;
+  }, [pipeline?.deposits, withdrawals]);
+
+  const totals = useMemo(() => {
+    let inn = 0n;
+    let out = 0n;
+    for (const a of activities) {
+      const n = asBigInt(a.lamports);
+      if (a.kind === "in") inn += n;
+      else out += n;
+    }
+    return { inn, out };
+  }, [activities]);
 
   if (pipelineLoading && !pipeline) {
-    return <ShimmerList count={3} />;
+    return <ShimmerList count={4} />;
   }
-  if (!pipeline) {
-    return <div className="empty-hint">Select a vault to load capital pipeline.</div>;
+  if (!activeVault || !pipeline) {
+    return <div className="empty-hint">Select a vault to see capital in / out.</div>;
   }
+
+  const loading = withdrawalsLoading && activities.length === 0;
 
   return (
     <>
-      <div className="row-card">
-        <div className="token-icon">IN</div>
-        <div className="row-main">
-          <div className="row-title">Incoming intents</div>
-          <div className="row-sub">{pipeline.incoming.count} pending + submitted</div>
+      <div className="capital-flow-summary">
+        <div className="capital-flow-pill in">
+          <span className="capital-flow-label">In</span>
+          <SolAmount value={formatLamportsAsSol(totals.inn.toString(), 3)} unit="SOL" size="sm" />
         </div>
-        <div className="row-right">
-          <div className="row-value">
-            <SolAmount
-              value={formatLamportsAsSol(
-                (
-                  BigInt(pipeline.incoming.pendingLamports) +
-                  BigInt(pipeline.incoming.submittedLamports)
-                ).toString(),
-                3
-              )}
-              unit="SOL"
-              size="md"
-            />
-          </div>
-        </div>
-      </div>
-      <div className="row-card">
-        <div className="token-icon">MD</div>
-        <div className="row-main">
-          <div className="row-title">Mandates</div>
-          <div className="row-sub">
-            {pipeline.mandated.count} retail · TP {pipeline.mandated.avgTakeProfitBps ?? "—"} / SL{" "}
-            {pipeline.mandated.avgStopLossBps ?? "—"} bps
-          </div>
-        </div>
-        <div className="row-right">
-          <div className="row-value">
-            <SolAmount
-              value={formatLamportsAsSol(pipeline.mandated.lamports, 3)}
-              unit="SOL"
-              size="md"
-            />
-          </div>
-        </div>
-      </div>
-      <div className="row-card">
-        <div className="token-icon">BP</div>
-        <div className="row-main">
-          <div className="row-title">Buying power</div>
-          <div className="row-sub">Assets + incoming</div>
-        </div>
-        <div className="row-right">
-          <div className="row-value">
-            <SolAmount
-              value={formatLamportsAsSol(pipeline.projected.buyingPower, 3)}
-              unit="SOL"
-              size="md"
-            />
-          </div>
+        <div className="capital-flow-pill out">
+          <span className="capital-flow-label">Out</span>
+          <SolAmount value={formatLamportsAsSol(totals.out.toString(), 3)} unit="SOL" size="sm" />
         </div>
       </div>
 
-      <ParkBreakdown breakdown={breakdown} loading={breakdownLoading} />
+      <div className="section-label">Activity</div>
 
-      {(pipeline.deposits.length > 0 || pipeline.mandates.length > 0) && (
-        <>
-          <div className="section-label">Detail</div>
-          {pipeline.deposits.map((d, i) => (
-            <div key={`dep-${d.id ?? i}`} className="row-card">
-              <div className="token-icon">D</div>
-              <div className="row-main">
-                <div className="row-title">
-                  Deposit · {normalizeRole(d.role) === "strategies" ? "Strategist" : "Investor"}
-                </div>
-                <div className="row-sub mono">
-                  {shortAddr(String(d.investor ?? ""))} · {String(d.status ?? "—")}
-                </div>
-              </div>
-              <div className="row-right">
-                <div className="row-value">
-                  <SolAmount
-                    value={formatLamportsAsSol(String(d.amount ?? "0"), 3)}
-                    unit="SOL"
-                    size="md"
-                  />
-                </div>
-              </div>
+      {loading ? <ShimmerList count={3} /> : null}
+
+      {!loading && activities.length === 0 ? (
+        <div className="empty-hint">
+          No park / withdraw activity yet for this vault. Park SOL to see it here.
+        </div>
+      ) : null}
+
+      {activities.map((a) => (
+        <div key={a.id} className={`row-card capital-activity ${a.kind}`}>
+          <div className={`token-icon capital-dir ${a.kind}`}>{a.kind === "in" ? "↓" : "↑"}</div>
+          <div className="row-main">
+            <div className="row-title">{a.title}</div>
+            <div className="row-sub mono">{a.sub}</div>
+          </div>
+          <div className="row-right">
+            <div className={`row-value capital-amt ${a.kind}`}>
+              {a.kind === "in" ? "+" : "−"}
+              <SolAmount value={formatLamportsAsSol(a.lamports, 3)} unit="SOL" size="md" />
             </div>
-          ))}
-          {pipeline.mandates.map((m, i) => (
-            <div key={`man-${m.investor ?? i}`} className="row-card">
-              <div className="token-icon">M</div>
-              <div className="row-main">
-                <div className="row-title">
-                  Mandate · {normalizeRole(m.role) === "strategies" ? "Strategist" : "Investor"}
-                </div>
-                <div className="row-sub mono">
-                  {shortAddr(String(m.investor ?? ""))} · TP {m.take_profit_bps ?? "—"} / SL{" "}
-                  {m.stop_loss_bps ?? "—"}
-                </div>
-              </div>
-              <div className="row-right">
-                <div className="row-value">
-                  <SolAmount
-                    value={formatLamportsAsSol(String(m.park_amount ?? "0"), 3)}
-                    unit="SOL"
-                    size="md"
-                  />
-                </div>
-              </div>
-            </div>
-          ))}
-        </>
-      )}
+          </div>
+        </div>
+      ))}
     </>
   );
 }

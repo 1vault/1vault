@@ -658,6 +658,122 @@ button {
   color: var(--text);
 }
 
+.vault-summary-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  margin-top: 2px;
+  min-width: 0;
+}
+
+.vault-summary-meta-left,
+.vault-summary-meta-right {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.vault-summary-meta-right {
+  flex-shrink: 0;
+  justify-content: flex-end;
+}
+
+.vault-summary-meta-label {
+  font-size: 9px;
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.vault-summary-meta-addr {
+  font-size: 11px;
+  color: var(--text);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.vault-summary-copy {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.vault-summary-copy:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.vault-summary-x {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.vault-summary-x-handle {
+  font-size: 11px;
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+  max-width: 5.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.vault-summary-x-badge {
+  flex-shrink: 0;
+  font-size: 8px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 999px;
+  color: #041018;
+  background: #7fe4ff;
+  line-height: 1.4;
+}
+
+.vault-summary-x-btn {
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 9px;
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.vault-summary-x-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.vault-summary-x-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .vault-stat {
   padding: 8px 10px;
   border-radius: 10px;
@@ -1484,6 +1600,118 @@ button {
 .field textarea {
   min-height: 80px;
   resize: vertical;
+}
+
+.field-hint {
+  display: block;
+  margin: 0;
+  font-size: var(--fs-2xs);
+  line-height: 1.4;
+  color: var(--text-dim);
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: var(--font-display);
+}
+
+.capital-flow-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.capital-flow-pill {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md, 12px);
+  border: 1px solid var(--line);
+  background: var(--ink-raised, rgba(255, 255, 255, 0.03));
+}
+
+.capital-flow-pill.in {
+  border-color: rgba(52, 211, 153, 0.28);
+}
+
+.capital-flow-pill.out {
+  border-color: rgba(251, 113, 133, 0.28);
+}
+
+.capital-flow-label {
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.token-icon.capital-dir.in {
+  background: rgba(52, 211, 153, 0.16);
+  color: #6ee7b7;
+}
+
+.token-icon.capital-dir.out {
+  background: rgba(251, 113, 133, 0.16);
+  color: #fda4af;
+}
+
+.capital-amt.in {
+  color: #6ee7b7;
+}
+
+.capital-amt.out {
+  color: #fda4af;
+}
+
+.capital-amt {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.wizard-fee-block {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border-radius: var(--radius-md, 12px);
+  border: 1px solid var(--line);
+  background: var(--ink-raised, rgba(255, 255, 255, 0.03));
+}
+
+.wizard-fee-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wizard-fee-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.wizard-fee-sub {
+  margin: 0;
+  font-size: var(--fs-2xs);
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.create-wizard {
+  min-height: 0;
+}
+
+.create-wizard .flow-card {
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 
 .err {

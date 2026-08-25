@@ -40,6 +40,8 @@ export type FlowRunInput = {
   vaultId?: number;
   vaultType?: "pooled" | "sliced";
   vaultName?: string;
+  performanceFeeBps?: number;
+  earlyExitFeeBps?: number;
   parkSol?: number;
   takeProfitBps?: number;
   stopLossBps?: number;
@@ -57,4 +59,6 @@ export const DEFAULT_FLOW_SETTINGS = {
   takeProfitBps: 5000,
   stopLossBps: 2500,
   vaultType: "pooled" as const,
+  performanceFeeBps: 2000,
+  earlyExitFeeBps: 0,
 };

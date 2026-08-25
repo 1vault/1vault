@@ -123,6 +123,15 @@ app.get("/api/ledger/deposits", asyncRoute(async (req, res) => {
   res.json(rows);
 }));
 
+app.get("/api/ledger/withdrawals", asyncRoute(async (req, res) => {
+  const vault = req.query.vault as string | undefined;
+  const q = vault
+    ? `SELECT * FROM withdrawals WHERE vault = $1 ORDER BY block_time DESC NULLS LAST, id DESC LIMIT 100`
+    : `SELECT * FROM withdrawals ORDER BY block_time DESC NULLS LAST, id DESC LIMIT 100`;
+  const { rows } = await pool.query(q, vault ? [vault] : []);
+  res.json(rows);
+}));
+
 /** Index a confirmed Devnet signature into Postgres immediately */
 app.post("/api/ingest", asyncRoute(async (req, res) => {
   const signature = String(req.body?.signature ?? "").trim();
