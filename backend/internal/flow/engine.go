@@ -97,7 +97,11 @@ func (svc *Service) AdvanceToReady(ctx context.Context, id uuid.UUID) error {
 		return err
 	}
 	b := svc.builder()
-	rpc := txprep.NewRPC(svc.Cfg.RPCURL)
+	rpcClient := b.RPC
+	if rpcClient == nil {
+		rpcClient = txprep.NewRPC(svc.Cfg.RPCURL)
+		b.RPC = rpcClient
+	}
 
 	for _, st := range job.Steps {
 		if st.Status == StepConfirmed || st.Status == StepSkipped {
@@ -109,7 +113,7 @@ func (svc *Service) AdvanceToReady(ctx context.Context, id uuid.UUID) error {
 			return nil
 		}
 		// pending → prepare or skip
-		skip, reason, err := svc.shouldSkip(ctx, rpc, b, params, job, st)
+		skip, reason, err := svc.shouldSkip(ctx, rpcClient, b, params, job, st)
 		if err != nil {
 			return err
 		}
@@ -470,11 +474,14 @@ func (svc *Service) resolveOpenTradeID(ctx context.Context, b *txprep.Builder, v
 		posID = 1
 	}
 
-	attempts := 12
+	attempts := 4
+	delay := 100 * time.Millisecond
 	if jobStepConfirmed(job, "execute_trade") {
-		attempts = 20
+		// Execute already confirmed — trade account should be visible quickly.
+		attempts = 6
+		delay = 80 * time.Millisecond
 	}
-	st, err := waitTradeStatus(load, s.TradePDA(b.Program, vault, tradeID), s.TradeStatusExecuted, attempts, 400*time.Millisecond)
+	st, err := waitTradeStatus(load, s.TradePDA(b.Program, vault, tradeID), s.TradeStatusExecuted, attempts, delay)
 	if err != nil {
 		return 0, 0, fmt.Errorf("trade %d not executed on-chain (status=%d); complete execute_trade first", tradeID, st)
 	}

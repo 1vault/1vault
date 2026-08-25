@@ -24,7 +24,7 @@ func NewRPC(url string) *RPC {
 }
 
 func (r *RPC) LatestBlockhash() (solana.Hash, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	out, err := r.client.GetLatestBlockhash(ctx, rpc.CommitmentConfirmed)
 	if err != nil {
@@ -33,13 +33,15 @@ func (r *RPC) LatestBlockhash() (solana.Hash, error) {
 	return out.Value.Blockhash, nil
 }
 
+// SendRaw broadcasts a signed transaction. SkipPreflight: backend already
+// preflighted account layout / status before packing flow txs.
 func (r *RPC) SendRaw(raw []byte) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	opts := rpc.TransactionOpts{
-		SkipPreflight:       false,
-		PreflightCommitment: rpc.CommitmentConfirmed,
-		MaxRetries:          ptrUint(3),
+		SkipPreflight:       true,
+		PreflightCommitment: rpc.CommitmentProcessed,
+		MaxRetries:          ptrUint(2),
 	}
 	sig, err := r.client.SendRawTransactionWithOpts(ctx, raw, opts)
 	if err != nil {
@@ -50,14 +52,20 @@ func (r *RPC) SendRaw(raw []byte) (string, error) {
 
 func ptrUint(n uint) *uint { return &n }
 
+// Status polls signature confirmation. searchHistory=false for hot path
+// (just-submitted sigs). Pass searchHistory=true on late/timeout retries.
 func (r *RPC) Status(signature string) (map[string]any, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	return r.StatusOpts(signature, false)
+}
+
+func (r *RPC) StatusOpts(signature string, searchHistory bool) (map[string]any, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	sig, err := solana.SignatureFromBase58(signature)
 	if err != nil {
 		return nil, err
 	}
-	out, err := r.client.GetSignatureStatuses(ctx, true, sig)
+	out, err := r.client.GetSignatureStatuses(ctx, searchHistory, sig)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +91,7 @@ func (r *RPC) Status(signature string) (map[string]any, error) {
 }
 
 func (r *RPC) AccountData(pubkey solana.PublicKey) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	info, err := r.client.GetAccountInfoWithOpts(ctx, pubkey, &rpc.GetAccountInfoOpts{
 		Commitment: rpc.CommitmentConfirmed,
@@ -101,11 +109,12 @@ func (r *RPC) AccountData(pubkey solana.PublicKey) ([]byte, error) {
 }
 
 func (r *RPC) AccountExists(pubkey solana.PublicKey) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
-	info, err := r.client.GetAccountInfo(ctx, pubkey)
+	info, err := r.client.GetAccountInfoWithOpts(ctx, pubkey, &rpc.GetAccountInfoOpts{
+		Commitment: rpc.CommitmentConfirmed,
+	})
 	if err != nil {
-		// gagliardetto returns ErrNotFound when the account is missing
 		if err == rpc.ErrNotFound {
 			return false, nil
 		}
@@ -176,4 +185,3 @@ func requestTradeData(p RequestTradeParams) []byte {
 		[]byte{0}, // Dex
 	)
 }
-

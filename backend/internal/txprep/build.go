@@ -39,6 +39,12 @@ type Builder struct {
 	AllowedDexPrograms []solana.PublicKey
 	DexMeta            []cluster.DexProgramEntry
 	RPC                *RPC
+
+	// Per-builder caches (one AdvanceToReady / request lifetime).
+	cachedDexPrograms      []solana.PublicKey
+	cachedLaunchPrograms   []solana.PublicKey
+	cachedTradeProgramsOK  bool
+	dexExistsCache         map[string]bool
 }
 
 func NewBuilder(addr cluster.Addresses, rpc *RPC) *Builder {
@@ -101,18 +107,23 @@ func (b *Builder) allowedTradePrograms(venue uint8) ([]solana.PublicKey, error) 
 	if b.RPC == nil {
 		return b.envDexFallback(), nil
 	}
-	data, err := b.RPC.AccountData(b.Protocol)
-	if err != nil {
-		return b.envDexFallback(), nil
-	}
-	dex, launch, err := s.DecodeProtocolTradePrograms(data)
-	if err != nil {
-		return nil, err
+	if !b.cachedTradeProgramsOK {
+		data, err := b.RPC.AccountData(b.Protocol)
+		if err != nil {
+			return b.envDexFallback(), nil
+		}
+		dex, launch, err := s.DecodeProtocolTradePrograms(data)
+		if err != nil {
+			return nil, err
+		}
+		b.cachedDexPrograms = dex
+		b.cachedLaunchPrograms = launch
+		b.cachedTradeProgramsOK = true
 	}
 	if venue == s.TradeVenueLaunchpad {
-		return launch, nil
+		return b.cachedLaunchPrograms, nil
 	}
-	return dex, nil
+	return b.cachedDexPrograms, nil
 }
 
 func (b *Builder) envDexFallback() []solana.PublicKey {
@@ -126,8 +137,19 @@ func (b *Builder) envDexFallback() []solana.PublicKey {
 }
 
 func (b *Builder) dexAccountExists(pk solana.PublicKey) bool {
+	key := pk.String()
+	if b.dexExistsCache != nil {
+		if v, ok := b.dexExistsCache[key]; ok {
+			return v
+		}
+	}
 	ok, err := b.RPC.AccountExists(pk)
-	return err == nil && ok
+	hit := err == nil && ok
+	if b.dexExistsCache == nil {
+		b.dexExistsCache = map[string]bool{}
+	}
+	b.dexExistsCache[key] = hit
+	return hit
 }
 
 // AutoDexProgramDefault uses TradeVenue::Dex (request_trade default).

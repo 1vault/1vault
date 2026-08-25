@@ -60,13 +60,20 @@ type Options struct {
 	OnConfirmed func(signature string, ingest IngestInfo)
 }
 
+const (
+	confirmPollInterval = 120 * time.Millisecond
+	confirmMaxAttempts  = 160 // ~19s at 120ms
+	// After this many polls without finding the sig, enable searchTransactionHistory.
+	confirmSearchHistoryAfter = 40
+)
+
 func ConfirmAndIngest(ctx context.Context, signature string, opt Options) Result {
-	rpc := txprep.NewRPC(opt.RPCURL)
+	rpcClient := txprep.NewRPC(opt.RPCURL)
 	out := Result{Signature: signature, Status: "submitted"}
 	DefaultTracker.Set(signature, out)
 
 	var lastErr string
-	for i := 0; i < 50; i++ {
+	for i := 0; i < confirmMaxAttempts; i++ {
 		select {
 		case <-ctx.Done():
 			out.Status = "timeout"
@@ -74,10 +81,11 @@ func ConfirmAndIngest(ctx context.Context, signature string, opt Options) Result
 			return out
 		default:
 		}
-		st, err := rpc.Status(signature)
+		searchHistory := i >= confirmSearchHistoryAfter
+		st, err := rpcClient.StatusOpts(signature, searchHistory)
 		if err != nil {
 			lastErr = err.Error()
-			time.Sleep(400 * time.Millisecond)
+			time.Sleep(confirmPollInterval)
 			continue
 		}
 		status, _ := st["status"].(string)
@@ -90,6 +98,8 @@ func ConfirmAndIngest(ctx context.Context, signature string, opt Options) Result
 			DefaultTracker.Set(signature, out)
 			return out
 		}
+		// Accept confirmed/finalized. processed alone is not enough for subsequent
+		// AccountData(confirmed) reads in the next flow step.
 		if status == "confirmed" || status == "finalized" {
 			out.Status = status
 			DefaultTracker.Set(signature, out)
@@ -122,7 +132,7 @@ func ConfirmAndIngest(ctx context.Context, signature string, opt Options) Result
 			}
 			return out
 		}
-		time.Sleep(400 * time.Millisecond)
+		time.Sleep(confirmPollInterval)
 	}
 	out.Status = "timeout"
 	if lastErr != "" {
