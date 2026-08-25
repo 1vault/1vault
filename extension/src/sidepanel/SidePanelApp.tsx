@@ -81,8 +81,18 @@ function closeVaultBlockedMessage(selected: VaultRow | null): string {
       ? `Vault still has ${n} open position(s). Exit them on Trade first, then Close.`
       : "Vault still has open positions or pending trades. Exit them on Trade first, then Close.";
   }
+  if (reason === "rpc") {
+    return "Could not verify vault on-chain (RPC). Pull to refresh, then try Close again.";
+  }
+  if (reason === "missing") {
+    return "Vault account not found on this cluster.";
+  }
   if (reason === "legacy") {
-    return "Cannot close this vault (legacy layout or missing account). Create a new vault.";
+    const len = selected?.accountLen != null ? ` (len ${String(selected.accountLen)})` : "";
+    return `Cannot close this vault — incompatible on-chain layout${len}. Create a new vault.`;
+  }
+  if (reason === "status") {
+    return `Cannot close while vault is ${st}.`;
   }
   return "Cannot close this vault right now.";
 }
@@ -452,6 +462,7 @@ export function SidePanelApp() {
   async function startFlow(
     mode: FlowMode,
     opts?: {
+      vault?: string;
       vaultType?: "pooled" | "sliced";
       vaultName?: string;
       parkSol?: number;
@@ -470,15 +481,20 @@ export function SidePanelApp() {
     setError(null);
     try {
       const isCreate = mode === "create-vault";
+      const targetVault = opts?.vault ?? activeVault ?? undefined;
+      const row =
+        targetVault != null
+          ? vaults.find((v) => String(v.pubkey) === targetVault) ?? selected
+          : selected;
       const vaultId = isCreate
         ? undefined
-        : selected
-          ? Number(selected.vaultId ?? selected.vault_id ?? 0) || undefined
+        : row
+          ? Number(row.vaultId ?? row.vault_id ?? 0) || undefined
           : undefined;
       await sendBg({
         type: "RUN_FLOW",
         mode,
-        vault: isCreate ? undefined : activeVault ?? undefined,
+        vault: isCreate ? undefined : targetVault,
         vaultId,
         vaultType: opts?.vaultType,
         vaultName: opts?.vaultName,
@@ -797,8 +813,19 @@ export function SidePanelApp() {
                 vaultType: vaultType(row),
                 vaultStatus: typeof row.vaultStatus === "string" ? row.vaultStatus : null,
                 strategist: status.pubkey,
+                canClose: Boolean(row.canClose),
+                closeBlockedReason:
+                  typeof row.closeBlockedReason === "string" ? row.closeBlockedReason : undefined,
+                openPositions: Number(row.openPositions ?? 0) || 0,
+                pendingTrades: Number(row.pendingTrades ?? 0) || 0,
               };
             })()}
+            canClose={Boolean(
+              vaults.find((v) => String(v.pubkey) === detailVault)?.canClose
+            )}
+            closeHint={closeVaultBlockedMessage(
+              vaults.find((v) => String(v.pubkey) === detailVault) ?? null
+            )}
             onBack={() => setDetailVault(null)}
             onPark={(vault) =>
               setParkScreen({
@@ -807,6 +834,11 @@ export function SidePanelApp() {
                 vaultLabel: shortAddr(vault),
               })
             }
+            onClose={(vault) => {
+              setActiveVault(vault);
+              setDetailVault(null);
+              void startFlow("close-vault", { vault });
+            }}
             busy={busy || flowRunning}
           />
         ) : null}

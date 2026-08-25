@@ -183,12 +183,12 @@ async function handle(message: Msg): Promise<unknown> {
       const vaults = [...byPk.values()];
 
       const annotated = await annotateVaultLayout(vaults).catch(() =>
+        // RPC flakiness must not permanently disable Close as "legacy".
         vaults.map((v) => ({
           ...v,
-          layoutCompatible: false,
-          canPark: false,
-          canClose: false,
-          vaultStatus: "Unknown",
+          closeBlockedReason: "rpc",
+          canClose: undefined,
+          layoutCompatible: undefined,
         }))
       );
       return { pubkey, vaults: annotated, protocol };

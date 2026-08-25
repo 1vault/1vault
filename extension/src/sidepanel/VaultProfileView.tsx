@@ -22,6 +22,10 @@ import {
 } from "../lib/trade/positions";
 import { SolAmount } from "./SolAmount";
 import { ShimmerList } from "./Shimmer";
+import {
+  fetchVaultCloseMeta,
+  type VaultCloseMeta,
+} from "../lib/vault-layout";
 
 type DetailTab = "capital" | "holdings" | "positions" | "activity";
 
@@ -51,6 +55,9 @@ export function VaultProfileView({
   seed,
   onBack,
   onPark,
+  onClose,
+  canClose,
+  closeHint,
   busy,
 }: {
   vaultPubkey: string;
@@ -62,9 +69,17 @@ export function VaultProfileView({
     vaultType?: string;
     vaultStatus?: string | null;
     strategist?: string | null;
+    canClose?: boolean;
+    closeBlockedReason?: string;
+    openPositions?: number;
+    pendingTrades?: number;
   };
   onBack: () => void;
   onPark?: (vaultPubkey: string) => void;
+  /** Strategist close — only shown when vault has no open positions/trades. */
+  onClose?: (vaultPubkey: string) => void;
+  canClose?: boolean;
+  closeHint?: string;
   busy?: boolean;
 }) {
   const [profile, setProfile] = useState<VaultProfile | null>(
@@ -88,6 +103,25 @@ export function VaultProfileView({
   const [tab, setTab] = useState<DetailTab>("capital");
   const [loading, setLoading] = useState(!seed);
   const [error, setError] = useState<string | null>(null);
+  const [closeMeta, setCloseMeta] = useState<VaultCloseMeta | null>(null);
+  const [closeMetaLoading, setCloseMetaLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCloseMetaLoading(true);
+    void fetchVaultCloseMeta(vaultPubkey)
+      .then((meta) => {
+        if (cancelled) return;
+        setCloseMeta(meta);
+        if (meta.status) setVaultStatus(meta.status);
+      })
+      .finally(() => {
+        if (!cancelled) setCloseMetaLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [vaultPubkey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -194,6 +228,35 @@ export function VaultProfileView({
   const showPark = Boolean(onPark) && !isOwn;
   const isClosed = String(vaultStatus ?? "").toLowerCase() === "closed";
   const typeLabel = profile?.vaultTypeLabel ?? profile?.vaultType ?? "pooled";
+  // Prefer fresh on-chain check from detail; fall back to list annotate props.
+  const hasOpenPositions = positions.length > 0;
+  const liveCanClose = closeMeta != null ? closeMeta.canClose : Boolean(canClose);
+  const canCloseVault =
+    Boolean(liveCanClose) && !hasOpenPositions && !isClosed && !closeMetaLoading;
+  const closeBlockedHint = (() => {
+    if (closeMetaLoading) return "Checking vault on-chain…";
+    if (closeMeta?.closeBlockedReason === "rpc" || (!closeMeta && !canClose && !closeHint)) {
+      return "Could not verify vault on-chain (RPC). Go back and reopen, or try again.";
+    }
+    if (closeMeta?.closeBlockedReason === "open_positions" || hasOpenPositions) {
+      const n = closeMeta?.openPositions ?? positions.length;
+      return n > 0
+        ? `Vault still has ${n} open position(s). Exit them on Trade first, then Close.`
+        : "Vault still has open positions or pending trades.";
+    }
+    if (closeMeta?.closeBlockedReason === "legacy") {
+      const len = closeMeta.accountLen != null ? ` (len ${closeMeta.accountLen})` : "";
+      return `Incompatible on-chain layout${len}. Create a new vault.`;
+    }
+    if (closeMeta?.closeBlockedReason === "missing") {
+      return "Vault account not found on this cluster.";
+    }
+    if (closeMeta?.closeBlockedReason === "closed" || isClosed) {
+      return "Vault is already Closed.";
+    }
+    if (closeHint) return closeHint;
+    return "Cannot close this vault right now.";
+  })();
 
   const { strategistRows, investorRows } = useMemo(() => {
     const strat: VaultHoldingRow[] = [];
@@ -350,8 +413,29 @@ export function VaultProfileView({
               >
                 Park SOL
               </button>
-            ) : isOwn ? (
-              <div className="vault-profile-own">Your vault</div>
+            ) : null}
+
+            {isOwn && !isClosed ? (
+              <div className="vault-profile-own-actions">
+                <div className="vault-profile-own">Your vault</div>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-block"
+                  disabled={busy || !canCloseVault}
+                  title={!canCloseVault ? closeBlockedHint : undefined}
+                  onClick={() => {
+                    if (!canCloseVault) return;
+                    onClose?.(vaultPubkey);
+                  }}
+                >
+                  Close vault
+                </button>
+                {!canCloseVault && closeBlockedHint ? (
+                  <p className="muted vault-profile-close-hint">{closeBlockedHint}</p>
+                ) : null}
+              </div>
+            ) : isOwn && isClosed ? (
+              <div className="vault-profile-own">Your vault · Closed</div>
             ) : null}
           </div>
 

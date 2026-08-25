@@ -2157,6 +2157,20 @@ button {
   padding: 8px 0 2px;
 }
 
+.vault-profile-own-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.vault-profile-close-hint {
+  margin: 0;
+  font-size: var(--fs-xs);
+  text-align: center;
+  line-height: 1.35;
+}
+
 .vault-profile-tab {
   gap: 10px;
 }
