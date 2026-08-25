@@ -1,29 +1,37 @@
-import { useCallback, useEffect, useState } from "react";
-import {
-  getLeaderboard,
-  getWalletStats,
-  type LeaderboardRow,
-} from "../lib/api/client";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { listVaults } from "../lib/api/client";
 import { formatLamportsAsSol } from "../lib/estimate";
 import { ShimmerList } from "./Shimmer";
 import { SolAmount } from "./SolAmount";
 
-type EnrichedRow = LeaderboardRow & {
-  winRate?: number | null;
-  returnPct?: number | string | null;
-};
+const DISCOVER_LIMIT = 20;
 
-function fmtPct(v: unknown): string {
-  if (v == null || v === "") return "—";
-  const n = typeof v === "string" ? parseFloat(v) : Number(v);
-  if (!Number.isFinite(n)) return "—";
-  const sign = n > 0 ? "+" : "";
-  return `${sign}${n.toFixed(1)}%`;
+type VaultRow = Record<string, unknown>;
+
+function shortAddr(pk: string) {
+  if (pk.length < 10) return pk;
+  return `${pk.slice(0, 4)}…${pk.slice(-4)}`;
 }
 
-function fmtWinRate(v: number | null | undefined): string {
-  if (v == null || !Number.isFinite(v)) return "—";
-  return `${(v * 100).toFixed(0)}%`;
+function vaultName(v: VaultRow) {
+  return String(v.name ?? "Vault");
+}
+
+function vaultType(v: VaultRow) {
+  return String(v.vaultType ?? v.vault_type ?? "pooled").toUpperCase();
+}
+
+function matchesQuery(v: VaultRow, q: string): boolean {
+  if (!q) return true;
+  const hay = [
+    String(v.name ?? ""),
+    String(v.pubkey ?? ""),
+    String(v.strategist ?? ""),
+    String(v.vaultType ?? v.vault_type ?? ""),
+  ]
+    .join(" ")
+    .toLowerCase();
+  return hay.includes(q);
 }
 
 export function DiscoverPanel({
@@ -34,7 +42,8 @@ export function DiscoverPanel({
   onParkVault?: (vaultPubkey: string) => void;
   busy?: boolean;
 }) {
-  const [rows, setRows] = useState<EnrichedRow[]>([]);
+  const [rows, setRows] = useState<VaultRow[]>([]);
+  const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,26 +51,9 @@ export function DiscoverPanel({
     setLoading(true);
     setError(null);
     try {
-      const data = await getLeaderboard();
-      const items = data.items ?? [];
-      const enriched: EnrichedRow[] = await Promise.all(
-        items.map(async (row) => {
-          const strategist = String(row.strategist ?? "");
-          let winRate: number | null = null;
-          if (strategist.length >= 32) {
-            try {
-              const stats = await getWalletStats(strategist, "30d");
-              const wr = (stats as { winrate?: number }).winrate;
-              if (typeof wr === "number" && Number.isFinite(wr)) winRate = wr;
-            } catch {
-              winRate = null;
-            }
-          }
-          const returnPct = row.return_pct ?? row.returnPct;
-          return { ...row, winRate, returnPct };
-        })
-      );
-      setRows(enriched);
+      const data = await listVaults({ pageSize: 100 });
+      const items = (data.items ?? []).filter((v) => String(v.pubkey ?? "").length >= 32);
+      setRows(items);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setRows([]);
@@ -74,11 +66,29 @@ export function DiscoverPanel({
     void load();
   }, [load]);
 
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return rows.filter((v) => matchesQuery(v, q)).slice(0, DISCOVER_LIMIT);
+  }, [rows, query]);
+
   return (
     <section className="discover">
-      <div className="hero-head">
+      <div className="hero-head discover-head">
         <h1 className="hero-title">Discover</h1>
-        <p className="hero-sub">Top vaults by return %</p>
+        <div className="discover-search field">
+          <label htmlFor="discover-search" className="sr-only">
+            Search vaults
+          </label>
+          <input
+            id="discover-search"
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search name, vault, or strategist…"
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </div>
       </div>
 
       {loading ? (
@@ -86,36 +96,36 @@ export function DiscoverPanel({
       ) : error ? (
         <div className="err">{error}</div>
       ) : rows.length === 0 ? (
-        <div className="empty-hint">No leaderboard data yet.</div>
+        <div className="empty-hint">No vaults indexed yet.</div>
+      ) : visible.length === 0 ? (
+        <div className="empty-hint">No vaults match “{query.trim()}”.</div>
       ) : (
         <div className="list">
-          {rows.map((row, idx) => {
+          {visible.map((row, idx) => {
             const pk = String(row.pubkey ?? "");
-            const name = String(row.name ?? "Vault");
             const strategist = String(row.strategist ?? "");
             return (
               <button
                 key={pk || idx}
                 type="button"
                 className="row-card"
-                disabled={busy}
+                disabled={busy || !pk}
                 onClick={() => pk && onOpenVault?.(pk)}
               >
-                <div className="token-icon">#{idx + 1}</div>
+                <div className="token-icon">1V</div>
                 <div className="row-main">
                   <div className="row-title">
-                    {name}
-                    <span className="chip">{fmtPct(row.returnPct)}</span>
-                    <span className="chip">WR {fmtWinRate(row.winRate)}</span>
+                    {vaultName(row)}
+                    <span className="chip">{vaultType(row)}</span>
                   </div>
                   <div className="row-sub mono">
-                    {strategist.slice(0, 4)}…{strategist.slice(-4)}
+                    {strategist ? shortAddr(strategist) : shortAddr(pk)}
                   </div>
                 </div>
                 <div className="row-right">
                   <div className="row-value">
                     <SolAmount
-                      value={formatLamportsAsSol(String(row.nav ?? "0"), 2)}
+                      value={formatLamportsAsSol(String(row.nav ?? row.total_assets ?? "0"), 2)}
                       unit="SOL NAV"
                       size="md"
                     />
@@ -133,7 +143,7 @@ export function DiscoverPanel({
         disabled={loading}
         onClick={() => void load()}
       >
-        Refresh leaderboard
+        Refresh vaults
       </button>
     </section>
   );

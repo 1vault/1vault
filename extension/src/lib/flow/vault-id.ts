@@ -1,16 +1,37 @@
 import { Connection, PublicKey } from "@solana/web3.js";
-import { listVaults } from "../api/client";
-import { getProtocol } from "../api/client";
+import { getProtocol, getStrategist, listVaults } from "../api/client";
 import { RPC_URL } from "../config";
 
-export async function nextVaultId(strategist: string): Promise<number> {
-  const data = await listVaults({ strategist, pageSize: 100 });
+function maxVaultId(rows: Array<Record<string, unknown>> | undefined): number {
   let max = 0;
-  for (const v of data.items ?? []) {
+  for (const v of rows ?? []) {
     const id = Number(v.vaultId ?? v.vault_id ?? 0);
-    if (id > max) max = id;
+    if (Number.isFinite(id) && id > max) max = id;
   }
-  let candidate = max + 1;
+  return max;
+}
+
+/** Next unused on-chain vault id for this strategist (never global list max). */
+export async function nextVaultId(strategist: string): Promise<number> {
+  const [strat, listed] = await Promise.all([
+    getStrategist(strategist).catch(() => ({ vaults: [] as Array<Record<string, unknown>> })),
+    listVaults({ strategist, pageSize: 100 }).catch(() => ({ items: [] as Array<Record<string, unknown>> })),
+  ]);
+
+  let max = Math.max(maxVaultId(strat.vaults), maxVaultId(listed.items));
+  // Ignore foreign rows if listVaults is unscoped.
+  for (const v of listed.items ?? []) {
+    const owner = String(v.strategist ?? "");
+    if (owner && owner !== strategist) continue;
+    const id = Number(v.vaultId ?? v.vault_id ?? 0);
+    if (Number.isFinite(id) && id > max) max = id;
+  }
+  for (const v of strat.vaults ?? []) {
+    const id = Number(v.vaultId ?? v.vault_id ?? 0);
+    if (Number.isFinite(id) && id > max) max = id;
+  }
+
+  let candidate = max + 1 || 1;
   try {
     const proto = await getProtocol();
     const programId = proto.programId;
@@ -33,5 +54,5 @@ export async function nextVaultId(strategist: string): Promise<number> {
   } catch {
     /* indexer-based id */
   }
-  return candidate || 1;
+  return candidate;
 }

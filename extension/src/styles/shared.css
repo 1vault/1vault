@@ -161,7 +161,7 @@ button {
   padding: 0 var(--pad-x) calc(var(--nav-h) + max(20px, env(safe-area-inset-bottom, 0px)));
   display: flex;
   flex-direction: column;
-  gap: var(--gap);
+  gap: 8px;
 }
 
 .home-panels {
@@ -180,7 +180,7 @@ button {
   top: 0;
   z-index: 15;
   margin: 0 calc(var(--pad-x) * -1);
-  padding: var(--pad-y) var(--pad-x);
+  padding: 8px var(--pad-x) 6px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1491,6 +1491,37 @@ button {
   font-size: var(--fs-sm);
 }
 
+.err-dismiss {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent);
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+}
+
+.err-dismiss > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.err-x {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: var(--bad);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  opacity: 0.8;
+}
+
+.err-x:hover {
+  opacity: 1;
+}
+
 .ok {
   color: var(--ok);
   font-size: var(--fs-sm);
@@ -1604,6 +1635,46 @@ button {
   padding: 20px 12px;
   color: var(--text-dim);
   font-size: var(--fs-sm);
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+  padding: 28px 16px 24px;
+  min-height: 140px;
+}
+
+.empty-state-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--accent-bright);
+  background: rgba(58, 168, 240, 0.12);
+  border: 1px solid rgba(58, 168, 240, 0.22);
+  margin-bottom: 4px;
+}
+
+.empty-state-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.empty-state-sub {
+  margin: 0;
+  max-width: 220px;
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  line-height: 1.4;
 }
 
 .section-label {
@@ -1874,6 +1945,52 @@ button {
   border: 1px solid var(--line);
 }
 
+.wizard-license-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 8px 0 12px;
+}
+
+.wizard-license-stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  min-width: 0;
+}
+
+.wizard-license-stats span {
+  font-size: var(--fs-xs);
+}
+
+.wizard-license-stats strong {
+  font-family: var(--font-display);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}
+
+.wizard-license-stats .ok-text {
+  color: var(--ok);
+}
+
+.wizard-license-stats .warn-text {
+  color: var(--warn);
+}
+
+.wizard-license-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wizard-license-need .wizard-check {
+  margin-bottom: 0;
+}
+
 .wizard-terms {
   margin: 8px 0 12px;
   padding-left: 18px;
@@ -2082,8 +2199,71 @@ button {
   font-size: var(--fs-sm);
 }
 
+.discover {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
 .discover .hero-head {
-  margin-bottom: 12px;
+  margin-bottom: 0;
+}
+
+.discover-head {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.discover-head .hero-title,
+.discover-head h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.03em;
+  line-height: var(--lh-tight);
+}
+
+.discover-search {
+  margin: 0;
+  width: 100%;
+  gap: 0;
+}
+
+.discover-search input {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-sm);
+}
+
+.discover-search input::placeholder {
+  color: var(--text-dim);
+}
+
+.discover-search input:focus {
+  outline: none;
+  border-color: rgba(58, 168, 240, 0.45);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .nav-item[data-nav="discover"]:hover .nav-icon {

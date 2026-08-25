@@ -153,7 +153,25 @@ async function handle(message: Msg): Promise<unknown> {
         listVaults({ strategist: pubkey, pageSize: 100 }).catch(() => ({ items: [] })),
         getProtocol().catch(() => ({})),
       ]);
-      const vaults = (strat.vaults?.length ? strat.vaults : listed.items) ?? [];
+
+      // Home = vaults owned by this wallet only (never the global vault list).
+      const byPk = new Map<string, Record<string, unknown>>();
+      for (const v of strat.vaults ?? []) {
+        const pk = String(v.pubkey ?? "");
+        if (pk.length < 32) continue;
+        const owner: string = String(v.strategist ?? "");
+        if (owner && owner !== pubkey) continue;
+        byPk.set(pk, { ...v, strategist: pubkey });
+      }
+      for (const v of listed.items ?? []) {
+        const pk = String(v.pubkey ?? "");
+        if (pk.length < 32) continue;
+        // listVaults must explicitly match strategist — ignore unscoped rows.
+        if (String(v.strategist ?? "") !== pubkey) continue;
+        byPk.set(pk, { ...byPk.get(pk), ...v, strategist: pubkey });
+      }
+      const vaults = [...byPk.values()];
+
       const annotated = await annotateVaultLayout(vaults).catch(() =>
         vaults.map((v) => ({
           ...v,

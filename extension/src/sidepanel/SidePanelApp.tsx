@@ -96,6 +96,28 @@ function friendlyFlowError(raw: string): string {
   if (/ConstraintSeeds|0x7d6|error code: 2006|incompatible on-chain layout/i.test(raw)) {
     return "This vault uses an old on-chain layout. Create a new vault and park there — legacy vaults cannot withdraw/close.";
   }
+  if (
+    /InsufficientLicenseBalance|Insufficient platform token balance for license|error (?:code|number):\s*6006|custom program error:\s*0x1776/i.test(
+      raw
+    )
+  ) {
+    return "Not enough 1VL licence tokens to create a vault. Get 1VL (swap), then try again.";
+  }
+  if (/LicenseAlreadyActive|license already active|already locked/i.test(raw)) {
+    return "Licence record already active. Retry Create, or unlock 1VL after closing other vaults.";
+  }
+  if (/insufficient.?sol|insufficient.?funds|Attempt to debit an account but found no record of a prior credit/i.test(raw)) {
+    return "Not enough SOL for fees and initial park. Add SOL to your wallet and retry.";
+  }
+  if (/Failed to fetch|NetworkError|BACKEND|backend request failed|ECONNREFUSED/i.test(raw)) {
+    return "Cannot reach the 1vault backend. Check that the API is running, then retry.";
+  }
+  if (/keyring locked|unlock first/i.test(raw)) {
+    return "Wallet is locked. Unlock your keyring, then retry.";
+  }
+  if (/a flow is already running/i.test(raw)) {
+    return "Another transaction is still running. Wait for it to finish or cancel it.";
+  }
   return raw;
 }
 
@@ -331,6 +353,7 @@ export function SidePanelApp() {
 
   useEffect(() => {
     if (flowState?.status !== "running") return;
+    let reportedFail: string | null = null;
     const id = window.setInterval(() => {
       void pollFlowState().then((s) => {
         if (s.status === "completed") {
@@ -343,7 +366,8 @@ export function SidePanelApp() {
           setToast(completedLabel(s.mode));
           window.setTimeout(() => setToast(null), 3000);
         }
-        if (s.status === "failed" && s.error) {
+        if (s.status === "failed" && s.error && reportedFail !== s.error) {
+          reportedFail = s.error;
           setError(friendlyFlowError(s.error));
           setHoldingsTick((n) => n + 1);
         }
@@ -430,17 +454,23 @@ export function SidePanelApp() {
       shares?: number | string;
     }
   ) {
-    if (flowRunning) return;
+    if (flowRunning) {
+      setError("Another transaction is still running. Wait for it to finish or cancel it.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      const vaultId = selected
-        ? Number(selected.vaultId ?? selected.vault_id ?? 0) || undefined
-        : undefined;
+      const isCreate = mode === "create-vault";
+      const vaultId = isCreate
+        ? undefined
+        : selected
+          ? Number(selected.vaultId ?? selected.vault_id ?? 0) || undefined
+          : undefined;
       await sendBg({
         type: "RUN_FLOW",
         mode,
-        vault: activeVault ?? undefined,
+        vault: isCreate ? undefined : activeVault ?? undefined,
         vaultId,
         vaultType: opts?.vaultType,
         vaultName: opts?.vaultName,
@@ -528,11 +558,14 @@ export function SidePanelApp() {
   }
 
   function onCreateVault(result: CreateVaultResult) {
+    setError(null);
     setCreateScreenOpen(false);
     void startFlow("create-vault", {
       vaultName: result.vaultName,
       vaultType: result.vaultType,
       parkSol: result.parkSol,
+    }).catch(() => {
+      /* startFlow already sets friendly error */
     });
   }
 
@@ -771,10 +804,18 @@ export function SidePanelApp() {
             ) : (
               <section className="hero">
                 {!hasVaults ? (
-                  <HeroHead
-                    title="No vault yet"
-                    info="Lock 1,000,000 1VL, create a pooled vault, then park SOL. Retail rides with you — close pays by share weight."
-                  />
+                  <div className="vault-summary vault-summary--empty">
+                    <div className="vault-summary-head">
+                      <span className="vault-summary-name">Wallet Balance</span>
+                    </div>
+                    <div className="vault-summary-nav">
+                      <SolAmount
+                        value={walletSol != null && walletSol !== "" ? walletSol : "—"}
+                        unit="SOL"
+                        size="display"
+                      />
+                    </div>
+                  </div>
                 ) : pipelineLoading && !pipeline ? (
                   <VaultSummaryShimmer />
                 ) : (
@@ -783,6 +824,7 @@ export function SidePanelApp() {
                     pipeline={pipeline}
                     parkBreakdown={parkBreakdown}
                     bar={bar}
+                    walletSolFallback={walletSol}
                   />
                 )}
 
@@ -795,6 +837,7 @@ export function SidePanelApp() {
                   canClose={canClose}
                   closeHint={closeVaultBlockedMessage(selected)}
                   onCreate={() => {
+                    setError(null);
                     setDetailVault(null);
                     setParkScreen(null);
                     setCreateScreenOpen(true);
@@ -887,7 +930,15 @@ export function SidePanelApp() {
                   <>
                     <div className="list vault-grid">
                       {vaults.length === 0 && (
-                        <div className="empty-hint">No vaults indexed yet for this degen.</div>
+                        <div className="empty-state">
+                          <div className="empty-state-icon" aria-hidden>
+                            <IconVault width={28} height={28} />
+                          </div>
+                          <p className="empty-state-title">No vaults yet</p>
+                          <p className="empty-state-sub">
+                            Create one from Home, or browse all on Discover.
+                          </p>
+                        </div>
                       )}
                       {pagedVaults.slice.map((v) => {
                         const pk = String(v.pubkey ?? "");
@@ -1181,7 +1232,14 @@ export function SidePanelApp() {
           />
         ) : null}
 
-        {error && <div className="err">{error}</div>}
+        {error && (
+          <div className="err err-dismiss" role="alert">
+            <span>{error}</span>
+            <button type="button" className="err-x" aria-label="Dismiss" onClick={() => setError(null)}>
+              ×
+            </button>
+          </div>
+        )}
         {toast && <div className="ok">{toast}</div>}
       </div>
 

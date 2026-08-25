@@ -13,6 +13,8 @@ type VaultSummaryProps = {
   pipeline: PipelineEstimate | null;
   parkBreakdown: ParkBreakdown | null;
   bar: PipelineBar | null;
+  /** Shown when park breakdown wallet balance is unavailable. */
+  walletSolFallback?: string | null;
 };
 
 export function VaultSummary({
@@ -20,11 +22,14 @@ export function VaultSummary({
   pipeline,
   parkBreakdown,
   bar,
+  walletSolFallback,
 }: VaultSummaryProps) {
   const walletBal =
     parkBreakdown?.walletAvailable != null
       ? formatLamportsAsSol(parkBreakdown.walletAvailable, 1)
-      : "—";
+      : walletSolFallback != null && walletSolFallback !== ""
+        ? walletSolFallback
+        : "—";
   const myPark = parkBreakdown
     ? formatLamportsAsSol(parkBreakdown.strategist.committed, 0)
     : "—";
