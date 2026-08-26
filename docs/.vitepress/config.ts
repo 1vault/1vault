@@ -44,7 +44,12 @@ export default defineConfig({
   ],
 
   themeConfig: {
-    logo: "/img/1vault-logo.png",
+    logo: {
+      light: "/img/1vault-logo.png",
+      dark: "/img/1vault-logo.png",
+      alt: "1Vault",
+    },
+    // Wordmark is in the logo asset; keep text off so header stays clean.
     siteTitle: false,
     nav: [
       { text: "Guide", link: "/" },

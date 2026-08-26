@@ -127,6 +127,15 @@ body {
   pointer-events: none;
 }
 
+.VPNavBarTitle,
+.VPNavBarMenu,
+.VPNavBarSearch,
+.VPNavBarExtra,
+.VPNavBarHamburger,
+.VPNavBar .content-body > * {
+  pointer-events: auto;
+}
+
 .VPNavBar .wrapper,
 .VPNavBar .container,
 .VPNavBar .content,
