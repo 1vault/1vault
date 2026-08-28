@@ -1,9 +1,10 @@
+import { Connection, PublicKey } from "@solana/web3.js";
+
 /** Read next_trade_id / next_position_id from on-chain Vault account. */
 export async function fetchVaultTradeCursor(
   rpcUrl: string,
   vaultPubkey: string
 ): Promise<{ tradeId: number; positionId: number }> {
-  const { Connection, PublicKey } = await import("@solana/web3.js");
   const conn = new Connection(rpcUrl, "confirmed");
   const info = await conn.getAccountInfo(new PublicKey(vaultPubkey), "confirmed");
   if (!info?.data?.length) {
@@ -33,12 +34,7 @@ function u64LE(id: number): Uint8Array {
   return buf;
 }
 
-function tradePDA(
-  PublicKey: typeof import("@solana/web3.js").PublicKey,
-  program: import("@solana/web3.js").PublicKey,
-  vault: import("@solana/web3.js").PublicKey,
-  tradeId: number
-) {
+function tradePDA(program: PublicKey, vault: PublicKey, tradeId: number) {
   const [pda] = PublicKey.findProgramAddressSync(
     [new TextEncoder().encode("trade"), vault.toBuffer(), u64LE(tradeId)],
     program
@@ -46,12 +42,7 @@ function tradePDA(
   return pda;
 }
 
-function vaultPositionPDA(
-  PublicKey: typeof import("@solana/web3.js").PublicKey,
-  program: import("@solana/web3.js").PublicKey,
-  vault: import("@solana/web3.js").PublicKey,
-  positionId: number
-) {
+function vaultPositionPDA(program: PublicKey, vault: PublicKey, positionId: number) {
   const [pda] = PublicKey.findProgramAddressSync(
     [new TextEncoder().encode("vault_position"), vault.toBuffer(), u64LE(positionId)],
     program
@@ -69,16 +60,15 @@ export async function detectExecutedTradeResume(
   const tradeId = cursor.tradeId - 1;
   const positionId = cursor.positionId;
 
-  const { Connection, PublicKey } = await import("@solana/web3.js");
   const conn = new Connection(rpcUrl, "confirmed");
   const vault = new PublicKey(vaultPubkey);
   const program = new PublicKey(programId);
 
-  const tradeAcc = await conn.getAccountInfo(tradePDA(PublicKey, program, vault, tradeId), "confirmed");
+  const tradeAcc = await conn.getAccountInfo(tradePDA(program, vault, tradeId), "confirmed");
   if (!tradeAcc?.data || tradeAcc.data.length < 178) return null;
   if (tradeAcc.data[177] !== 1) return null;
 
-  const posAcc = await conn.getAccountInfo(vaultPositionPDA(PublicKey, program, vault, positionId), "confirmed");
+  const posAcc = await conn.getAccountInfo(vaultPositionPDA(program, vault, positionId), "confirmed");
   if (posAcc) return null;
 
   return { tradeId, positionId };

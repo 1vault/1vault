@@ -47,4 +47,10 @@ export default defineManifest({
       run_at: "document_idle",
     },
   ],
+  web_accessible_resources: [
+    {
+      resources: ["public/icons/*", "icons/*"],
+      matches: ["https://gmgn.ai/*", "https://*.gmgn.ai/*"],
+    },
+  ],
 });

@@ -52,6 +52,10 @@ export type FlowRunInput = {
   baseAmount?: number;
   shares?: number | string;
   vaultTokenAccount?: string;
+  /** Swap slippage in bps (capped by vault / runner). */
+  slippageBps?: number;
+  /** Solana priority fee (micro-lamports per CU). */
+  priorityFeeMicroLamports?: number;
 };
 
 export const DEFAULT_FLOW_SETTINGS = {

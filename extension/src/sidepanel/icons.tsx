@@ -191,6 +191,29 @@ export function IconX(p: Props) {
   );
 }
 
+export function IconBolt(p: Props) {
+  return (
+    <svg
+      className={p.className}
+      width={p.width ?? 12}
+      height={p.height ?? 12}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden
+    >
+      <path d="M13 2 4.5 13.2h6.2L11 22l8.5-11.2h-6.2L13 2z" />
+    </svg>
+  );
+}
+
+export function IconChevronDown(p: Props) {
+  return (
+    <I width={p.width ?? 12} height={p.height ?? 12} className={p.className} strokeWidth={2.4}>
+      <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+    </I>
+  );
+}
+
 /** Official Solana mark — gradient id is scoped per instance. */
 export function IconSolana({ className, width = 14, height }: Props) {
   const gradId = useId().replace(/:/g, "");

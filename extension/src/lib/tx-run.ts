@@ -1,4 +1,4 @@
-import { prepUnlockLicense, submitSignedTx } from "./api/client";
+import { prepForceCloseLegacyVault, prepUnlockLicense, submitSignedTx } from "./api/client";
 import { signPreparedEOA } from "./signing";
 import type { Keypair } from "@solana/web3.js";
 
@@ -36,5 +36,13 @@ export async function runPreparedTx(prepared: PreparedTx, keypair: Keypair): Pro
 
 export async function runUnlockLicense(strategist: string, keypair: Keypair): Promise<string> {
   const prepared = await prepUnlockLicense(strategist);
+  return runPreparedTx(prepared, keypair);
+}
+
+export async function runForceCloseLegacyVault(
+  args: { strategist: string; vault: string; vaultId: number },
+  keypair: Keypair
+): Promise<string> {
+  const prepared = await prepForceCloseLegacyVault(args);
   return runPreparedTx(prepared, keypair);
 }

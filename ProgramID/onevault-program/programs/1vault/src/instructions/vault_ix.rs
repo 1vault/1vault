@@ -544,6 +544,85 @@ pub fn handle_close_vault<'a>(ctx: Context<'a, CloseVault<'a>>) -> Result<()> {
     Ok(())
 }
 
+/// Abandon a vault account that cannot deserialize as the current Vault layout
+/// (legacy size). Returns rent to the strategist and decrements active_vault_count
+/// so `unlock_license` can proceed. Does **not** pay out share holders — only for
+/// incompatible layouts that cannot run initiate_close / close_vault.
+#[derive(Accounts)]
+#[instruction(vault_id: u64)]
+pub struct ForceCloseLegacyVault<'info> {
+    #[account(mut)]
+    pub strategist: Signer<'info>,
+
+    #[account(
+        mut,
+        seeds = [STRATEGIST_SEED, strategist.key().as_ref()],
+        bump = strategist_account.bump,
+        constraint = strategist_account.owner == strategist.key() @ OneVaultError::Unauthorized
+    )]
+    pub strategist_account: Account<'info, Strategist>,
+
+    /// CHECK: legacy vault PDA — layout verified from raw bytes (not Account\<Vault\>).
+    #[account(
+        mut,
+        seeds = [VAULT_SEED, strategist.key().as_ref(), &vault_id.to_le_bytes()],
+        bump,
+    )]
+    pub vault: UncheckedAccount<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+pub fn handle_force_close_legacy_vault(
+    ctx: Context<ForceCloseLegacyVault>,
+    _vault_id: u64,
+) -> Result<()> {
+    require_keys_eq!(
+        *ctx.accounts.vault.owner,
+        crate::ID,
+        OneVaultError::Unauthorized
+    );
+
+    let current_len = 8 + Vault::INIT_SPACE;
+    let data = ctx.accounts.vault.try_borrow_data()?;
+    require!(data.len() >= 40, OneVaultError::InvalidAmount);
+    // Only abandon accounts that cannot deserialize as the current Vault.
+    require!(
+        data.len() != current_len,
+        OneVaultError::NotLegacyVault
+    );
+    let stored_strategist =
+        Pubkey::try_from(&data[8..40]).map_err(|_| error!(OneVaultError::InvalidAmount))?;
+    require_keys_eq!(
+        stored_strategist,
+        ctx.accounts.strategist.key(),
+        OneVaultError::Unauthorized
+    );
+    drop(data);
+
+    let dest = ctx.accounts.strategist.to_account_info();
+    let src = ctx.accounts.vault.to_account_info();
+    let lamports = src.lamports();
+    **dest.lamports.borrow_mut() = dest
+        .lamports()
+        .checked_add(lamports)
+        .ok_or(OneVaultError::MathOverflow)?;
+    **src.lamports.borrow_mut() = 0;
+    src.data.borrow_mut().fill(0);
+    src.assign(&anchor_lang::system_program::ID);
+
+    ctx.accounts.strategist_account.active_vault_count =
+        ctx.accounts.strategist_account.active_vault_count.saturating_sub(1);
+
+    emit!(crate::events::VaultClosed {
+        vault: ctx.accounts.vault.key(),
+        strategist: ctx.accounts.strategist.key(),
+        timestamp: Clock::get()?.unix_timestamp,
+    });
+
+    Ok(())
+}
+
 #[derive(Accounts)]
 pub struct UpdateNav<'info> {
     #[account(mut, seeds = [VAULT_SEED, vault.strategist.as_ref(), &vault.vault_id.to_le_bytes()], bump = vault.bump,

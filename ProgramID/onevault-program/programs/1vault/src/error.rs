@@ -112,6 +112,8 @@ pub enum OneVaultError {
     PooledVaultOnly,
     #[msg("Invalid vault book mode")]
     InvalidBookMode,
+    #[msg("Vault uses current layout — use initiate_close / close_vault instead")]
+    NotLegacyVault,
     #[msg("Vault position is not open")]
     VaultPositionNotOpen,
     #[msg("Investor has open mirrored positions")]

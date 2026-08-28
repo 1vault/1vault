@@ -438,6 +438,36 @@ func (a *API) PrepUnlockLicense(w http.ResponseWriter, r *http.Request) {
 	httpx.OK(w, r, p, http.StatusOK)
 }
 
+func (a *API) PrepForceCloseLegacyVault(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Strategist string `json:"strategist"`
+		Vault      string `json:"vault"`
+		VaultID    uint64 `json:"vaultId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		httpx.Fail(w, r, 422, "VALIDATION_ERROR", "invalid json", nil)
+		return
+	}
+	st, ok := a.decodePK(w, r, body.Strategist, "strategist")
+	if !ok {
+		return
+	}
+	vault, ok := a.resolveVaultPubkey(w, r, body.Vault, body.Strategist, body.VaultID)
+	if !ok {
+		return
+	}
+	if body.VaultID == 0 {
+		httpx.Fail(w, r, 422, "VALIDATION_ERROR", "vaultId required for force-close legacy", nil)
+		return
+	}
+	p, err := a.txBuilder(r).ForceCloseLegacyVault(st, vault, body.VaultID)
+	if err != nil {
+		a.failTxBuild(w, r, err)
+		return
+	}
+	httpx.OK(w, r, p, http.StatusOK)
+}
+
 func (a *API) PrepInvestorConfig(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Investor   string `json:"investor"`

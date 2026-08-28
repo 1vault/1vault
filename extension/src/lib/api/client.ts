@@ -50,11 +50,29 @@ export async function api<T>(
       ...(rest.headers ?? {}),
     },
   });
-  const json = (await res.json()) as ApiEnvelope<T>;
-  if (!res.ok || json.success === false) {
-    throw new Error(json.error?.message ?? `request failed (${res.status})`);
+  const text = await res.text();
+  let json: ApiEnvelope<T> | null = null;
+  if (text.trim()) {
+    try {
+      json = JSON.parse(text) as ApiEnvelope<T>;
+    } catch {
+      const snippet = text.replace(/\s+/g, " ").trim().slice(0, 160);
+      if (res.status === 404) {
+        throw new Error(
+          `API not found (${path}) — backend may need redeploy. ${snippet || res.statusText}`
+        );
+      }
+      throw new Error(
+        `Bad API response (${res.status})${snippet ? `: ${snippet}` : ""}`
+      );
+    }
   }
-  return (json.data ?? json) as T;
+  if (!res.ok || json?.success === false) {
+    throw new Error(
+      json?.error?.message ?? `request failed (${res.status}${text ? `: ${text.slice(0, 120)}` : ""})`
+    );
+  }
+  return (json?.data ?? json) as T;
 }
 
 export async function getHealth(): Promise<unknown> {
@@ -256,6 +274,24 @@ export async function prepUnlockLicense(strategist: string): Promise<{
   return api("/v1/tx/unlock-license", {
     method: "POST",
     body: JSON.stringify({ strategist }),
+  });
+}
+
+export async function prepForceCloseLegacyVault(body: {
+  strategist: string;
+  vault: string;
+  vaultId: number;
+}): Promise<{
+  transaction?: string;
+  signerDetails?: Array<{ pubkey: string; userMustSign?: boolean }>;
+  prepared?: {
+    transaction?: string;
+    signerDetails?: Array<{ pubkey: string; userMustSign?: boolean }>;
+  };
+}> {
+  return api("/v1/tx/force-close-legacy-vault", {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 }
 

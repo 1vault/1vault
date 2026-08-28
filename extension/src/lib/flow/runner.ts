@@ -14,11 +14,36 @@ import { ensureVaultAcceptsMint } from "./accept-mint";
 import { ensureDemoTradeMint, mintDemoFill } from "./demo-mint";
 import type { FlowEvent, FlowRunInput, FlowState } from "./types";
 import { detectExecutedTradeResume, fetchVaultTradeCursor } from "./vault-cursor";
+import {
+  resolveOpenVaultPositions,
+  waitVaultLiquidForClose,
+  closePositionAccounting,
+  cancelPendingTrades,
+  type ExitPositionTarget,
+} from "./close-vault-prep";
+import { fetchVaultCloseMeta } from "../vault-layout";
 import { nextVaultId } from "./vault-id";
 
 const DEMO_TRADE_AMOUNT = 30_000_000;
 const DEFAULT_PRIORITY_FEE = 150_000;
 const DEFAULT_CU_LIMIT = 400_000;
+/** Keep slippage modest so fills stay within vault risk + fee economics. */
+const MAX_SLIPPAGE_BPS = 300;
+const MIN_SLIPPAGE_BPS = 50;
+const MAX_PRIORITY_FEE = 500_000;
+const MIN_PRIORITY_FEE = 50_000;
+
+function clampSlippageBps(v?: number): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return 100;
+  return Math.min(MAX_SLIPPAGE_BPS, Math.max(MIN_SLIPPAGE_BPS, Math.round(n)));
+}
+
+function clampPriorityFee(v?: number): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return DEFAULT_PRIORITY_FEE;
+  return Math.min(MAX_PRIORITY_FEE, Math.max(MIN_PRIORITY_FEE, Math.round(n)));
+}
 const FLOW_POLL_MS = 350;
 const CONFIRM_POLL_MS = 400;
 
@@ -157,8 +182,8 @@ async function buildStartBody(
         minAmountOut: 0,
         takeProfitBps: tp,
         stopLossBps: sl,
-        slippageBps: 100,
-        priorityFeeMicroLamports: DEFAULT_PRIORITY_FEE,
+        slippageBps: clampSlippageBps(input.slippageBps),
+        priorityFeeMicroLamports: clampPriorityFee(input.priorityFeeMicroLamports),
         computeUnitLimit: DEFAULT_CU_LIMIT,
         investors,
       };
@@ -176,10 +201,10 @@ async function buildStartBody(
         tradeId: input.tradeId,
         inputMint: input.inputMint,
         exitPercent: input.exitPercent ?? 100,
-        slippageBps: 100,
+        slippageBps: clampSlippageBps(input.slippageBps),
         minAmountOut: 0,
         baseAmount: input.baseAmount ?? 0,
-        priorityFeeMicroLamports: DEFAULT_PRIORITY_FEE,
+        priorityFeeMicroLamports: clampPriorityFee(input.priorityFeeMicroLamports),
         computeUnitLimit: DEFAULT_CU_LIMIT,
       };
     }
@@ -212,7 +237,94 @@ export type FlowCallbacks = {
   onState: (state: FlowState) => void;
 };
 
+async function liquidateVaultPositions(
+  vault: string,
+  strategist: string,
+  strategistKey: Keypair,
+  _parentInput: FlowRunInput,
+  callbacks: FlowCallbacks,
+  events: FlowEvent[]
+): Promise<void> {
+  const push = (step: string, status: FlowEvent["status"], detail?: string, tx?: string) => {
+    events.push({ at: new Date().toISOString(), step, status, detail, tx });
+    callbacks.onState({
+      status: "running",
+      mode: "close-vault",
+      events: [...events],
+    });
+  };
+
+  let meta = await fetchVaultCloseMeta(vault);
+  if (meta.canClose) return;
+
+  push("liquidate", "running", "Closing open positions on-chain…");
+  const positions: ExitPositionTarget[] = await resolveOpenVaultPositions(vault);
+
+  for (let i = 0; i < positions.length; i++) {
+    const pos = positions[i]!;
+    const label = `#${pos.positionId}`;
+    push("liquidate", "running", `Closing position ${label} (${i + 1}/${positions.length})…`);
+    try {
+      const sig = await closePositionAccounting(strategist, vault, pos.positionId, strategistKey);
+      push("liquidate", "success", `Position ${label} closed`, sig);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // Already closed / missing account — continue
+      if (/PositionNotOpen|already closed|AccountNotInitialized|could not find account/i.test(msg)) {
+        push("liquidate", "skipped", `Position ${label} already closed`);
+        continue;
+      }
+      throw e;
+    }
+  }
+
+  meta = await fetchVaultCloseMeta(vault);
+  if ((meta.pendingTrades ?? 0) > 0 || (!meta.canClose && positions.length === 0)) {
+    push("liquidate", "running", "Cancelling pending trades…");
+    const n = await cancelPendingTrades(vault, strategistKey);
+    if (n > 0) push("liquidate", "success", `Cancelled ${n} pending trade(s)`);
+  }
+
+  meta = await fetchVaultCloseMeta(vault);
+  if (meta.canClose) {
+    push("liquidate", "success", "Vault ready to close");
+    return;
+  }
+
+  if (positions.length === 0 && !meta.liquidForClose) {
+    push(
+      "liquidate",
+      "running",
+      `Waiting for settle (positions=${meta.openPositions ?? 0}, pending=${meta.pendingTrades ?? 0}, value=${meta.positionValue ?? "0"})…`
+    );
+  } else {
+    push("liquidate", "running", "Waiting for vault to settle…");
+  }
+  await waitVaultLiquidForClose(vault);
+  push("liquidate", "success", "All activity cleared — proceeding to close vault");
+}
+
 export async function runFlow(
+  input: FlowRunInput,
+  strategistKey: Keypair,
+  callbacks: FlowCallbacks
+): Promise<FlowState["result"]> {
+  if (input.mode === "close-vault") {
+    if (!input.vault) throw new Error("Active vault required");
+    const events: FlowEvent[] = [];
+    await liquidateVaultPositions(
+      input.vault,
+      input.strategist,
+      strategistKey,
+      input,
+      callbacks,
+      events
+    );
+  }
+  return executeFlowJob(input, strategistKey, callbacks);
+}
+
+async function executeFlowJob(
   input: FlowRunInput,
   strategistKey: Keypair,
   callbacks: FlowCallbacks

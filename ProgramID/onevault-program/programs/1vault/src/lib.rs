@@ -199,6 +199,14 @@ pub mod onevault {
         instructions::vault_ix::handle_close_vault(ctx)
     }
 
+    /// Abandon incompatible (legacy layout) vault PDAs and decrement active_vault_count.
+    pub fn force_close_legacy_vault(
+        ctx: Context<ForceCloseLegacyVault>,
+        vault_id: u64,
+    ) -> Result<()> {
+        instructions::vault_ix::handle_force_close_legacy_vault(ctx, vault_id)
+    }
+
     pub fn update_nav(ctx: Context<UpdateNav>) -> Result<()> {
         instructions::vault_ix::handle_update_nav(ctx)
     }

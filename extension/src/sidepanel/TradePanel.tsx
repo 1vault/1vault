@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { getTokenResearch, listVaultPositions, listVaultTrades } from "../lib/api/client";
 import type { FlowMode } from "../lib/flow";
-import { formatLamportsAsSol } from "../lib/estimate";
+import { formatLamportsAsSol, type ParkBreakdown } from "../lib/estimate";
 import {
   attachTradeIds,
   parseVaultPositions,
   type VaultPositionRow,
 } from "../lib/trade/positions";
-import { IconTrade } from "./icons";
-import { HeroHead } from "./InfoTip";
+import { IconBolt, IconChevronDown, IconSolana, IconTrade } from "./icons";
 import { SolAmount } from "./SolAmount";
 import {
   ListPager,
@@ -27,14 +26,48 @@ type FlowOpts = {
 type Props = {
   activeVault: string | null;
   vaultId?: number;
+  vaultName?: string;
+  vaultTypeLabel?: string;
+  vaultStatus?: string;
+  vaultClosed?: boolean;
+  parkBreakdown?: ParkBreakdown | null;
   busy: boolean;
   flowRunning: boolean;
   onRunFlow: (mode: FlowMode, opts?: FlowOpts) => void;
 };
 
+const GMGN_SOL_URL = "https://gmgn.ai/sol";
+
 function shortAddr(pk: string) {
   if (pk.length < 10) return pk;
   return `${pk.slice(0, 4)}…${pk.slice(-4)}`;
+}
+
+function mintTicker(mint: string): string {
+  if (!mint) return "TOKEN";
+  return mint.slice(0, 6).toUpperCase();
+}
+
+function mintHue(mint: string): number {
+  let h = 0;
+  for (let i = 0; i < mint.length; i++) h = (h * 31 + mint.charCodeAt(i)) >>> 0;
+  return h % 360;
+}
+
+function pnlPercent(entryValue: string, currentValue: string): number | null {
+  try {
+    const entry = BigInt(entryValue || "0");
+    if (entry <= 0n) return null;
+    const current = BigInt(currentValue || entryValue || "0");
+    return Number(((current - entry) * 10000n) / entry) / 100;
+  } catch {
+    return null;
+  }
+}
+
+function formatPnl(pct: number): string {
+  const rounded = Math.round(pct);
+  return `${rounded > 0 ? "+" : ""}${rounded}%`;
 }
 
 function pickResearchSummary(data: Record<string, unknown>): string {
@@ -48,7 +81,18 @@ function pickResearchSummary(data: Record<string, unknown>): string {
   return `${name} · research loaded`;
 }
 
-export function TradePanel({ activeVault, vaultId, busy, flowRunning, onRunFlow }: Props) {
+export function TradePanel({
+  activeVault,
+  vaultId,
+  vaultName,
+  vaultTypeLabel,
+  vaultStatus,
+  vaultClosed,
+  parkBreakdown,
+  busy,
+  flowRunning,
+  onRunFlow,
+}: Props) {
   const [positions, setPositions] = useState<VaultPositionRow[]>([]);
   const [positionsLoading, setPositionsLoading] = useState(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
@@ -123,38 +167,122 @@ export function TradePanel({ activeVault, vaultId, busy, flowRunning, onRunFlow 
     });
   }
 
+  function buyMore(pos: VaultPositionRow) {
+    const held = pos.outputMint || pos.inputMint;
+    if (held) setMint(held);
+    onRunFlow("open-position");
+  }
+
   const disabled = busy || flowRunning;
   const paged = usePagedSlice(positions, page);
+  const hasMint = mint.trim().length > 20;
+
+  const myPark = parkBreakdown
+    ? formatLamportsAsSol(parkBreakdown.strategist.committed, 2)
+    : null;
+  const totalPark = parkBreakdown
+    ? formatLamportsAsSol(parkBreakdown.total.committed, 2)
+    : null;
+
+  if (!activeVault) {
+    return (
+      <div className="trade-panel">
+        <section className="flow-card">
+          <header className="flow-card-head">
+            <h2 className="flow-card-title">Trade with vault</h2>
+            <p className="flow-card-sub">Please select a vault first.</p>
+          </header>
+          <div className="flow-card-body">
+            <p className="empty-hint">
+              Go to Home, pick an Active vault from your list, then tap Trade again.
+            </p>
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  if (vaultClosed) {
+    return (
+      <div className="trade-panel">
+        <section className="flow-card">
+          <header className="flow-card-head">
+            <h2 className="flow-card-title">Trade with vault</h2>
+            <p className="flow-card-sub">This vault is Closed.</p>
+          </header>
+          <div className="flow-card-body">
+            <p className="empty-hint">
+              {vaultName ? `${vaultName} · ` : ""}
+              {shortAddr(activeVault)} is closed — trading and new positions are disabled. Select an
+              Active vault on Home to trade again.
+            </p>
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="trade-panel">
-      <section className="hero">
-        <HeroHead
-          title="Trade with vault"
-          info={`Research a mint, open a devnet demo position, or exit an open book. Vault ${activeVault ? shortAddr(activeVault) : "—"}${vaultId ? ` #${vaultId}` : ""}.`}
-        />
-        <div className="hero-actions">
-          <button
-            className="btn btn-primary"
-            disabled={disabled || !activeVault}
-            onClick={() => onRunFlow("open-position")}
-          >
-            <IconTrade width={16} height={16} /> Open position
-          </button>
-          <button
-            className="btn btn-secondary"
-            disabled={disabled || positionsLoading}
-            onClick={() => void loadPositions()}
-          >
-            Refresh
-          </button>
+      <section className="trade-vault-card">
+        <div className="trade-vault-head">
+          <div className="trade-vault-title-row">
+            <h2 className="trade-vault-name">{vaultName || "Active vault"}</h2>
+            {vaultTypeLabel ? <span className="chip">{vaultTypeLabel}</span> : null}
+            {vaultStatus ? <span className="chip muted-chip">{vaultStatus}</span> : null}
+          </div>
+          <p className="trade-vault-addr mono" title={activeVault}>
+            {shortAddr(activeVault)}
+            {vaultId != null ? ` · #${vaultId}` : ""}
+          </p>
+        </div>
+
+        {(myPark != null || totalPark != null) && (
+          <div className="trade-vault-stats">
+            <div className="trade-vault-stat">
+              <span className="trade-vault-stat-label">My Park</span>
+              <span className="trade-vault-stat-value">
+                <SolAmount value={myPark ?? "—"} unit="SOL" size="sm" />
+              </span>
+            </div>
+            <div className="trade-vault-stat">
+              <span className="trade-vault-stat-label">Total Park</span>
+              <span className="trade-vault-stat-value">
+                <SolAmount value={totalPark ?? "—"} unit="SOL" size="sm" />
+              </span>
+            </div>
+            <div className="trade-vault-stat">
+              <span className="trade-vault-stat-label">Open</span>
+              <span className="trade-vault-stat-value">{positions.length}</span>
+            </div>
+          </div>
+        )}
+
+        <div className="trade-gmgn-guide">
+          <h3>Open a token on GMGN</h3>
+          <ol>
+            <li>
+              Open{" "}
+              <a href={GMGN_SOL_URL} target="_blank" rel="noreferrer">
+                gmgn.ai
+              </a>{" "}
+              and open the Solana token you want to trade.
+            </li>
+            <li>
+              On the token page, tap the <strong>1vaults · Trade</strong> pill to send the mint
+              back here.
+            </li>
+            <li>Review research below, then open or exit the position with this vault.</li>
+          </ol>
+          <a className="btn btn-primary btn-block" href={GMGN_SOL_URL} target="_blank" rel="noreferrer">
+            Open GMGN
+          </a>
         </div>
       </section>
 
       <section className="dd-card">
         <div className="dd-head">
           <h2>Due diligence</h2>
-          <span className="muted">GET /v1/tokens/&#123;mint&#125;/research</span>
         </div>
         <div className="field">
           <label>Token mint</label>
@@ -167,13 +295,25 @@ export function TradePanel({ activeVault, vaultId, busy, flowRunning, onRunFlow 
             }}
           />
         </div>
-        <button
-          className="btn btn-secondary btn-block"
-          disabled={researchBusy || !mint.trim()}
-          onClick={() => void onResearch()}
-        >
-          {researchBusy ? "Loading…" : "Run research"}
-        </button>
+        <div className="hero-actions">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled={researchBusy || !mint.trim()}
+            onClick={() => void onResearch()}
+          >
+            {researchBusy ? "Loading…" : "Run research"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={disabled || !hasMint}
+            title={hasMint ? "Open position with this mint" : "Paste a mint from GMGN first"}
+            onClick={() => onRunFlow("open-position")}
+          >
+            <IconTrade width={16} height={16} /> Open position
+          </button>
+        </div>
         {researchErr && <div className="err">{researchErr}</div>}
         {researchBusy && <ShimmerResearch />}
         {research && !researchBusy && (
@@ -187,48 +327,83 @@ export function TradePanel({ activeVault, vaultId, busy, flowRunning, onRunFlow 
         )}
       </section>
 
-      <section className="list-section">
-        <div className="dd-head">
-          <h2>Open positions</h2>
-          {!activeVault && <span className="muted">Select a vault on Home</span>}
+      <section className="holdings-card">
+        <div className="holdings-head">
+          <h2>Holdings</h2>
+          <button type="button" className="holdings-filter" disabled title="Open positions">
+            Active
+            <IconChevronDown width={12} height={12} />
+          </button>
+        </div>
+        <div className="holdings-cols" aria-hidden>
+          <span>Token</span>
+          <span>Remaining</span>
+          <span>Buy</span>
+          <span>Sell</span>
         </div>
         {loadErr && <div className="err">{loadErr}</div>}
         {positionsLoading ? (
           <ShimmerList count={3} />
         ) : (
           <>
-            <div className="list">
-              {activeVault && positions.length === 0 && !loadErr && (
-                <div className="empty-hint">No open positions — open one first.</div>
+            <div className="holdings-list">
+              {positions.length === 0 && !loadErr && (
+                <div className="empty-hint">No open holdings — open a token on GMGN first.</div>
               )}
-              {paged.slice.map((pos) => (
-                <div key={pos.positionId} className="row-card">
-                  <div className="token-icon">#{pos.positionId}</div>
-                  <div className="row-main">
-                    <div className="row-title">Position {pos.positionId}</div>
-                    <div className="row-sub mono">
-                      sell {shortAddr(pos.outputMint || pos.inputMint)} · trade {pos.tradeId}
+              {paged.slice.map((pos) => {
+                const heldMint = pos.outputMint || pos.inputMint;
+                const ticker = mintTicker(heldMint);
+                const remaining = pos.currentValue || pos.entryValue;
+                const pnl = pnlPercent(pos.entryValue, remaining);
+                const hue = mintHue(heldMint);
+                return (
+                  <div key={pos.positionId} className="holding-row">
+                    <div className="holding-token">
+                      <div
+                        className="holding-avatar"
+                        style={{
+                          background: `linear-gradient(145deg, hsl(${hue} 55% 38%), hsl(${(hue + 40) % 360} 60% 52%))`,
+                        }}
+                        title={heldMint}
+                      >
+                        {ticker.slice(0, 2)}
+                      </div>
+                      <span className="holding-ticker" title={heldMint}>
+                        {ticker}
+                      </span>
                     </div>
-                  </div>
-                  <div className="row-right">
-                    <div className="row-value">
-                      <SolAmount
-                        value={formatLamportsAsSol(pos.currentValue || pos.entryValue, 3)}
-                        unit="SOL"
-                        size="md"
-                      />
+                    <div className="holding-remaining">
+                      <SolAmount value={formatLamportsAsSol(remaining, 3)} size="sm" />
+                      {pnl != null && (
+                        <span className={`holding-pnl${pnl < 0 ? " down" : pnl > 0 ? " up" : ""}`}>
+                          {formatPnl(pnl)}
+                        </span>
+                      )}
                     </div>
                     <button
                       type="button"
-                      className="btn btn-secondary btn-exit"
+                      className="holding-action holding-buy"
+                      disabled={disabled}
+                      onClick={() => buyMore(pos)}
+                      title="Buy more"
+                    >
+                      <IconBolt width={11} height={11} className="holding-bolt buy" />
+                      <span>Amt</span>
+                      <IconSolana width={10} />
+                    </button>
+                    <button
+                      type="button"
+                      className="holding-action holding-sell"
                       disabled={disabled}
                       onClick={() => exitPosition(pos)}
+                      title="Sell position"
                     >
-                      Exit
+                      <IconBolt width={11} height={11} className="holding-bolt sell" />
+                      <span>Sell</span>
                     </button>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
             <ListPager
               page={paged.page}

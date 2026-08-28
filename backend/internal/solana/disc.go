@@ -19,6 +19,7 @@ var (
 	DiscInitiateVaultClose = []byte{229, 252, 232, 55, 28, 106, 95, 205}
 	DiscCloseVault         = []byte{141, 103, 17, 126, 72, 75, 29, 29}
 	DiscUnlockLicense      = []byte{221, 254, 125, 81, 195, 13, 71, 81}
+	DiscForceCloseLegacy   = []byte{4, 63, 129, 80, 133, 247, 106, 95}
 	DiscCreateInvestorCfg  = []byte{94, 162, 45, 56, 46, 136, 10, 251}
 	DiscUpdateInvestorCfg  = []byte{86, 69, 194, 148, 87, 10, 47, 91}
 	DiscFollowOn           = []byte{135, 121, 29, 109, 179, 193, 218, 149}

@@ -69,8 +69,9 @@ export function VaultProfileView({
     vaultType?: string;
     vaultStatus?: string | null;
     strategist?: string | null;
-    canClose?: boolean;
-    closeBlockedReason?: string;
+  canClose?: boolean;
+  canRequestClose?: boolean;
+  closeBlockedReason?: string;
     openPositions?: number;
     pendingTrades?: number;
   };
@@ -230,19 +231,24 @@ export function VaultProfileView({
   const typeLabel = profile?.vaultTypeLabel ?? profile?.vaultType ?? "pooled";
   // Prefer fresh on-chain check from detail; fall back to list annotate props.
   const hasOpenPositions = positions.length > 0;
-  const liveCanClose = closeMeta != null ? closeMeta.canClose : Boolean(canClose);
+  const needsLiquidation =
+    hasOpenPositions ||
+    closeMeta?.closeBlockedReason === "open_positions" ||
+    (closeMeta != null && !closeMeta.liquidForClose);
+  const liveCanRequestClose =
+    closeMeta != null ? closeMeta.canRequestClose : canClose !== false;
   const canCloseVault =
-    Boolean(liveCanClose) && !hasOpenPositions && !isClosed && !closeMetaLoading;
+    Boolean(liveCanRequestClose) && !isClosed && !closeMetaLoading;
   const closeBlockedHint = (() => {
     if (closeMetaLoading) return "Checking vault on-chain…";
-    if (closeMeta?.closeBlockedReason === "rpc" || (!closeMeta && !canClose && !closeHint)) {
+    if (closeMeta?.closeBlockedReason === "rpc" || (!closeMeta && canClose === false && !closeHint)) {
       return "Could not verify vault on-chain (RPC). Go back and reopen, or try again.";
     }
-    if (closeMeta?.closeBlockedReason === "open_positions" || hasOpenPositions) {
-      const n = closeMeta?.openPositions ?? positions.length;
+    if (needsLiquidation && canCloseVault) {
+      const n = Math.max(positions.length, closeMeta?.openPositions ?? 0);
       return n > 0
-        ? `Vault still has ${n} open position(s). Exit them on Trade first, then Close.`
-        : "Vault still has open positions or pending trades.";
+        ? `Close will sell ${n} open position(s), then return funds to investors by share weight.`
+        : "Close will exit remaining on-chain activity, then return funds to investors.";
     }
     if (closeMeta?.closeBlockedReason === "legacy") {
       const len = closeMeta.accountLen != null ? ` (len ${closeMeta.accountLen})` : "";
@@ -442,6 +448,8 @@ export function VaultProfileView({
                   Close vault
                 </button>
                 {!canCloseVault && closeBlockedHint ? (
+                  <p className="muted vault-profile-close-hint">{closeBlockedHint}</p>
+                ) : needsLiquidation && canCloseVault ? (
                   <p className="muted vault-profile-close-hint">{closeBlockedHint}</p>
                 ) : null}
               </div>

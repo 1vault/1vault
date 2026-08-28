@@ -2,6 +2,7 @@ package txprep
 
 import (
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"strings"
 
@@ -1341,6 +1342,46 @@ func (b *Builder) CloseVault(strategist, vault, vaultTokenAccount solana.PublicK
 		return nil, err
 	}
 	p.Message = "Close vault and payout remaining SOL by share weight"
+	return p, nil
+}
+
+// ForceCloseLegacyVault abandons a vault PDA with incompatible layout and decrements
+// strategist.active_vault_count so unlock_license can succeed.
+func (b *Builder) ForceCloseLegacyVault(strategist, vault solana.PublicKey, vaultID uint64) (*Prepared, error) {
+	if b.RPC != nil {
+		data, err := b.RPC.AccountData(vault)
+		if err != nil {
+			return nil, fmt.Errorf("load vault %s: %w", vault, err)
+		}
+		if len(data) == s.CurrentVaultAccountLen {
+			return nil, fmt.Errorf(
+				"vault %s uses current layout (len %d) — use Close vault, not force-close legacy",
+				vault, len(data),
+			)
+		}
+		if len(data) < 40 {
+			return nil, fmt.Errorf("vault %s account too short (len %d)", vault, len(data))
+		}
+		st := solana.PublicKeyFromBytes(data[8:40])
+		if st != strategist {
+			return nil, fmt.Errorf("vault %s strategist mismatch", vault)
+		}
+	}
+	idBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(idBytes, vaultID)
+	data := append(append([]byte{}, s.DiscForceCloseLegacy...), idBytes...)
+	ix := s.Ix(b.Program, data,
+		s.Meta(strategist, true, true),
+		s.Meta(s.StrategistPDA(b.Program, strategist), false, true),
+		s.Meta(vault, false, true),
+		s.Meta(s.SystemProgramID, false, false),
+	)
+	p, err := b.pack(strategist, []solana.PublicKey{strategist}, s.SetComputeUnitLimit(200_000), ix)
+	if err != nil {
+		return nil, err
+	}
+	p.Message = "Force-close legacy vault so $1VAULT can be released"
+	p.Accounts = map[string]string{"vault": vault.String(), "vaultId": fmt.Sprintf("%d", vaultID)}
 	return p, nil
 }
 

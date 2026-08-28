@@ -37,10 +37,22 @@ export function depositSharesForAmount(
 
 function asBigInt(v: unknown): bigint {
   if (typeof v === "bigint") return v;
-  if (typeof v === "number") return BigInt(Math.trunc(v));
-  if (typeof v === "string" && /^\d+$/.test(v)) return BigInt(v);
+  if (typeof v === "number") {
+    if (!Number.isFinite(v) || v <= 0) return 0n;
+    if (v > 0 && v < 1000 && !Number.isInteger(v)) return BigInt(Math.floor(v * 1e9));
+    return BigInt(Math.trunc(v));
+  }
+  if (typeof v === "string") {
+    const s = v.trim().replace(/,/g, "");
+    if (/^\d+$/.test(s)) return BigInt(s);
+    if (/^\d*\.\d+$/.test(s) || /^\d+\.\d*$/.test(s)) {
+      const n = Number(s);
+      if (!Number.isFinite(n) || n <= 0) return 0n;
+      return BigInt(Math.floor(n * 1e9 + 1e-9));
+    }
+  }
   if (v && typeof v === "object" && "toString" in v) {
-    const s = String((v as { toString(): string }).toString());
+    const s = String((v as { toString(): string }).toString()).trim();
     if (/^\d+$/.test(s)) return BigInt(s);
   }
   return 0n;

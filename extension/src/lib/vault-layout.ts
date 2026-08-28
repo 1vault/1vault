@@ -28,11 +28,13 @@ export type VaultCloseMeta = {
   positionValue?: string;
   liquidForClose?: boolean;
   canClose: boolean;
+  /** Active/Paused/Closing vault with compatible layout — close may liquidate positions first. */
+  canRequestClose: boolean;
   closeBlockedReason?: CloseBlockedReason;
   accountLen?: number;
 };
 
-function decodeVaultMeta(data: Uint8Array): Omit<VaultCloseMeta, "canClose" | "closeBlockedReason"> & {
+function decodeVaultMeta(data: Uint8Array): Omit<VaultCloseMeta, "canClose" | "closeBlockedReason" | "canRequestClose"> & {
   ok: boolean;
 } {
   if (data.length !== CURRENT_VAULT_ACCOUNT_LEN) {
@@ -79,18 +81,20 @@ function decodeVaultMeta(data: Uint8Array): Omit<VaultCloseMeta, "canClose" | "c
 
 function toCloseMeta(meta: ReturnType<typeof decodeVaultMeta>, missing: boolean): VaultCloseMeta {
   if (missing) {
-    return { ok: false, canClose: false, closeBlockedReason: "missing" };
+    return { ok: false, canClose: false, canRequestClose: false, closeBlockedReason: "missing" };
   }
   if (!meta.ok) {
     return {
       ...meta,
       canClose: false,
+      canRequestClose: false,
       closeBlockedReason: "legacy",
     };
   }
   const statusCode = meta.statusCode;
   const statusOk = statusCode === 0 || statusCode === 1 || statusCode === 2;
   const canClose = Boolean(statusOk && meta.liquidForClose);
+  const canRequestClose = Boolean(statusOk);
   const closeBlockedReason: CloseBlockedReason | undefined =
     statusCode === 3
       ? "closed"
@@ -99,7 +103,7 @@ function toCloseMeta(meta: ReturnType<typeof decodeVaultMeta>, missing: boolean)
         : !statusOk
           ? "status"
           : undefined;
-  return { ...meta, canClose, closeBlockedReason };
+  return { ...meta, canClose, canRequestClose, closeBlockedReason };
 }
 
 /** Fresh on-chain close eligibility for one vault (used on detail screen). */
@@ -110,7 +114,7 @@ export async function fetchVaultCloseMeta(vaultPubkey: string): Promise<VaultClo
     if (!info) return toCloseMeta({ ok: false }, true);
     return toCloseMeta(decodeVaultMeta(new Uint8Array(info.data)), false);
   } catch {
-    return { ok: false, canClose: false, closeBlockedReason: "rpc" };
+    return { ok: false, canClose: false, canRequestClose: false, closeBlockedReason: "rpc" };
   }
 }
 
@@ -168,6 +172,7 @@ export async function annotateVaultLayout(
         pendingTrades: meta.pendingTrades,
         canPark: meta.ok && meta.statusCode === 0,
         canClose: meta.canClose,
+        canRequestClose: meta.canRequestClose,
         closeBlockedReason: meta.closeBlockedReason,
         accountLen: meta.accountLen,
       };

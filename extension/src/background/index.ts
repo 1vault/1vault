@@ -11,18 +11,21 @@ import {
   restoreSession,
   unlock,
 } from "../lib/keyring";
-import { getHealth, getProtocol, getStrategist, listVaults } from "../lib/api";
+import { getHealth, getProtocol, getStrategist, listVaults, listVaultPositions, listVaultTrades } from "../lib/api";
 import { estimatePipeline, estimateParkBreakdown } from "../lib/estimate";
 import { runFlow, type FlowMode, type FlowRunInput, type FlowState } from "../lib/flow";
 import { indexerHealth } from "../lib/indexer/client";
 import { signWirePartial } from "../lib/signing";
 import { clearSession } from "../lib/auth";
 import { annotateVaultLayout, sortVaultsOpenFirst } from "../lib/vault-layout";
+import { readVaultSnapshot, writeVaultSnapshot } from "../lib/vault-session";
+import { filterVisibleVaults, isVaultRowTradeable } from "../lib/vault-status";
+import { attachTradeIds, parseVaultPositions } from "../lib/trade/positions";
 import { RPC_URL } from "../lib/config";
 import { runParkGuest } from "../lib/investor-tx";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
-import { runUnlockLicense } from "../lib/tx-run";
+import { runForceCloseLegacyVault, runUnlockLicense } from "../lib/tx-run";
 
 export type Msg =
   | { type: "PING" }
@@ -34,12 +37,13 @@ export type Msg =
   | { type: "KEYRING_LOCK" }
   | { type: "KEYRING_CLEAR" }
   | { type: "LOGOUT_ALL" }
-  | { type: "MY_VAULTS" }
+  | { type: "MY_VAULTS"; light?: boolean; tradeableOnly?: boolean }
   | { type: "PIPELINE"; vault: string }
   | { type: "PARK_BREAKDOWN"; vault: string; walletPubkey?: string }
   | { type: "WALLET_BALANCE"; pubkey?: string }
   | { type: "SIGN_BIND_MESSAGE"; message: string }
   | { type: "UNLOCK_LICENSE"; strategist: string }
+  | { type: "FORCE_CLOSE_LEGACY"; vault: string; vaultId: number; strategist?: string }
   | { type: "SIGN_WIRE"; transactionB64: string }
   | {
       type: "PARK_GUEST";
@@ -61,8 +65,13 @@ export type Msg =
       inputMint?: string;
       exitPercent?: number;
       shares?: number | string;
+      slippageBps?: number;
+      priorityFeeMicroLamports?: number;
     }
   | { type: "OPEN_SIDE_PANEL" }
+  | { type: "VAULT_POSITIONS"; vault: string }
+  | { type: "SESSION_GET"; keys: string[] }
+  | { type: "SESSION_SET"; values: Record<string, unknown> }
   | { type: "FLOW_STATE" }
   | { type: "FLOW_CANCEL" };
 
@@ -74,15 +83,37 @@ const FLOW_STORAGE_KEY = "flowState";
 
 let flowState: FlowState = { status: "idle", events: [] };
 let flowAbort: AbortController | null = null;
+/** True only while this SW instance is executing runFlow. */
+let flowJobActive = false;
 
 async function persistFlowState() {
-  await chrome.storage.session.set({ [FLOW_STORAGE_KEY]: flowState });
+  try {
+    await chrome.storage.session.set({ [FLOW_STORAGE_KEY]: flowState });
+  } catch {
+    /* SW may be stopping — ignore */
+  }
+}
+
+/** SW restart leaves status=running with no live job — unlock Claim/Close/Release. */
+function recoverStaleFlow(): void {
+  if (flowState.status !== "running" || flowJobActive) return;
+  flowState = {
+    ...flowState,
+    status: "failed",
+    error: "interrupted — retry the action",
+  };
+  void persistFlowState();
 }
 
 async function loadFlowState() {
-  const stored = await chrome.storage.session.get(FLOW_STORAGE_KEY);
-  if (stored[FLOW_STORAGE_KEY]) {
-    flowState = stored[FLOW_STORAGE_KEY] as FlowState;
+  try {
+    const stored = await chrome.storage.session.get(FLOW_STORAGE_KEY);
+    if (stored[FLOW_STORAGE_KEY]) {
+      flowState = stored[FLOW_STORAGE_KEY] as FlowState;
+    }
+    recoverStaleFlow();
+  } catch {
+    /* ignore */
   }
 }
 
@@ -120,6 +151,7 @@ chrome.runtime.onMessage.addListener((message: Msg, sender, sendResponse) => {
 async function handle(message: Msg): Promise<unknown> {
   // MV3 SW may restart and wipe in-memory session — restore first.
   await restoreSession();
+  recoverStaleFlow();
 
   switch (message.type) {
     case "PING":
@@ -184,6 +216,40 @@ async function handle(message: Msg): Promise<unknown> {
       }
       const vaults = [...byPk.values()];
 
+      const tradeableOnly = Boolean(message.tradeableOnly);
+      const pickTradeable = (rows: Array<Record<string, unknown>>) =>
+        filterVisibleVaults(rows).filter(isVaultRowTradeable);
+
+      // GMGN: serve cached annotated Active vaults when snapshot is still fresh.
+      if (tradeableOnly) {
+        const snap = await readVaultSnapshot().catch(() => ({
+          rows: [] as Array<Record<string, unknown>>,
+          fresh: false,
+          at: undefined,
+        }));
+        if (snap.fresh && snap.rows.length > 0) {
+          const active = pickTradeable(snap.rows);
+          if (active.length > 0) {
+            return {
+              pubkey,
+              vaults: sortVaultsOpenFirst(active),
+              protocol,
+              cached: true,
+            };
+          }
+        }
+      }
+
+      // Light mode: skip RPC annotate (sidepanel / home always use full annotate).
+      if (message.light && !tradeableOnly) {
+        return {
+          pubkey,
+          vaults: sortVaultsOpenFirst(vaults),
+          protocol,
+          light: true,
+        };
+      }
+
       const annotated = await annotateVaultLayout(vaults).catch(() =>
         // RPC flakiness must not permanently disable Close as "legacy".
         sortVaultsOpenFirst(
@@ -195,7 +261,9 @@ async function handle(message: Msg): Promise<unknown> {
           }))
         )
       );
-      return { pubkey, vaults: annotated, protocol };
+      await writeVaultSnapshot(annotated).catch(() => undefined);
+      const out = tradeableOnly ? pickTradeable(annotated) : annotated;
+      return { pubkey, vaults: sortVaultsOpenFirst(out), protocol };
     }
     case "PIPELINE":
       return estimatePipeline(message.vault);
@@ -233,6 +301,19 @@ async function handle(message: Msg): Promise<unknown> {
       const sig = await runUnlockLicense(message.strategist, kp);
       return { signature: sig };
     }
+    case "FORCE_CLOSE_LEGACY": {
+      const kp = getUnlockedKeypair();
+      if (!kp) throw new Error("keyring locked — unlock wallet password first");
+      const strategist =
+        message.strategist ?? kp.publicKey.toBase58() ?? (await getStoredPubkey());
+      if (!strategist) throw new Error("strategist required");
+      if (!message.vaultId) throw new Error("vaultId required for force-close legacy");
+      const sig = await runForceCloseLegacyVault(
+        { strategist, vault: message.vault, vaultId: message.vaultId },
+        kp
+      );
+      return { signature: sig, vault: message.vault };
+    }
     case "SIGN_WIRE": {
       const kp = getUnlockedKeypair();
       if (!kp) throw new Error("keyring locked — unlock wallet password first");
@@ -251,9 +332,25 @@ async function handle(message: Msg): Promise<unknown> {
     }
     case "FLOW_STATE":
       return flowState;
+    case "VAULT_POSITIONS": {
+      const [posData, tradesData] = await Promise.all([
+        listVaultPositions(message.vault),
+        listVaultTrades(message.vault).catch(() => ({ items: [] })),
+      ]);
+      const parsed = parseVaultPositions(posData as Record<string, unknown>);
+      return { positions: attachTradeIds(parsed, tradesData.items ?? []) };
+    }
+    case "SESSION_GET": {
+      return chrome.storage.session.get(message.keys);
+    }
+    case "SESSION_SET": {
+      await chrome.storage.session.set(message.values);
+      return { saved: true };
+    }
     case "FLOW_CANCEL":
       flowAbort?.abort();
       flowAbort = null;
+      flowJobActive = false;
       if (flowState.status === "running") {
         flowState = { ...flowState, status: "failed", error: "cancelled" };
         await persistFlowState();
@@ -268,6 +365,7 @@ async function handle(message: Msg): Promise<unknown> {
       if (!kp || !pubkey) throw new Error("keyring locked — unlock wallet password first");
 
       flowAbort = new AbortController();
+      flowJobActive = true;
       flowState = { status: "running", mode: message.mode, events: [] };
       await persistFlowState();
 
@@ -286,6 +384,8 @@ async function handle(message: Msg): Promise<unknown> {
         inputMint: message.inputMint,
         exitPercent: message.exitPercent,
         shares: message.shares,
+        slippageBps: message.slippageBps,
+        priorityFeeMicroLamports: message.priorityFeeMicroLamports,
       };
 
       void runFlow(input, kp, {
@@ -306,6 +406,7 @@ async function handle(message: Msg): Promise<unknown> {
         })
         .finally(() => {
           flowAbort = null;
+          flowJobActive = false;
         });
 
       return flowState;

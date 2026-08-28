@@ -30,12 +30,13 @@ import {
   IconPark,
   IconTrade,
   IconVault,
-  IconX,
 } from "./icons";
 import { HeroHead } from "./InfoTip";
 import { ListPager, ShimmerHero, ShimmerList, usePagedSlice } from "./Shimmer";
 import { SolAmount } from "./SolAmount";
 import { TradePanel } from "./TradePanel";
+import { isVaultClosed, isVaultLegacy, isVaultListHidden, isVaultTradeable, pickDefaultActiveVault, countOpenVaults, vaultStatusFields } from "../lib/vault-status";
+import { writeVaultSnapshot } from "../lib/vault-session";
 import { VaultSummary, VaultSummaryShimmer } from "./VaultSummary";
 import { BindWalletModal } from "./BindWalletModal";
 import { CapitalDetail } from "./CapitalDetail";
@@ -78,10 +79,7 @@ function closeVaultBlockedMessage(selected: VaultRow | null): string {
   const st = String(selected?.vaultStatus ?? "unknown");
   if (st === "Closed" || reason === "closed") return "Vault is already Closed.";
   if (reason === "open_positions") {
-    const n = Number(selected?.openPositions ?? 0);
-    return n > 0
-      ? `Vault still has ${n} open position(s). Exit them on Trade first, then Close.`
-      : "Vault still has open positions or pending trades. Exit them on Trade first, then Close.";
+    return "Open positions will be sold automatically, then funds return to investors by share weight.";
   }
   if (reason === "rpc") {
     return "Could not verify vault on-chain (RPC). Pull to refresh, then try Close again.";
@@ -99,9 +97,14 @@ function closeVaultBlockedMessage(selected: VaultRow | null): string {
   return "Cannot close this vault right now.";
 }
 
+const SELECT_VAULT_FIRST = "Please select a vault first.";
+
 function friendlyFlowError(raw: string): string {
-  if (/VaultHasOpenPositions|0x177f|error number: 6015|open_positions|still has open activity/i.test(raw)) {
-    return "Vault still has open positions. Exit them on Trade first, then Close.";
+  if (/VaultHasOpenPositions|0x177f|error number: 6015|still has open activity/i.test(raw)) {
+    return "Could not close vault yet — open positions or leftover position value remain. Retry Close (it will clear positions automatically).";
+  }
+  if (/open_positions=|pending_trades=|position_value=/i.test(raw)) {
+    return raw;
   }
   if (/ConstraintSeeds|0x7d6|error code: 2006|incompatible on-chain layout/i.test(raw)) {
     return "This vault uses an old on-chain layout. Create a new vault and park there — legacy vaults cannot withdraw/close.";
@@ -126,7 +129,10 @@ function friendlyFlowError(raw: string): string {
     return "Wallet is locked. Enter your keyring password on the unlock screen, then retry.";
   }
   if (/ActiveVaultsRemain|still has .* active vault|cannot unlock 1VL|cannot unlock \$1VAULT/i.test(raw)) {
-    return "Cannot release $1VAULT while you still have active vaults. Close all vaults first, then Release.";
+    return "On-chain still has active vaults (often hidden legacy). Redeploy backend + upgrade program for force-close, then tap Release again.";
+  }
+  if (/Unexpected non-whitespace|Bad API response|API not found.*force-close/i.test(raw)) {
+    return "Backend is missing force-close-legacy-vault — redeploy the API, upgrade the program, then retry Release.";
   }
   if (/licence already unlocked|LicenseNotActive/i.test(raw)) {
     return "$1VAULT licence is already released.";
@@ -209,9 +215,12 @@ export function SidePanelApp() {
       }>({ type: "MY_VAULTS" });
       setVaults(data.vaults);
       setVaultPage(1);
-      if (!activeVault && data.vaults[0]?.pubkey) {
-        setActiveVault(String(data.vaults[0].pubkey));
-      }
+      await writeVaultSnapshot(data.vaults as Array<Record<string, unknown>>);
+      const nextActive = pickDefaultActiveVault(
+        data.vaults as Array<Record<string, unknown>>,
+        activeVault
+      );
+      if (nextActive !== activeVault) setActiveVault(nextActive);
       return data;
     } finally {
       setVaultsLoading(false);
@@ -430,7 +439,18 @@ export function SidePanelApp() {
     setVaultPage(1);
   }, [listTab]);
 
-  const pagedVaults = usePagedSlice(vaults, vaultPage);
+  useEffect(() => {
+    if (vaults.length === 0) return;
+    const nextActive = pickDefaultActiveVault(vaults as Array<Record<string, unknown>>, activeVault);
+    if (nextActive !== activeVault) setActiveVault(nextActive);
+  }, [vaults, activeVault]);
+
+  const visibleVaults = useMemo(
+    () => vaults.filter((v) => !isVaultListHidden(v as Record<string, unknown>)),
+    [vaults]
+  );
+
+  const pagedVaults = usePagedSlice(visibleVaults, vaultPage);
   const pagedPositions = usePagedSlice(positions, positionPage);
 
   const bar = useMemo(() => {
@@ -452,16 +472,36 @@ export function SidePanelApp() {
   }, [pipeline]);
 
   const selected = vaults.find((v) => String(v.pubkey) === activeVault) ?? null;
-  const hasVaults = vaults.length > 0;
+  const hasVaults = visibleVaults.length > 0;
   const selectedLayoutOk = selected?.layoutCompatible !== false;
   const canPark = Boolean(selected?.canPark);
   const canClose = Boolean(selected?.canClose);
-  const canClaimFees = Boolean(selected?.layoutCompatible);
-  // Unlock $1VAULT only when every listed vault is Closed (or none left).
-  const openVaultCount = vaults.filter((v) => String(v.vaultStatus ?? "") !== "Closed").length;
-  const canUnlockLicense = openVaultCount === 0;
+  const closeReason = String(selected?.closeBlockedReason ?? "");
+  const selectedStatus = String(selected?.vaultStatus ?? "");
+  const selectedStatusCode = Number(selected?.vaultStatusCode ?? NaN);
+  const vaultIsClosed = isVaultClosed(selectedStatus, Number.isFinite(selectedStatusCode) ? selectedStatusCode : undefined);
+  const canTrade =
+    Boolean(activeVault) &&
+    selected?.layoutCompatible !== false &&
+    isVaultTradeable(selectedStatus, Number.isFinite(selectedStatusCode) ? selectedStatusCode : undefined);
+  const canRequestClose =
+    Boolean(activeVault) &&
+    selected != null &&
+    !vaultIsClosed &&
+    !isVaultLegacy(selected) &&
+    closeReason !== "missing" &&
+    closeReason !== "closed";
+  const canClaimFees =
+    Boolean(activeVault) &&
+    selected != null &&
+    !vaultIsClosed &&
+    !isVaultLegacy(selected);
+  // Unlock always available — Release will force-close leftover legacy / open vaults first.
+  const openVaultCount = countOpenVaults(vaults as Array<Record<string, unknown>>);
+  const canUnlockLicense = Boolean(status?.pubkey);
 
   const flowRunning = flowState?.status === "running";
+  const toolsLocked = busy || flowRunning;
 
   async function startFlow(
     mode: FlowMode,
@@ -521,21 +561,80 @@ export function SidePanelApp() {
     }
   }
 
+  async function waitUntilFlowSettled(): Promise<FlowState> {
+    for (let i = 0; i < 200; i++) {
+      const s = await pollFlowState();
+      if (s.status !== "running") return s;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    throw new Error("Timed out waiting for vault close to finish.");
+  }
+
   async function onUnlockLicense() {
     if (!status?.pubkey || flowRunning) return;
     if (!status.unlocked) {
       setError("Unlock your wallet password first, then use Unlock $1VAULT.");
       return;
     }
-    if (!canUnlockLicense) {
-      setError(
-        `Cannot release $1VAULT while ${openVaultCount} vault(s) are still open. Close all vaults first.`
-      );
-      return;
-    }
     setBusy(true);
     setError(null);
     try {
+      // Fresh on-chain annotate — includes hidden Closed/legacy rows.
+      const data = await sendBg<{ vaults: VaultRow[] }>({ type: "MY_VAULTS" });
+      const rows = (data.vaults ?? []) as Array<Record<string, unknown>>;
+      const blockers = rows.filter((v) => {
+        const { status: st, statusCode } = vaultStatusFields(v);
+        return !isVaultClosed(st, statusCode);
+      });
+
+      for (const v of blockers) {
+        const pk = String(v.pubkey ?? "");
+        const vaultId = Number(v.vaultId ?? v.vault_id ?? 0) || 0;
+        const legacy = isVaultLegacy(v);
+        if (legacy) {
+          if (!vaultId) {
+            throw new Error(
+              `Legacy vault ${shortAddr(pk)} has no vaultId — cannot force-close. Create a new vault after program upgrade.`
+            );
+          }
+          setToast(`Force-closing legacy ${shortAddr(pk)}…`);
+          try {
+            await sendBg({
+              type: "FORCE_CLOSE_LEGACY",
+              vault: pk,
+              vaultId,
+              strategist: status.pubkey,
+            });
+            continue;
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            // Current layout → normal close. Missing backend route / non-JSON → try normal close too.
+            if (
+              /current layout|NotLegacy|use Close vault|API not found|Bad API response|404|force-close-legacy/i.test(
+                msg
+              )
+            ) {
+              // fall through to close-vault
+            } else {
+              throw e;
+            }
+          }
+        }
+
+        setToast(`Closing vault ${shortAddr(pk)}…`);
+        await sendBg({
+          type: "RUN_FLOW",
+          mode: "close-vault",
+          vault: pk,
+          vaultId: vaultId || undefined,
+        });
+        const settled = await waitUntilFlowSettled();
+        if (settled.status === "failed") {
+          throw new Error(settled.error ?? `Failed to close ${shortAddr(pk)}`);
+        }
+      }
+
+      setToast("Releasing $1VAULT…");
       await sendBg({ type: "UNLOCK_LICENSE", strategist: status.pubkey });
       setTxHistory((prev) => {
         const next = [
@@ -545,12 +644,15 @@ export function SidePanelApp() {
         void chrome.storage.session.set({ txHistory: next });
         return next;
       });
+      void loadVaults();
       setToast("$1VAULT licence unlocked");
       window.setTimeout(() => setToast(null), 3000);
     } catch (e) {
       setError(friendlyFlowError(e instanceof Error ? e.message : String(e)));
+      setToast(null);
     } finally {
       setBusy(false);
+      void pollFlowState();
     }
   }
 
@@ -830,9 +932,7 @@ export function SidePanelApp() {
                 pendingTrades: Number(row.pendingTrades ?? 0) || 0,
               };
             })()}
-            canClose={Boolean(
-              vaults.find((v) => String(v.pubkey) === detailVault)?.canClose
-            )}
+            canClose={canRequestClose}
             closeHint={closeVaultBlockedMessage(
               vaults.find((v) => String(v.pubkey) === detailVault) ?? null
             )}
@@ -890,7 +990,8 @@ export function SidePanelApp() {
                   activeVault={activeVault}
                   layoutOk={selectedLayoutOk}
                   canPark={canPark}
-                  canClose={canClose}
+                  canClose={canRequestClose}
+                  canTrade={canTrade}
                   closeHint={closeVaultBlockedMessage(selected)}
                   onCreate={() => {
                     setError(null);
@@ -899,6 +1000,10 @@ export function SidePanelApp() {
                     setCreateScreenOpen(true);
                   }}
                   onPark={() => {
+                    if (!activeVault) {
+                      setError(SELECT_VAULT_FIRST);
+                      return;
+                    }
                     if (!canPark) {
                       const st = String(selected?.vaultStatus ?? "unknown");
                       setError(
@@ -906,6 +1011,7 @@ export function SidePanelApp() {
                       );
                       return;
                     }
+                    setError(null);
                     setDetailVault(null);
                     setCreateScreenOpen(false);
                     setParkScreen({
@@ -918,9 +1024,31 @@ export function SidePanelApp() {
                           : undefined,
                     });
                   }}
-                  onTrade={() => void startFlow("open-position")}
+                  onTrade={() => {
+                    if (!activeVault) {
+                      setError(SELECT_VAULT_FIRST);
+                      return;
+                    }
+                    if (vaultIsClosed) {
+                      setError("This vault is Closed — trading is disabled. Select an Active vault on Home.");
+                      return;
+                    }
+                    if (!canTrade) {
+                      setError("Trading requires an Active vault. Select an Active vault on Home.");
+                      return;
+                    }
+                    setError(null);
+                    setDetailVault(null);
+                    setParkScreen(null);
+                    setCreateScreenOpen(false);
+                    setNav("trade");
+                  }}
                   onClose={() => {
-                    if (!canClose) {
+                    if (!activeVault) {
+                      setError(SELECT_VAULT_FIRST);
+                      return;
+                    }
+                    if (!canRequestClose) {
                       setError(closeVaultBlockedMessage(selected));
                       return;
                     }
@@ -1032,22 +1160,24 @@ export function SidePanelApp() {
                 ) : (
                   <>
                     <div className="list vault-grid">
-                      {vaults.length === 0 && (
+                      {visibleVaults.length === 0 && (
                         <div className="empty-state">
                           <div className="empty-state-icon" aria-hidden>
                             <IconVault width={28} height={28} />
                           </div>
-                          <p className="empty-state-title">No vaults yet</p>
+                          <p className="empty-state-title">
+                            {vaults.length > 0 ? "No open vaults" : "No vaults yet"}
+                          </p>
                           <p className="empty-state-sub">
-                            Create one from Home, or browse all on Discover.
+                            {vaults.length > 0
+                              ? "Closed and legacy vaults are hidden. Create a new vault to continue."
+                              : "Create one from Home, or browse all on Discover."}
                           </p>
                         </div>
                       )}
                       {pagedVaults.slice.map((v) => {
                         const pk = String(v.pubkey ?? "");
                         const active = pk === activeVault;
-                        const status = typeof v.vaultStatus === "string" ? v.vaultStatus : "";
-                        const isClosed = status.toLowerCase() === "closed";
                         const isLegacy = v.layoutCompatible === false;
                         return (
                           <div
@@ -1065,11 +1195,7 @@ export function SidePanelApp() {
                           >
                             <div className="token-icon">
                               1V
-                              {isClosed ? (
-                                <span className="badge-dot badge-closed" title="Closed">
-                                  <IconX />
-                                </span>
-                              ) : isLegacy ? (
+                              {isLegacy ? (
                                 <span className="badge-dot badge-legacy" title="Legacy account">
                                   !
                                 </span>
@@ -1205,6 +1331,11 @@ export function SidePanelApp() {
             vaultId={
               selected ? Number(selected.vaultId ?? selected.vault_id ?? 0) || undefined : undefined
             }
+            vaultName={selected ? vaultName(selected) : undefined}
+            vaultTypeLabel={selected ? vaultType(selected) : undefined}
+            vaultStatus={selected ? String(selected.vaultStatus ?? "") : undefined}
+            vaultClosed={vaultIsClosed}
+            parkBreakdown={parkBreakdown}
             busy={busy}
             flowRunning={flowRunning}
             onRunFlow={(mode, opts) => void startFlow(mode, opts)}
@@ -1225,8 +1356,12 @@ export function SidePanelApp() {
                       {" "}
                       Active · <span className="mono">{shortAddr(activeVault)}</span>
                     </>
+                  ) : canUnlockLicense ? (
+                    openVaultCount > 0
+                      ? ` ${openVaultCount} leftover vault(s) (incl. legacy) — Release will force-close them.`
+                      : " No open vaults — you can Release $1VAULT."
                   ) : (
-                    " Select a vault on Home first."
+                    " Select an Active vault on Home first."
                   )}
                 </p>
               </header>
@@ -1235,16 +1370,20 @@ export function SidePanelApp() {
                 <button
                   type="button"
                   className="vault-tool-row"
-                  disabled={busy || flowRunning || !activeVault || !canClaimFees}
+                  disabled={toolsLocked || !canClaimFees}
                   title={
-                    !canClaimFees
-                      ? "Legacy vault layout — create a new vault to claim fees"
-                      : undefined
+                    !activeVault
+                      ? SELECT_VAULT_FIRST
+                      : !canClaimFees
+                        ? "Claim needs an Active vault (Closed/legacy are hidden)"
+                        : undefined
                   }
                   onClick={() => {
                     if (!canClaimFees) {
                       setError(
-                        "This vault has a legacy on-chain layout and cannot accrue/claim fees. Create a new vault after the book_mode upgrade."
+                        !activeVault
+                          ? "Select an Active vault on Home, then Claim fees."
+                          : "Claim fees needs an Active vault."
                       );
                       return;
                     }
@@ -1254,21 +1393,28 @@ export function SidePanelApp() {
                   <div className="vault-tool-copy">
                     <span className="vault-tool-title">Claim fees</span>
                     <span className="vault-tool-sub">
-                      {canClaimFees
-                        ? "Collect performance fees to wallet"
-                        : "Unavailable — legacy vault layout"}
+                      {flowRunning && flowState?.mode === "claim-fees"
+                        ? "Claiming fees…"
+                        : "Collect performance fees to wallet"}
                     </span>
                   </div>
-                  <span className="vault-tool-cta">Claim</span>
+                  <span className="vault-tool-cta">
+                    {flowRunning && flowState?.mode === "claim-fees" ? "…" : "Claim"}
+                  </span>
                 </button>
 
                 <button
                   type="button"
                   className="vault-tool-row"
-                  disabled={busy || flowRunning || !activeVault || !canClose}
+                  disabled={toolsLocked || !canRequestClose}
+                  title={!canRequestClose ? closeVaultBlockedMessage(selected) : undefined}
                   onClick={() => {
-                    if (!canClose) {
-                      setError(closeVaultBlockedMessage(selected));
+                    if (!canRequestClose) {
+                      setError(
+                        !activeVault
+                          ? "Select an Active vault on Home, then Close."
+                          : closeVaultBlockedMessage(selected)
+                      );
                       return;
                     }
                     void startFlow("close-vault");
@@ -1276,18 +1422,24 @@ export function SidePanelApp() {
                 >
                   <div className="vault-tool-copy">
                     <span className="vault-tool-title">Close vault</span>
-                    <span className="vault-tool-sub">Wind down and settle by share weight</span>
+                    <span className="vault-tool-sub">
+                      {flowRunning && flowState?.mode === "close-vault"
+                        ? "Closing vault…"
+                        : "Wind down and settle by share weight"}
+                    </span>
                   </div>
-                  <span className="vault-tool-cta">Close</span>
+                  <span className="vault-tool-cta">
+                    {flowRunning && flowState?.mode === "close-vault" ? "…" : "Close"}
+                  </span>
                 </button>
 
                 <button
                   type="button"
                   className="vault-tool-row"
-                  disabled={busy || flowRunning || !status?.pubkey || !canUnlockLicense}
+                  disabled={toolsLocked || !status?.pubkey}
                   title={
-                    !canUnlockLicense
-                      ? `Close ${openVaultCount} open vault(s) before releasing $1VAULT`
+                    openVaultCount > 0
+                      ? `Force-close ${openVaultCount} leftover vault(s), then release $1VAULT`
                       : undefined
                   }
                   onClick={() => void onUnlockLicense()}
@@ -1295,9 +1447,9 @@ export function SidePanelApp() {
                   <div className="vault-tool-copy">
                     <span className="vault-tool-title">Unlock $1VAULT</span>
                     <span className="vault-tool-sub">
-                      {canUnlockLicense
-                        ? "Release on-chain licence tokens (not wallet password)"
-                        : `Disabled — ${openVaultCount} vault(s) still open`}
+                      {openVaultCount > 0
+                        ? `Force-closes ${openVaultCount} leftover/legacy vault(s), then releases licence`
+                        : "Release on-chain licence tokens (not wallet password)"}
                     </span>
                   </div>
                   <span className="vault-tool-cta">Release</span>
@@ -1372,15 +1524,24 @@ export function SidePanelApp() {
         {toast && <div className="ok">{toast}</div>}
       </div>
 
-      <BottomNav
-        nav={nav}
-        onNav={(n) => {
-          setDetailVault(null);
-          setParkScreen(null);
-          setCreateScreenOpen(false);
-          setNav(n);
-        }}
-      />
+        <BottomNav
+          nav={nav}
+          tradeDisabled={Boolean(activeVault) && !canTrade}
+          onNav={(n) => {
+            if (n === "trade" && activeVault && !canTrade) {
+              setError(
+                vaultIsClosed
+                  ? "This vault is Closed — trading is disabled."
+                  : "Trading requires an Active vault."
+              );
+              return;
+            }
+            setDetailVault(null);
+            setParkScreen(null);
+            setCreateScreenOpen(false);
+            setNav(n);
+          }}
+        />
     </div>
   );
 }
@@ -1393,6 +1554,7 @@ function VaultQuickActions({
   layoutOk,
   canPark,
   canClose,
+  canTrade,
   closeHint,
   onCreate,
   onPark,
@@ -1406,6 +1568,7 @@ function VaultQuickActions({
   layoutOk?: boolean;
   canPark?: boolean;
   canClose?: boolean;
+  canTrade?: boolean;
   closeHint?: string;
   onCreate: () => void;
   onPark: () => void;
@@ -1413,9 +1576,10 @@ function VaultQuickActions({
   onClose: () => void;
 }) {
   const locked = busy || flowRunning || loading;
-  const needsVault = !activeVault;
-  const closeBlocked = needsVault || canClose === false;
-  const parkBlocked = needsVault || canPark === false;
+  const hasVault = Boolean(activeVault);
+  const parkBlocked = locked || (hasVault && canPark === false);
+  const tradeBlocked = locked || (hasVault && canTrade === false);
+  const closeBlocked = locked || (hasVault && canClose === false);
 
   return (
     <div className="quick hero-quick">
@@ -1437,8 +1601,14 @@ function VaultQuickActions({
         type="button"
         className="quick-item"
         data-action="park"
-        disabled={locked || parkBlocked}
-        title={canPark === false ? "Vault must be Active to park SOL" : undefined}
+        disabled={parkBlocked}
+        title={
+          !hasVault
+            ? SELECT_VAULT_FIRST
+            : canPark === false
+              ? "Vault must be Active to park SOL"
+              : undefined
+        }
         onClick={onPark}
       >
         <div className="quick-icon">
@@ -1452,7 +1622,14 @@ function VaultQuickActions({
         type="button"
         className="quick-item"
         data-action="trade"
-        disabled={locked || needsVault}
+        disabled={tradeBlocked}
+        title={
+          !hasVault
+            ? SELECT_VAULT_FIRST
+            : canTrade === false
+              ? "Vault is Closed or not Active — trading disabled"
+              : undefined
+        }
         onClick={onTrade}
       >
         <div className="quick-icon">
@@ -1466,8 +1643,14 @@ function VaultQuickActions({
         type="button"
         className="quick-item"
         data-action="close"
-        disabled={locked || closeBlocked}
-        title={canClose === false ? closeHint ?? "Cannot close vault" : undefined}
+        disabled={closeBlocked}
+        title={
+          !hasVault
+            ? SELECT_VAULT_FIRST
+            : canClose === false
+              ? closeHint ?? "Cannot close vault"
+              : undefined
+        }
         onClick={onClose}
       >
         <div className="quick-icon">
@@ -1569,11 +1752,19 @@ function TopBar({
   );
 }
 
-function BottomNav({ nav, onNav }: { nav: NavId; onNav: (n: NavId) => void }) {
-  const items: Array<{ id: NavId; label: string; icon: ReactNode }> = [
+function BottomNav({
+  nav,
+  tradeDisabled,
+  onNav,
+}: {
+  nav: NavId;
+  tradeDisabled?: boolean;
+  onNav: (n: NavId) => void;
+}) {
+  const items: Array<{ id: NavId; label: string; icon: ReactNode; disabled?: boolean }> = [
     { id: "home", label: "Home", icon: <IconHome /> },
     { id: "discover", label: "Discover", icon: <IconDiscover /> },
-    { id: "trade", label: "Trade", icon: <IconMarket /> },
+    { id: "trade", label: "Trade", icon: <IconMarket />, disabled: tradeDisabled },
     { id: "activity", label: "History", icon: <IconActivity /> },
     { id: "vault", label: "Vault", icon: <IconVault /> },
   ];
@@ -1583,9 +1774,11 @@ function BottomNav({ nav, onNav }: { nav: NavId; onNav: (n: NavId) => void }) {
         <button
           key={it.id}
           type="button"
-          className={`nav-item${nav === it.id ? " active" : ""}`}
+          className={`nav-item${nav === it.id ? " active" : ""}${it.disabled ? " nav-item--disabled" : ""}`}
           data-nav={it.id}
           aria-current={nav === it.id ? "page" : undefined}
+          aria-disabled={it.disabled ? true : undefined}
+          disabled={it.disabled}
           onClick={() => onNav(it.id)}
         >
           <span className="nav-icon">{it.icon}</span>

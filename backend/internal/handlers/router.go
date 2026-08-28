@@ -186,6 +186,7 @@ func (a *API) Routes() http.Handler {
 			r.Post("/initiate-close", a.PrepInitiateClose)
 			r.Post("/close-vault", a.PrepCloseVault)
 			r.Post("/unlock-license", a.PrepUnlockLicense)
+			r.Post("/force-close-legacy-vault", a.PrepForceCloseLegacyVault)
 			r.Post("/submit", a.TxSubmit)
 			r.Get("/status/{signature}", a.TxStatus)
 		})
