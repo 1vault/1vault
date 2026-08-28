@@ -338,7 +338,7 @@ GET  /v1/tx/status/{signature}?cluster=devnet
 | `/v1/tx/execute-trade` | Direct fill — DEX auto from `PROGRAM_IDS` (no client choice) |
 | `/v1/tx/open-position` / `close-position` / `reduce-position` / `exit-position` | Position lifecycle |
 | `/v1/tx/accrue-fees` / `claim-fees` | Fees |
-| `/v1/tx/initiate-close` / `unlock-license` | Close path |
+| `/v1/tx/initiate-close` / `close-vault` / `force-close-legacy-vault` / `unlock-license` | Close path (legacy vaults use force-close) |
 
 All prep bodies take **caller-supplied pubkeys** (`strategist`, `investor`, `vault`, `vaultTokenAccount`, …).  
 Vault can be passed as `vault`, or derived with `strategist` + `vaultId`. No wallet is hardcoded in the tx builders.

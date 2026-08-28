@@ -114,7 +114,7 @@ tags:
       Fee & NAV maintenance — `accrue-fees`, `claim-fees`, `update-nav`, `keeper-refresh`.
   - name: Tx · Close
     description: |
-      Vault wind-down — `initiate-close`, `close-vault`, `unlock-license`.
+      Vault wind-down — `initiate-close`, `close-vault`, `force-close-legacy-vault`, `unlock-license`.
   - name: Tx · Submit
     description: |
       Broadcast signed base64 tx (`signedTransaction`) and poll confirmation by signature.
@@ -789,6 +789,17 @@ components:
               type: array
               items: { type: string }
               description: Optional default investors with shares greater than 0 from vault_holdings
+    TxForceCloseLegacyVaultBody:
+      allOf:
+        - $ref: "#/components/schemas/VaultResolveFields"
+        - type: object
+          required: [strategist, vaultId]
+          properties:
+            strategist: { type: string }
+            vaultId:
+              type: integer
+              format: int64
+              description: Vault id seed; required so the program can derive the legacy PDA
     TxStrategistOnlyBody:
       type: object
       required: [strategist]
@@ -2518,6 +2529,27 @@ paths:
         "200":
           description: PreparedTx
 
+  /v1/tx/force-close-legacy-vault:
+    post:
+      tags: [Tx · Close]
+      summary: Prep force_close_legacy_vault
+      description: |
+        Abandons a vault PDA whose account layout cannot deserialize as the current Vault.
+        Returns rent to the strategist and decrements `active_vault_count` so `unlock-license` can proceed.
+        Rejects current-layout vaults — those must use `initiate-close` / `close-vault`.
+        Requires `strategist` + `vaultId` (and optional `vault` pubkey).
+      parameters:
+        - $ref: "#/components/parameters/ClusterQuery"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TxForceCloseLegacyVaultBody"
+      responses:
+        "200":
+          description: PreparedTx
+
   /v1/tx/unlock-license:
     post:
       tags: [Tx · Close]
@@ -2605,6 +2637,7 @@ paths:
         - `open-position`: outputMint, tradeId, amount
         - `exit-position`: positionId, tradeId, inputMint
         - `claim-fees` / `close-vault`: strategist (+ vault resolve as needed)
+        - Legacy layout vaults: `POST /v1/tx/force-close-legacy-vault` (not a flow mode)
       parameters:
         - $ref: "#/components/parameters/ClusterQuery"
       requestBody:

@@ -14,6 +14,7 @@ func TestFriendlyTxError(t *testing.T) {
 	}{
 		{"AnchorError ... Error Number: 6033. Error Message: Nothing to claim.", "Nothing to claim"},
 		{"custom program error: 0x1779", "already Closed"},
+		{"Error Number: 3012", "not initialized"},
 		{"Transaction simulation failed: Blockhash not found", "blockhash expired"},
 	}
 	for _, tc := range cases {

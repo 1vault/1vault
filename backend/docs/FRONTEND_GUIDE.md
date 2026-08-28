@@ -130,7 +130,8 @@ Display name: **1vault Licence** (`1VL`). UI may show `licenseLockAmount` as `1,
 | 1 | `register_strategist` | First time strategist uses protocol | strategist |
 | 2 | `lock_license` | Activates licence **record** (no 1VL move yet on MVP) | strategist |
 | 3 | `create_vault` | Locks **1M 1VL** into vault's `vault_license` PDA | strategist + ephemeral `vaultTokenAccount` |
-| 4 | `unlock_license` | After `close_vault` wind-down | strategist |
+| 4 | `force_close_legacy_vault` | Optional: abandon old-layout vault PDAs (`POST /v1/tx/force-close-legacy-vault`) | strategist |
+| 5 | `unlock_license` | After `close_vault` / legacy force-close (`active_vault_count == 0`) | strategist |
 
 **Derive PDAs:** `POST /v1/tx/resolve-accounts` with `{ "strategist": "<pubkey>" }` returns:
 

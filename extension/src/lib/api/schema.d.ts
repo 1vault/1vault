@@ -4261,6 +4261,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tx/force-close-legacy-vault": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prep force_close_legacy_vault
+         * @description Abandons a vault PDA whose account layout cannot deserialize as the current Vault.
+         *     Returns rent to the strategist and decrements `active_vault_count` so `unlock-license` can proceed.
+         *     Rejects current-layout vaults — those must use `initiate-close` / `close-vault`.
+         *     Requires `strategist` + `vaultId` (and optional `vault` pubkey).
+         */
+        post: {
+            parameters: {
+                query: {
+                    /**
+                     * @description Vault program cluster (`devnet` or `mainnet-beta`). Selects on-chain program addresses.
+                     *     Token/wallet market analytics still use Solana mainnet market data regardless of this value.
+                     */
+                    cluster: components["parameters"]["ClusterQuery"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TxForceCloseLegacyVaultBody"];
+                };
+            };
+            responses: {
+                /** @description PreparedTx */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tx/unlock-license": {
         parameters: {
             query?: never;
@@ -4472,6 +4522,7 @@ export interface paths {
          *     - `open-position`: outputMint, tradeId, amount
          *     - `exit-position`: positionId, tradeId, inputMint
          *     - `claim-fees` / `close-vault`: strategist (+ vault resolve as needed)
+         *     - Legacy layout vaults: `POST /v1/tx/force-close-legacy-vault` (not a flow mode)
          */
         post: {
             parameters: {
@@ -5720,6 +5771,14 @@ export interface components {
             vaultTokenAccount: string;
             /** @description Optional default investors with shares greater than 0 from vault_holdings */
             holders?: string[];
+        };
+        TxForceCloseLegacyVaultBody: components["schemas"]["VaultResolveFields"] & {
+            strategist: string;
+            /**
+             * Format: int64
+             * @description Vault id seed; required so the program can derive the legacy PDA
+             */
+            vaultId: number;
         };
         TxStrategistOnlyBody: {
             strategist: string;

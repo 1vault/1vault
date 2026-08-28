@@ -299,6 +299,9 @@
           }
         },
         {
+          "name": "investor_share_account"
+        },
+        {
           "name": "investor_position",
           "writable": true,
           "pda": {
@@ -1499,6 +1502,18 @@
           "type": "u16"
         },
         {
+          "name": "book_mode",
+          "type": {
+            "defined": {
+              "name": "VaultBookMode"
+            }
+          }
+        },
+        {
+          "name": "early_exit_fee_bps",
+          "type": "u16"
+        },
+        {
           "name": "risk",
           "type": {
             "defined": {
@@ -1870,6 +1885,284 @@
       ]
     },
     {
+      "name": "exit_investor_slice",
+      "discriminator": [
+        80,
+        186,
+        174,
+        88,
+        167,
+        32,
+        156,
+        185
+      ],
+      "accounts": [
+        {
+          "name": "investor",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault.strategist",
+                "account": "Vault"
+              },
+              {
+                "kind": "account",
+                "path": "vault.vault_id",
+                "account": "Vault"
+              }
+            ]
+          }
+        },
+        {
+          "name": "investor_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  118,
+                  101,
+                  115,
+                  116,
+                  111,
+                  114,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "investor"
+              }
+            ]
+          }
+        },
+        {
+          "name": "investor_position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  118,
+                  101,
+                  115,
+                  116,
+                  111,
+                  114,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "investor"
+              },
+              {
+                "kind": "account",
+                "path": "investor_position.position_id",
+                "account": "InvestorPosition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_position",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  112,
+                  111,
+                  115,
+                  105,
+                  116,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "vault_position.position_id",
+                "account": "VaultPosition"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_token_account",
+          "writable": true
+        },
+        {
+          "name": "proceeds_token_account",
+          "docs": [
+            "wSOL proceeds from the slice sell (same pattern as close_position)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "investor_wsol_account",
+          "writable": true
+        },
+        {
+          "name": "degen_fee_wallet",
+          "writable": true,
+          "address": "EXQCB3PJnza9oBNMupBQjVGSuQXaLvTyXNffCJ5zz286"
+        },
+        {
+          "name": "unwrap_degen",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  101,
+                  101,
+                  95,
+                  117,
+                  110,
+                  119,
+                  114,
+                  97,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "degen_fee_wallet"
+              }
+            ]
+          }
+        },
+        {
+          "name": "unwrap_investor",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  102,
+                  101,
+                  101,
+                  95,
+                  117,
+                  110,
+                  119,
+                  114,
+                  97,
+                  112
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "investor"
+              }
+            ]
+          }
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "current_value",
+          "type": "u64"
+        },
+        {
+          "name": "proceeds",
+          "type": "u64"
+        },
+        {
+          "name": "output_sold",
+          "type": "u64"
+        },
+        {
+          "name": "force_exit",
+          "type": "bool"
+        }
+      ]
+    },
+    {
       "name": "follow_off",
       "discriminator": [
         98,
@@ -1986,6 +2279,92 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "force_close_legacy_vault",
+      "docs": [
+        "Abandon incompatible (legacy layout) vault PDAs and decrement active_vault_count."
+      ],
+      "discriminator": [
+        4,
+        63,
+        129,
+        80,
+        133,
+        247,
+        106,
+        95
+      ],
+      "accounts": [
+        {
+          "name": "strategist",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "strategist_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "strategist"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "strategist"
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        }
+      ]
     },
     {
       "name": "increase_position",
@@ -2776,6 +3155,9 @@
               }
             ]
           }
+        },
+        {
+          "name": "investor_share_account"
         },
         {
           "name": "investor_position",
@@ -4789,6 +5171,10 @@
         },
         {
           "name": "investor_config",
+          "docs": [
+            "Optional — when initialized, open mirrored positions block withdraw."
+          ],
+          "optional": true,
           "pda": {
             "seeds": [
               {
@@ -5018,6 +5404,19 @@
         211,
         255,
         152
+      ]
+    },
+    {
+      "name": "InvestorSliceExited",
+      "discriminator": [
+        226,
+        1,
+        13,
+        8,
+        47,
+        142,
+        156,
+        6
       ]
     },
     {
@@ -5515,6 +5914,41 @@
       "code": 6051,
       "name": "StrategistMustPark",
       "msg": "Strategist must park SOL in the vault before trading"
+    },
+    {
+      "code": 6052,
+      "name": "SlicedVaultRequiresSliceExit",
+      "msg": "Sliced vault requires exit_investor_slice instead of close_investor_position"
+    },
+    {
+      "code": 6053,
+      "name": "PooledVaultOnly",
+      "msg": "Instruction only valid for sliced vaults"
+    },
+    {
+      "code": 6054,
+      "name": "InvalidBookMode",
+      "msg": "Invalid vault book mode"
+    },
+    {
+      "code": 6055,
+      "name": "NotLegacyVault",
+      "msg": "Vault uses current layout — use initiate_close / close_vault instead"
+    },
+    {
+      "code": 6056,
+      "name": "VaultPositionNotOpen",
+      "msg": "Vault position is not open"
+    },
+    {
+      "code": 6057,
+      "name": "InvestorHasOpenPositions",
+      "msg": "Investor has open mirrored positions"
+    },
+    {
+      "code": 6058,
+      "name": "InvestorCapitalMismatch",
+      "msg": "Reported investor capital does not match on-chain shares"
     }
   ],
   "types": [
@@ -5751,6 +6185,50 @@
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InvestorSliceExited",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "investor",
+            "type": "pubkey"
+          },
+          {
+            "name": "position_id",
+            "type": "u64"
+          },
+          {
+            "name": "vault_position_id",
+            "type": "u64"
+          },
+          {
+            "name": "proceeds",
+            "type": "u64"
+          },
+          {
+            "name": "early_exit_fee",
+            "type": "u64"
+          },
+          {
+            "name": "net_to_investor",
+            "type": "u64"
+          },
+          {
+            "name": "output_sold",
+            "type": "u64"
+          },
+          {
+            "name": "timestamp",
+            "type": "i64"
           }
         ]
       }
@@ -6308,6 +6786,20 @@
             }
           },
           {
+            "name": "executed_input",
+            "docs": [
+              "Input spent (buy) or sold (sell) recorded at execution."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "executed_output",
+            "docs": [
+              "Output received at execution."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "created_at",
             "type": "i64"
           },
@@ -6727,6 +7219,18 @@
             "type": "u16"
           },
           {
+            "name": "book_mode",
+            "type": {
+              "defined": {
+                "name": "VaultBookMode"
+              }
+            }
+          },
+          {
+            "name": "early_exit_fee_bps",
+            "type": "u16"
+          },
+          {
             "name": "status",
             "type": {
               "defined": {
@@ -6761,6 +7265,23 @@
           {
             "name": "share_mint_bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultBookMode",
+      "docs": [
+        "V1 pooled book vs V2 per-investor slice exits."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "PooledVault"
+          },
+          {
+            "name": "SlicedVault"
           }
         ]
       }
@@ -6864,6 +7385,18 @@
           },
           {
             "name": "performance_fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "book_mode",
+            "type": {
+              "defined": {
+                "name": "VaultBookMode"
+              }
+            }
+          },
+          {
+            "name": "early_exit_fee_bps",
             "type": "u16"
           },
           {

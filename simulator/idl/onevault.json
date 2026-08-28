@@ -299,6 +299,9 @@
           }
         },
         {
+          "name": "investor_share_account"
+        },
+        {
           "name": "investor_position",
           "writable": true,
           "pda": {
@@ -2278,6 +2281,92 @@
       "args": []
     },
     {
+      "name": "force_close_legacy_vault",
+      "docs": [
+        "Abandon incompatible (legacy layout) vault PDAs and decrement active_vault_count."
+      ],
+      "discriminator": [
+        4,
+        63,
+        129,
+        80,
+        133,
+        247,
+        106,
+        95
+      ],
+      "accounts": [
+        {
+          "name": "strategist",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "strategist_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "strategist"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "strategist"
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "increase_position",
       "discriminator": [
         253,
@@ -3066,6 +3155,9 @@
               }
             ]
           }
+        },
+        {
+          "name": "investor_share_account"
         },
         {
           "name": "investor_position",
@@ -5078,6 +5170,45 @@
           "writable": true
         },
         {
+          "name": "investor_config",
+          "docs": [
+            "Optional — when initialized, open mirrored positions block withdraw."
+          ],
+          "optional": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  105,
+                  110,
+                  118,
+                  101,
+                  115,
+                  116,
+                  111,
+                  114,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "vault"
+              },
+              {
+                "kind": "account",
+                "path": "investor"
+              }
+            ]
+          }
+        },
+        {
           "name": "token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
@@ -5801,8 +5932,23 @@
     },
     {
       "code": 6055,
+      "name": "NotLegacyVault",
+      "msg": "Vault uses current layout — use initiate_close / close_vault instead"
+    },
+    {
+      "code": 6056,
       "name": "VaultPositionNotOpen",
       "msg": "Vault position is not open"
+    },
+    {
+      "code": 6057,
+      "name": "InvestorHasOpenPositions",
+      "msg": "Investor has open mirrored positions"
+    },
+    {
+      "code": 6058,
+      "name": "InvestorCapitalMismatch",
+      "msg": "Reported investor capital does not match on-chain shares"
     }
   ],
   "types": [
@@ -6638,6 +6784,20 @@
                 "name": "TradeStatus"
               }
             }
+          },
+          {
+            "name": "executed_input",
+            "docs": [
+              "Input spent (buy) or sold (sell) recorded at execution."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "executed_output",
+            "docs": [
+              "Output received at execution."
+            ],
+            "type": "u64"
           },
           {
             "name": "created_at",

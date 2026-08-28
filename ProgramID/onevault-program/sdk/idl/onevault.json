@@ -2281,6 +2281,92 @@
       "args": []
     },
     {
+      "name": "force_close_legacy_vault",
+      "docs": [
+        "Abandon incompatible (legacy layout) vault PDAs and decrement active_vault_count."
+      ],
+      "discriminator": [
+        4,
+        63,
+        129,
+        80,
+        133,
+        247,
+        106,
+        95
+      ],
+      "accounts": [
+        {
+          "name": "strategist",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "strategist_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  114,
+                  97,
+                  116,
+                  101,
+                  103,
+                  105,
+                  115,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "strategist"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "strategist"
+              },
+              {
+                "kind": "arg",
+                "path": "vault_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "vault_id",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "increase_position",
       "discriminator": [
         253,
@@ -5846,16 +5932,21 @@
     },
     {
       "code": 6055,
+      "name": "NotLegacyVault",
+      "msg": "Vault uses current layout — use initiate_close / close_vault instead"
+    },
+    {
+      "code": 6056,
       "name": "VaultPositionNotOpen",
       "msg": "Vault position is not open"
     },
     {
-      "code": 6056,
+      "code": 6057,
       "name": "InvestorHasOpenPositions",
       "msg": "Investor has open mirrored positions"
     },
     {
-      "code": 6057,
+      "code": 6058,
       "name": "InvestorCapitalMismatch",
       "msg": "Reported investor capital does not match on-chain shares"
     }

@@ -48,7 +48,7 @@ Details: [UPGRADE_MULTISIG.md](./UPGRADE_MULTISIG.md)
 
 ---
 
-## Vault (8)
+## Vault (9)
 
 | Instruction | Auth | Args | Description |
 |-------------|------|------|-------------|
@@ -58,6 +58,7 @@ Details: [UPGRADE_MULTISIG.md](./UPGRADE_MULTISIG.md)
 | `resume_vault` | strategist | — | Paused → Active. |
 | `initiate_vault_close` | strategist | — | Active/Paused → **Closing**. Requires liquid vault (no positions/stake). |
 | `close_vault` | strategist | — | Closing → **Closed**. Requires total_shares=0, empty vault ATA. |
+| `force_close_legacy_vault` | strategist | vault_id | Abandon incompatible layout PDAs; return rent; decrement `active_vault_count`. Not for current-layout vaults. |
 | `update_nav` | anyone | — | Set `total_assets` from vault token ATA balance. |
 | `update_vault_staked_value` | strategist | staked_value | Update SOL stake NAV component. |
 
