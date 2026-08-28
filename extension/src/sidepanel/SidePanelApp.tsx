@@ -35,7 +35,7 @@ import { HeroHead } from "./InfoTip";
 import { ListPager, ShimmerHero, ShimmerList, usePagedSlice } from "./Shimmer";
 import { SolAmount } from "./SolAmount";
 import { TradePanel } from "./TradePanel";
-import { isVaultClosed, isVaultLegacy, isVaultListHidden, isVaultTradeable, pickDefaultActiveVault, countOpenVaults } from "../lib/vault-status";
+import { isVaultClosed, isVaultLegacy, isVaultListHidden, isVaultTradeable, pickDefaultActiveVault, countOpenVaults, listReleaseCandidates } from "../lib/vault-status";
 import { writeVaultSnapshot } from "../lib/vault-session";
 import { VaultSummary, VaultSummaryShimmer } from "./VaultSummary";
 import { BindWalletModal } from "./BindWalletModal";
@@ -53,6 +53,19 @@ type NavId = "home" | "discover" | "trade" | "activity" | "vault" | "settings";
 type ListTab = "vaults" | "capital" | "positions" | "holdings";
 type KeyStatus = { has: boolean; unlocked: boolean; pubkey: string | null };
 type VaultRow = Record<string, unknown>;
+type ReleaseVaultDetail = {
+  vaultId: number;
+  pubkey: string;
+  kind: "open" | "legacy" | "closed" | "missing";
+  action: "closed" | "cleared";
+  name?: string;
+};
+type ReleaseResult = {
+  signature?: string;
+  alreadyReleased?: boolean;
+  vaults: ReleaseVaultDetail[];
+  at: string;
+};
 
 const PIPELINE_POLL_MS = 20_000;
 
@@ -129,21 +142,21 @@ function friendlyFlowError(raw: string): string {
     return "Wallet is locked. Enter your keyring password on the unlock screen, then retry.";
   }
   if (/3012|AccountNotInitialized|Required account missing/i.test(raw)) {
-    return "Required on-chain account is missing (often a vault/licence token account). Upgrade the program + redeploy backend, reload the extension, then tap Release again — it will force-purge broken slots.";
+    return "Something didn’t finish cleaning up. Wait a moment, then tap Release again.";
   }
   if (/ActiveVaultsRemain|still has .* active vault|cannot unlock 1VL|cannot unlock \$1VAULT/i.test(raw)) {
-    return "On-chain still has active vaults (often hidden/missing slots). Tap Release again — it scans vault IDs on-chain and purges leftovers. If it keeps failing, upgrade the program + redeploy backend.";
+    return "A vault is still open. Tap Release again to finish closing it.";
   }
   if (/Required on-chain account not found|account not found/i.test(raw)) {
-    return "A vault account is missing on-chain while the active count is still > 0. Tap Release again to purge empty slots. If this persists, upgrade the program (force-close) and redeploy the backend.";
+    return "Something didn’t finish cleaning up. Wait a moment, then tap Release again.";
   }
   if (/Unexpected non-whitespace|Bad API response|API not found.*force-close/i.test(raw)) {
-    return "Backend is missing force-close-legacy-vault — redeploy the API, upgrade the program, then retry Release.";
+    return "Couldn’t complete Release right now. Try again in a moment.";
   }
   if (/429|Too many requests|rate.?limit/i.test(raw)) {
-    return "RPC rate-limited (Too many requests). Wait ~20s, then tap Release once — do not spam the button.";
+    return "Network is busy. Wait about 20 seconds, then tap Release once.";
   }
-  if (/licence already unlocked|LicenseNotActive/i.test(raw)) {
+  if (/licence already unlocked|LicenseNotActive|already unlocked/i.test(raw)) {
     return "$1VAULT licence is already released.";
   }
   if (/a flow is already running/i.test(raw)) {
@@ -167,6 +180,10 @@ export function SidePanelApp() {
   const [pipeline, setPipeline] = useState<PipelineEstimate | null>(null);
   const [showBanner, setShowBanner] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
+  const [releaseResult, setReleaseResult] = useState<ReleaseResult | null>(null);
+  const [releasePickerOpen, setReleasePickerOpen] = useState(false);
+  const [releaseSelected, setReleaseSelected] = useState<Set<string>>(new Set());
+  const [releaseIncludeLeftovers, setReleaseIncludeLeftovers] = useState(true);
   const [flowState, setFlowState] = useState<FlowState | null>(null);
   const [positions, setPositions] = useState<VaultPositionRow[]>([]);
   const [vaultsLoading, setVaultsLoading] = useState(false);
@@ -515,6 +532,7 @@ export function SidePanelApp() {
     !isVaultLegacy(selected);
   // Unlock always available — Release will force-close leftover legacy / open vaults first.
   const openVaultCount = countOpenVaults(vaults as Array<Record<string, unknown>>);
+  const releaseCandidates = listReleaseCandidates(vaults as Array<Record<string, unknown>>);
   const canUnlockLicense = Boolean(status?.pubkey);
 
   const flowRunning = flowState?.status === "running";
@@ -578,6 +596,39 @@ export function SidePanelApp() {
     }
   }
 
+  function openReleasePicker() {
+    if (!status?.pubkey || flowRunning) return;
+    setError(null);
+    setReleaseResult(null);
+    const ids = new Set(
+      releaseCandidates
+        .map((v) => String(v.pubkey ?? ""))
+        .filter((pk) => pk.length >= 32)
+    );
+    setReleaseSelected(ids);
+    setReleaseIncludeLeftovers(true);
+    setReleasePickerOpen(true);
+  }
+
+  function toggleReleaseVault(pubkey: string) {
+    setReleaseSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(pubkey)) next.delete(pubkey);
+      else next.add(pubkey);
+      return next;
+    });
+  }
+
+  function selectAllReleaseVaults() {
+    setReleaseSelected(
+      new Set(
+        releaseCandidates
+          .map((v) => String(v.pubkey ?? ""))
+          .filter((pk) => pk.length >= 32)
+      )
+    );
+  }
+
   async function onUnlockLicense() {
     if (!status?.pubkey || flowRunning) return;
     const live = await refreshStatus();
@@ -585,29 +636,81 @@ export function SidePanelApp() {
       setError("Wallet is locked. Enter your keyring password on the unlock screen, then retry Release.");
       return;
     }
+
+    const vaultIds = releaseCandidates
+      .filter((v) => releaseSelected.has(String(v.pubkey ?? "")))
+      .map((v) => Number(v.vaultId ?? v.vault_id ?? 0))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    // No listed vaults — still allow licence-only unlock / leftover cleanup.
+    if (releaseCandidates.length > 0 && vaultIds.length === 0 && !releaseIncludeLeftovers) {
+      setError("Select at least one vault, or keep leftover cleanup on.");
+      return;
+    }
+
     setBusy(true);
     setError(null);
+    setReleaseResult(null);
+    setReleasePickerOpen(false);
     setToast("Releasing $1VAULT…");
     try {
-      // Single paced background job — avoids RPC 429 from fan-out MY_VAULTS + per-vault polls.
-      const result = await sendBg<{ signature?: string; cleaned?: number }>({
+      const result = await sendBg<{
+        signature?: string;
+        cleaned?: number;
+        alreadyReleased?: boolean;
+        vaults?: ReleaseVaultDetail[];
+      }>({
         type: "RELEASE_LICENSE",
         strategist: status.pubkey,
+        vaultIds: vaultIds.length > 0 ? vaultIds : undefined,
+        includeLeftovers: releaseIncludeLeftovers,
       });
+
+      const releasedVaults = (result.vaults ?? []).map((v) => {
+        const known = vaults.find(
+          (row) =>
+            String(row.pubkey ?? "") === v.pubkey ||
+            Number(row.vaultId ?? row.vault_id ?? 0) === v.vaultId
+        );
+        return {
+          ...v,
+          name: known ? vaultName(known) : `Vault #${v.vaultId}`,
+        };
+      });
+
+      const detail: ReleaseResult = {
+        signature: result.signature,
+        alreadyReleased: Boolean(result.alreadyReleased),
+        vaults: releasedVaults,
+        at: new Date().toISOString(),
+      };
+      setReleaseResult(detail);
+
       setTxHistory((prev) => {
+        const vaultBits =
+          releasedVaults.length > 0
+            ? releasedVaults.map((v) => v.name ?? `Vault #${v.vaultId}`).join(", ")
+            : "licence only";
         const next = [
-          { id: `${Date.now()}-unlock`, label: "$1VAULT unlocked", at: new Date().toISOString() },
+          {
+            id: `${Date.now()}-unlock`,
+            label: `$1VAULT unlocked · ${vaultBits}`,
+            tx:
+              result.signature && result.signature !== "already-released"
+                ? result.signature
+                : undefined,
+            at: detail.at,
+          },
           ...prev,
         ].slice(0, 30);
         void chrome.storage.session.set({ txHistory: next });
         return next;
       });
-      // Soft refresh after a pause so we don't immediately re-hit public RPC.
+
       window.setTimeout(() => void loadVaults(), 2500);
-      const cleaned = Number(result.cleaned ?? 0);
       setToast(
-        cleaned > 0
-          ? `$1VAULT unlocked (cleaned ${cleaned} vault${cleaned === 1 ? "" : "s"})`
+        releasedVaults.length > 0
+          ? `$1VAULT unlocked · ${releasedVaults.length} vault${releasedVaults.length === 1 ? "" : "s"}`
           : "$1VAULT licence unlocked"
       );
       window.setTimeout(() => setToast(null), 3500);
@@ -1323,7 +1426,7 @@ export function SidePanelApp() {
                     </>
                   ) : canUnlockLicense ? (
                     openVaultCount > 0
-                      ? ` ${openVaultCount} leftover vault(s) (incl. legacy) — Release will force-close them.`
+                      ? ` ${openVaultCount} vault(s) still need closing — Release will clean them up.`
                       : " No open vaults — you can Release $1VAULT."
                   ) : (
                     " Select an Active vault on Home first."
@@ -1404,22 +1507,170 @@ export function SidePanelApp() {
                   disabled={toolsLocked || !status?.pubkey}
                   title={
                     openVaultCount > 0
-                      ? `Force-close ${openVaultCount} leftover vault(s), then release $1VAULT`
+                      ? `Choose vaults to close, then release $1VAULT`
                       : undefined
                   }
-                  onClick={() => void onUnlockLicense()}
+                  onClick={() => openReleasePicker()}
                 >
                   <div className="vault-tool-copy">
                     <span className="vault-tool-title">Unlock $1VAULT</span>
                     <span className="vault-tool-sub">
                       {openVaultCount > 0
-                        ? `Force-closes ${openVaultCount} leftover/legacy vault(s), then releases licence`
-                        : "Release on-chain licence tokens (not wallet password)"}
+                        ? `Pick vaults to close, then release your licence`
+                        : "Release your $1VAULT licence (not your wallet password)"}
                     </span>
                   </div>
                   <span className="vault-tool-cta">Release</span>
                 </button>
               </div>
+
+              {releasePickerOpen ? (
+                <div className="release-picker-card">
+                  <div className="release-result-head">
+                    <div>
+                      <h3 className="release-result-title">Choose vaults to release</h3>
+                      <p className="release-result-sub">
+                        All are selected by default. Uncheck any you want to keep.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="release-result-dismiss"
+                      aria-label="Close"
+                      onClick={() => setReleasePickerOpen(false)}
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  {releaseCandidates.length > 0 ? (
+                    <>
+                      <div className="release-picker-actions">
+                        <button type="button" className="btn btn-secondary" onClick={selectAllReleaseVaults}>
+                          Select all
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          onClick={() => setReleaseSelected(new Set())}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                      <ul className="release-result-list">
+                        {releaseCandidates.map((v) => {
+                          const pk = String(v.pubkey ?? "");
+                          const id = Number(v.vaultId ?? v.vault_id ?? 0) || 0;
+                          const checked = releaseSelected.has(pk);
+                          const legacy = isVaultLegacy(v as Record<string, unknown>);
+                          return (
+                            <li key={pk}>
+                              <label className="release-picker-row">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => toggleReleaseVault(pk)}
+                                />
+                                <span className="release-result-row-main">
+                                  <span className="release-result-name">{vaultName(v)}</span>
+                                  <span className="release-result-meta mono">
+                                    #{id || "—"} · {shortAddr(pk)}
+                                    {legacy ? " · legacy" : ""}
+                                  </span>
+                                </span>
+                              </label>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </>
+                  ) : (
+                    <p className="release-result-sub" style={{ marginTop: 10 }}>
+                      No listed vaults to close. You can still release the licence
+                      {releaseIncludeLeftovers ? " and clear leftovers" : ""}.
+                    </p>
+                  )}
+
+                  <label className="release-picker-leftover">
+                    <input
+                      type="checkbox"
+                      checked={releaseIncludeLeftovers}
+                      onChange={(e) => setReleaseIncludeLeftovers(e.target.checked)}
+                    />
+                    <span>Also clear leftover / hidden vaults</span>
+                  </label>
+
+                  <div className="release-picker-footer">
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => setReleasePickerOpen(false)}
+                      disabled={toolsLocked}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      disabled={toolsLocked}
+                      onClick={() => void onUnlockLicense()}
+                    >
+                      {releaseSelected.size > 0
+                        ? `Release ${releaseSelected.size} vault${releaseSelected.size === 1 ? "" : "s"}`
+                        : "Release licence"}
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {releaseResult ? (
+                <div className="release-result-card" role="status">
+                  <div className="release-result-head">
+                    <div>
+                      <h3 className="release-result-title">$1VAULT released</h3>
+                      <p className="release-result-sub">
+                        {releaseResult.alreadyReleased
+                          ? "Licence was already unlocked."
+                          : releaseResult.vaults.length > 0
+                            ? `${releaseResult.vaults.length} vault${releaseResult.vaults.length === 1 ? "" : "s"} cleaned up.`
+                            : "Licence unlocked — no vaults needed closing."}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="release-result-dismiss"
+                      aria-label="Dismiss"
+                      onClick={() => setReleaseResult(null)}
+                    >
+                      ×
+                    </button>
+                  </div>
+
+                  {releaseResult.vaults.length > 0 ? (
+                    <ul className="release-result-list">
+                      {releaseResult.vaults.map((v) => (
+                        <li key={`${v.vaultId}-${v.pubkey}`} className="release-result-row">
+                          <div className="release-result-row-main">
+                            <span className="release-result-name">{v.name ?? `Vault #${v.vaultId}`}</span>
+                            <span className="release-result-meta mono">
+                              #{v.vaultId} · {shortAddr(v.pubkey)}
+                            </span>
+                          </div>
+                          <span className="release-result-badge">
+                            {v.action === "closed" ? "Closed" : "Cleared"}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+
+                  {releaseResult.signature && releaseResult.signature !== "already-released" ? (
+                    <p className="release-result-tx mono">
+                      Tx {shortAddr(releaseResult.signature)}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           </section>
         )}

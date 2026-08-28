@@ -73,8 +73,13 @@ export function pickDefaultActiveVault(
 
 /** Vaults that still block $1VAULT release (not Closed on-chain — includes legacy). */
 export function countOpenVaults(vaults: Array<Record<string, unknown>>): number {
+  return listReleaseCandidates(vaults).length;
+}
+
+/** Rows eligible for Release picker (not Closed). */
+export function listReleaseCandidates<T extends Record<string, unknown>>(vaults: T[]): T[] {
   return vaults.filter((v) => {
     const { status, statusCode } = vaultStatusFields(v);
     return !isVaultClosed(status, statusCode);
-  }).length;
+  });
 }

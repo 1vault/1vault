@@ -789,11 +789,13 @@ func (b *Builder) UnlockLicense(strategist solana.PublicKey) (*Prepared, error) 
 				active,
 			)
 		}
-		licenseOn, err := s.DecodeStrategistLicenseActive(data)
+		// Licence PDA is closed on unlock — if it's already gone, Release is done.
+		licPDA := s.LicensePDA(b.Program, strategist)
+		licExists, err := b.RPC.AccountExists(licPDA)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("load licence account %s: %w", licPDA, err)
 		}
-		if !licenseOn {
+		if !licExists {
 			return nil, fmt.Errorf("licence already unlocked for strategist %s", strategist)
 		}
 	}

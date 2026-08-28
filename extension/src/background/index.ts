@@ -48,7 +48,7 @@ export type Msg =
   | { type: "SIGN_BIND_MESSAGE"; message: string }
   | { type: "UNLOCK_LICENSE"; strategist: string }
   | { type: "FORCE_CLOSE_LEGACY"; vault: string; vaultId: number; strategist?: string }
-  | { type: "RELEASE_LICENSE"; strategist?: string }
+  | { type: "RELEASE_LICENSE"; strategist?: string; vaultIds?: number[]; includeLeftovers?: boolean }
   | { type: "SIGN_WIRE"; transactionB64: string }
   | {
       type: "PARK_GUEST";
@@ -329,6 +329,18 @@ async function handle(message: Msg): Promise<unknown> {
         throw new Error("a flow is already running — wait or cancel, then retry Release");
       }
 
+      const selectedIds = Array.isArray(message.vaultIds)
+        ? [...new Set(message.vaultIds.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0))]
+        : null;
+      const includeLeftovers = message.includeLeftovers !== false;
+
+      type ReleasedVault = {
+        vaultId: number;
+        pubkey: string;
+        kind: "open" | "legacy" | "closed" | "missing";
+        action: "closed" | "cleared";
+      };
+
       const pushRelease = (detail: string) => {
         flowState = {
           status: "running",
@@ -341,156 +353,20 @@ async function handle(message: Msg): Promise<unknown> {
         void persistFlowState();
       };
 
-      flowJobActive = true;
-      flowState = { status: "running", mode: "close-vault", events: [] };
-      await persistFlowState();
+      const isAlreadyReleased = (msg: string) =>
+        /licence already unlocked|license already unlocked|LicenseNotActive|already unlocked/i.test(
+          msg
+        );
 
-      try {
-        // 1) Cheap path — unlock when on-chain count is already 0.
-        try {
-          pushRelease("Trying unlock…");
-          const sig = await withRpcRetry(() => runUnlockLicense(strategist, kp));
-          flowState = {
-            status: "completed",
-            mode: "close-vault",
-            events: flowState.events,
-            result: { closed: true },
-          };
-          await persistFlowState();
-          return { signature: sig, cleaned: 0 };
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          if (!/ActiveVaultsRemain|still has .* active vault|cannot unlock/i.test(msg)) {
-            throw e;
-          }
-        }
+      const isMissingAccount = (msg: string) =>
+        /3012|AccountNotInitialized|account not found|Required account missing|Something didn.t finish cleaning/i.test(
+          msg
+        );
 
-        // 2) Scan on-chain vault slots (not indexer) — handles missing/legacy/Closed desync.
-        pushRelease("Scanning on-chain vault slots…");
-        await sleep(700);
-        const meta = await fetchStrategistVaultMeta(strategist);
-        const maxId = Math.max(meta.vaultCount, 1);
+      const isActiveVaultsBlock = (msg: string) =>
+        /ActiveVaultsRemain|still has .* active vault|cannot unlock/i.test(msg);
 
-        type Slot = { vaultId: number; kind: "missing" | "legacy" | "closed" | "open"; pubkey: string };
-        const purge: Slot[] = [];
-        const open: Slot[] = [];
-        const missing: Slot[] = [];
-
-        for (let vaultId = 1; vaultId <= maxId; vaultId++) {
-          pushRelease(`Checking vault #${vaultId}…`);
-          await sleep(vaultId === 1 ? 800 : 1400);
-          const slot = await classifyVaultSlot(meta.programId, strategist, vaultId);
-          const row: Slot = { vaultId, kind: slot.kind, pubkey: slot.pubkey };
-          if (slot.kind === "open") open.push(row);
-          else if (slot.kind === "missing") missing.push(row);
-          else purge.push(row); // legacy | closed
-        }
-
-        let cleaned = 0;
-
-        // Close live vaults first so we don't over-decrement on missing slots.
-        for (let i = 0; i < open.length; i++) {
-          const row = open[i]!;
-          pushRelease(`Closing open vault #${row.vaultId} (${i + 1}/${open.length})…`);
-          await sleep(i === 0 ? 1000 : 1600);
-          try {
-            await runFlow(
-              {
-                mode: "close-vault",
-                strategist,
-                vault: row.pubkey,
-                vaultId: row.vaultId,
-              },
-              kp,
-              {
-                onState: (s) => {
-                  flowState = {
-                    ...s,
-                    status: s.status === "failed" ? "failed" : "running",
-                    mode: "close-vault",
-                  };
-                  void persistFlowState();
-                },
-              }
-            );
-            cleaned++;
-          } catch (e) {
-            // Broken vault (missing ATA → Anchor 3012, etc.) — abandon via force-close.
-            const msg = e instanceof Error ? e.message : String(e);
-            if (
-              !/3012|AccountNotInitialized|account not found|Required account missing|VaultHasOpenPositions|still has open/i.test(
-                msg
-              )
-            ) {
-              throw e;
-            }
-            pushRelease(`Close failed for #${row.vaultId} — force-purging…`);
-            await sleep(1200);
-            await withRpcRetry(() =>
-              runForceCloseLegacyVault(
-                { strategist, vault: row.pubkey, vaultId: row.vaultId },
-                kp
-              )
-            );
-            cleaned++;
-          }
-          await sleep(1500);
-        }
-
-        // Legacy / Closed (count desync) — force-close drains or repairs.
-        for (let i = 0; i < purge.length; i++) {
-          const live = await fetchStrategistVaultMeta(strategist).catch(() => null);
-          if (live && live.activeVaultCount <= 0) break;
-          const row = purge[i]!;
-          pushRelease(`Purging ${row.kind} vault #${row.vaultId}…`);
-          await sleep(i === 0 ? 1000 : 1600);
-          try {
-            await withRpcRetry(() =>
-              runForceCloseLegacyVault(
-                { strategist, vault: row.pubkey, vaultId: row.vaultId },
-                kp
-              )
-            );
-            cleaned++;
-          } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            if (/NotLegacy|use Close vault|current layout/i.test(msg)) {
-              throw e;
-            }
-            if (/3012|account not found|AccountNotInitialized|Required account missing/i.test(msg)) {
-              continue;
-            }
-            throw e;
-          }
-        }
-
-        // Missing PDA desync — only decrement as many times as active_count still needs.
-        for (let i = 0; i < missing.length; i++) {
-          const live = await fetchStrategistVaultMeta(strategist);
-          if (live.activeVaultCount <= 0) break;
-          const row = missing[i]!;
-          pushRelease(`Repairing missing vault slot #${row.vaultId} (count still ${live.activeVaultCount})…`);
-          await sleep(1600);
-          try {
-            await withRpcRetry(() =>
-              runForceCloseLegacyVault(
-                { strategist, vault: row.pubkey, vaultId: row.vaultId },
-                kp
-              )
-            );
-            cleaned++;
-          } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            // Unused id that was never created — skip.
-            if (/ConstraintSeeds|seeds constraint|0x7d6|401/i.test(msg)) continue;
-            if (/3012|account not found|AccountNotInitialized|Required account missing/i.test(msg)) continue;
-            throw e;
-          }
-        }
-
-        pushRelease("Unlocking $1VAULT…");
-        await sleep(1200);
-        const sig = await withRpcRetry(() => runUnlockLicense(strategist, kp));
+      const finishOk = async (sig: string, released: ReleasedVault[]) => {
         flowState = {
           status: "completed",
           mode: "close-vault",
@@ -498,7 +374,175 @@ async function handle(message: Msg): Promise<unknown> {
           result: { closed: true },
         };
         await persistFlowState();
-        return { signature: sig, cleaned };
+        return {
+          signature: sig,
+          cleaned: released.length,
+          alreadyReleased: sig === "already-released",
+          vaults: released,
+        };
+      };
+
+      const tryUnlock = async (): Promise<{ ok: true; sig: string } | { ok: false; msg: string }> => {
+        try {
+          const sig = await withRpcRetry(() => runUnlockLicense(strategist, kp));
+          return { ok: true, sig };
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (isAlreadyReleased(msg)) {
+            return { ok: true, sig: "already-released" };
+          }
+          if (isMissingAccount(msg)) {
+            try {
+              const live = await fetchStrategistVaultMeta(strategist);
+              if (live.activeVaultCount <= 0) {
+                return { ok: true, sig: "already-released" };
+              }
+            } catch {
+              /* fall through */
+            }
+          }
+          return { ok: false, msg };
+        }
+      };
+
+      const forcePurgeSlot = async (vault: string, vaultId: number) => {
+        try {
+          await withRpcRetry(() =>
+            runForceCloseLegacyVault({ strategist, vault, vaultId }, kp)
+          );
+          return true;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (isMissingAccount(msg) || /ConstraintSeeds|seeds constraint|0x7d6|401|NotLegacy/i.test(msg)) {
+            return false;
+          }
+          throw e;
+        }
+      };
+
+      const shouldProcessId = (vaultId: number, kind: string) => {
+        if (selectedIds == null || selectedIds.length === 0) return true;
+        if (selectedIds.includes(vaultId)) return true;
+        // Leftover missing/closed slots not shown in the picker.
+        if (includeLeftovers && (kind === "missing" || kind === "closed" || kind === "legacy")) {
+          return true;
+        }
+        return false;
+      };
+
+      flowJobActive = true;
+      flowState = { status: "running", mode: "close-vault", events: [] };
+      await persistFlowState();
+
+      try {
+        pushRelease("Trying unlock…");
+        const first = await tryUnlock();
+        if (first.ok) return finishOk(first.sig, []);
+        if (!isActiveVaultsBlock(first.msg)) throw new Error(first.msg);
+
+        pushRelease("Cleaning up vaults…");
+        await sleep(700);
+        const meta = await fetchStrategistVaultMeta(strategist);
+        const maxId = Math.max(meta.vaultCount, 1);
+        const released: ReleasedVault[] = [];
+
+        for (let vaultId = 1; vaultId <= maxId; vaultId++) {
+          const live = await fetchStrategistVaultMeta(strategist).catch(() => null);
+          if (live && live.activeVaultCount <= 0) break;
+
+          const slot = await classifyVaultSlot(meta.programId, strategist, vaultId);
+          if (!shouldProcessId(vaultId, slot.kind)) continue;
+
+          pushRelease(`Cleaning vault #${vaultId}…`);
+          await sleep(vaultId === 1 ? 800 : 1400);
+
+          if (slot.kind === "open") {
+            let ok = false;
+            try {
+              await runFlow(
+                {
+                  mode: "close-vault",
+                  strategist,
+                  vault: slot.pubkey,
+                  vaultId,
+                },
+                kp,
+                {
+                  onState: (s) => {
+                    flowState = {
+                      ...s,
+                      status: s.status === "failed" ? "failed" : "running",
+                      mode: "close-vault",
+                    };
+                    void persistFlowState();
+                  },
+                }
+              );
+              ok = true;
+            } catch {
+              ok = await forcePurgeSlot(slot.pubkey, vaultId);
+            }
+            if (ok) {
+              released.push({
+                vaultId,
+                pubkey: slot.pubkey,
+                kind: "open",
+                action: "closed",
+              });
+            }
+          } else if (await forcePurgeSlot(slot.pubkey, vaultId)) {
+            released.push({
+              vaultId,
+              pubkey: slot.pubkey,
+              kind: slot.kind,
+              action: "cleared",
+            });
+          }
+          await sleep(1000);
+        }
+
+        pushRelease("Unlocking $1VAULT…");
+        await sleep(1200);
+        const last = await tryUnlock();
+        if (last.ok) return finishOk(last.sig, released);
+
+        if (isActiveVaultsBlock(last.msg)) {
+          if (includeLeftovers) {
+            pushRelease("Finishing cleanup…");
+            const again = await fetchStrategistVaultMeta(strategist);
+            for (let vaultId = 1; vaultId <= Math.max(again.vaultCount, 1); vaultId++) {
+              if ((await fetchStrategistVaultMeta(strategist)).activeVaultCount <= 0) break;
+              const slot = await classifyVaultSlot(again.programId, strategist, vaultId);
+              if (slot.kind === "open") {
+                if (selectedIds != null && selectedIds.length > 0 && !selectedIds.includes(vaultId)) {
+                  continue;
+                }
+              } else if (!includeLeftovers) {
+                continue;
+              }
+              await sleep(1400);
+              if (await forcePurgeSlot(slot.pubkey, vaultId)) {
+                if (!released.some((r) => r.vaultId === vaultId)) {
+                  released.push({
+                    vaultId,
+                    pubkey: slot.pubkey,
+                    kind: slot.kind,
+                    action: slot.kind === "open" ? "closed" : "cleared",
+                  });
+                }
+              }
+            }
+            const finalTry = await tryUnlock();
+            if (finalTry.ok) return finishOk(finalTry.sig, released);
+            if (isActiveVaultsBlock(finalTry.msg)) {
+              throw new Error("A vault is still open. Tap Release again to finish closing it.");
+            }
+            throw new Error(finalTry.msg);
+          }
+          throw new Error("A vault is still open. Tap Release again to finish closing it.");
+        }
+
+        throw new Error(last.msg);
       } catch (e) {
         flowState = {
           status: "failed",
