@@ -17,6 +17,15 @@ func DecodeStrategistActiveVaultCount(data []byte) (uint64, error) {
 	return binary.LittleEndian.Uint64(data[o : o+8]), nil
 }
 
+// DecodeStrategistVaultCount reads Strategist.vault_count (next id allocator).
+func DecodeStrategistVaultCount(data []byte) (uint64, error) {
+	if len(data) < StrategistAccountLen {
+		return 0, fmt.Errorf("strategist account len %d want >= %d", len(data), StrategistAccountLen)
+	}
+	o := 8 + 32 // disc + owner
+	return binary.LittleEndian.Uint64(data[o : o+8]), nil
+}
+
 // DecodeStrategistLicenseActive reads Strategist.is_active (license currently locked).
 func DecodeStrategistLicenseActive(data []byte) (bool, error) {
 	if len(data) < StrategistAccountLen {

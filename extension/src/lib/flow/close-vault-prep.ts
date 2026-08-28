@@ -188,7 +188,7 @@ export async function cancelPendingTrades(
 export async function waitVaultLiquidForClose(
   vault: string,
   maxMs = 45000,
-  intervalMs = 800
+  intervalMs = 2000
 ): Promise<void> {
   const startedAt = Date.now();
   while (Date.now() - startedAt < maxMs) {

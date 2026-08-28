@@ -116,7 +116,10 @@ export async function restoreSession(): Promise<boolean> {
         await clearPersistedSession();
         return false;
       }
-      await persistSession(keypair);
+      // Restore without rewriting unlockedAt from "now" via persistSession —
+      // use the blob timestamp then touch to extend idle window for active use.
+      session = { keypair, unlockedAt: blob.unlockedAt };
+      touchSession();
       return true;
     } catch {
       return false;
@@ -126,6 +129,16 @@ export async function restoreSession(): Promise<boolean> {
   })();
 
   return restoreInflight;
+}
+
+/** Restore session and return keypair, or throw a clear unlock error. */
+export async function requireUnlockedKeypair(): Promise<Keypair> {
+  await restoreSession();
+  const kp = getUnlockedKeypair();
+  if (!kp) {
+    throw new Error("keyring locked — unlock wallet password first");
+  }
+  return kp;
 }
 
 export async function hasKeyring(): Promise<boolean> {

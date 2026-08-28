@@ -35,7 +35,7 @@ import { HeroHead } from "./InfoTip";
 import { ListPager, ShimmerHero, ShimmerList, usePagedSlice } from "./Shimmer";
 import { SolAmount } from "./SolAmount";
 import { TradePanel } from "./TradePanel";
-import { isVaultClosed, isVaultLegacy, isVaultListHidden, isVaultTradeable, pickDefaultActiveVault, countOpenVaults, vaultStatusFields } from "../lib/vault-status";
+import { isVaultClosed, isVaultLegacy, isVaultListHidden, isVaultTradeable, pickDefaultActiveVault, countOpenVaults } from "../lib/vault-status";
 import { writeVaultSnapshot } from "../lib/vault-session";
 import { VaultSummary, VaultSummaryShimmer } from "./VaultSummary";
 import { BindWalletModal } from "./BindWalletModal";
@@ -129,10 +129,16 @@ function friendlyFlowError(raw: string): string {
     return "Wallet is locked. Enter your keyring password on the unlock screen, then retry.";
   }
   if (/ActiveVaultsRemain|still has .* active vault|cannot unlock 1VL|cannot unlock \$1VAULT/i.test(raw)) {
-    return "On-chain still has active vaults (often hidden legacy). Redeploy backend + upgrade program for force-close, then tap Release again.";
+    return "On-chain still has active vaults (often hidden/missing slots). Tap Release again — it scans vault IDs on-chain and purges leftovers. If it keeps failing, upgrade the program + redeploy backend.";
+  }
+  if (/Required on-chain account not found|account not found/i.test(raw)) {
+    return "A vault account is missing on-chain while the active count is still > 0. Tap Release again to purge empty slots. If this persists, upgrade the program (force-close) and redeploy the backend.";
   }
   if (/Unexpected non-whitespace|Bad API response|API not found.*force-close/i.test(raw)) {
     return "Backend is missing force-close-legacy-vault — redeploy the API, upgrade the program, then retry Release.";
+  }
+  if (/429|Too many requests|rate.?limit/i.test(raw)) {
+    return "RPC rate-limited (Too many requests). Wait ~20s, then tap Release once — do not spam the button.";
   }
   if (/licence already unlocked|LicenseNotActive/i.test(raw)) {
     return "$1VAULT licence is already released.";
@@ -375,6 +381,14 @@ export function SidePanelApp() {
 
   useEffect(() => {
     if (!status?.unlocked) return;
+    const id = window.setInterval(() => {
+      void refreshStatus();
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, [status?.unlocked, refreshStatus]);
+
+  useEffect(() => {
+    if (!status?.unlocked) return;
     void pollFlowState();
   }, [status?.unlocked, pollFlowState]);
 
@@ -561,81 +575,22 @@ export function SidePanelApp() {
     }
   }
 
-  async function waitUntilFlowSettled(): Promise<FlowState> {
-    for (let i = 0; i < 200; i++) {
-      const s = await pollFlowState();
-      if (s.status !== "running") return s;
-      await new Promise((r) => setTimeout(r, 500));
-    }
-    throw new Error("Timed out waiting for vault close to finish.");
-  }
-
   async function onUnlockLicense() {
     if (!status?.pubkey || flowRunning) return;
-    if (!status.unlocked) {
-      setError("Unlock your wallet password first, then use Unlock $1VAULT.");
+    const live = await refreshStatus();
+    if (!live?.unlocked) {
+      setError("Wallet is locked. Enter your keyring password on the unlock screen, then retry Release.");
       return;
     }
     setBusy(true);
     setError(null);
+    setToast("Releasing $1VAULT…");
     try {
-      // Fresh on-chain annotate — includes hidden Closed/legacy rows.
-      const data = await sendBg<{ vaults: VaultRow[] }>({ type: "MY_VAULTS" });
-      const rows = (data.vaults ?? []) as Array<Record<string, unknown>>;
-      const blockers = rows.filter((v) => {
-        const { status: st, statusCode } = vaultStatusFields(v);
-        return !isVaultClosed(st, statusCode);
+      // Single paced background job — avoids RPC 429 from fan-out MY_VAULTS + per-vault polls.
+      const result = await sendBg<{ signature?: string; cleaned?: number }>({
+        type: "RELEASE_LICENSE",
+        strategist: status.pubkey,
       });
-
-      for (const v of blockers) {
-        const pk = String(v.pubkey ?? "");
-        const vaultId = Number(v.vaultId ?? v.vault_id ?? 0) || 0;
-        const legacy = isVaultLegacy(v);
-        if (legacy) {
-          if (!vaultId) {
-            throw new Error(
-              `Legacy vault ${shortAddr(pk)} has no vaultId — cannot force-close. Create a new vault after program upgrade.`
-            );
-          }
-          setToast(`Force-closing legacy ${shortAddr(pk)}…`);
-          try {
-            await sendBg({
-              type: "FORCE_CLOSE_LEGACY",
-              vault: pk,
-              vaultId,
-              strategist: status.pubkey,
-            });
-            continue;
-          } catch (e) {
-            const msg = e instanceof Error ? e.message : String(e);
-            // Current layout → normal close. Missing backend route / non-JSON → try normal close too.
-            if (
-              /current layout|NotLegacy|use Close vault|API not found|Bad API response|404|force-close-legacy/i.test(
-                msg
-              )
-            ) {
-              // fall through to close-vault
-            } else {
-              throw e;
-            }
-          }
-        }
-
-        setToast(`Closing vault ${shortAddr(pk)}…`);
-        await sendBg({
-          type: "RUN_FLOW",
-          mode: "close-vault",
-          vault: pk,
-          vaultId: vaultId || undefined,
-        });
-        const settled = await waitUntilFlowSettled();
-        if (settled.status === "failed") {
-          throw new Error(settled.error ?? `Failed to close ${shortAddr(pk)}`);
-        }
-      }
-
-      setToast("Releasing $1VAULT…");
-      await sendBg({ type: "UNLOCK_LICENSE", strategist: status.pubkey });
       setTxHistory((prev) => {
         const next = [
           { id: `${Date.now()}-unlock`, label: "$1VAULT unlocked", at: new Date().toISOString() },
@@ -644,12 +599,19 @@ export function SidePanelApp() {
         void chrome.storage.session.set({ txHistory: next });
         return next;
       });
-      void loadVaults();
-      setToast("$1VAULT licence unlocked");
-      window.setTimeout(() => setToast(null), 3000);
+      // Soft refresh after a pause so we don't immediately re-hit public RPC.
+      window.setTimeout(() => void loadVaults(), 2500);
+      const cleaned = Number(result.cleaned ?? 0);
+      setToast(
+        cleaned > 0
+          ? `$1VAULT unlocked (cleaned ${cleaned} vault${cleaned === 1 ? "" : "s"})`
+          : "$1VAULT licence unlocked"
+      );
+      window.setTimeout(() => setToast(null), 3500);
     } catch (e) {
       setError(friendlyFlowError(e instanceof Error ? e.message : String(e)));
       setToast(null);
+      void refreshStatus();
     } finally {
       setBusy(false);
       void pollFlowState();

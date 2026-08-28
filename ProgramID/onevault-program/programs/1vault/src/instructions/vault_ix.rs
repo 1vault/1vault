@@ -577,20 +577,57 @@ pub fn handle_force_close_legacy_vault(
     ctx: Context<ForceCloseLegacyVault>,
     _vault_id: u64,
 ) -> Result<()> {
-    require_keys_eq!(
-        *ctx.accounts.vault.owner,
-        crate::ID,
-        OneVaultError::Unauthorized
-    );
-
+    let vault_info = ctx.accounts.vault.to_account_info();
+    let owner = *vault_info.owner;
     let current_len = 8 + Vault::INIT_SPACE;
-    let data = ctx.accounts.vault.try_borrow_data()?;
+
+    // Missing / already reassigned PDA — repair active_vault_count desync only.
+    if vault_info.data_is_empty() || owner == anchor_lang::system_program::ID {
+        ctx.accounts.strategist_account.active_vault_count = ctx
+            .accounts
+            .strategist_account
+            .active_vault_count
+            .saturating_sub(1);
+        emit!(crate::events::VaultClosed {
+            vault: vault_info.key(),
+            strategist: ctx.accounts.strategist.key(),
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+        return Ok(());
+    }
+
+    require_keys_eq!(owner, crate::ID, OneVaultError::Unauthorized);
+
+    let data = vault_info.try_borrow_data()?;
     require!(data.len() >= 40, OneVaultError::InvalidAmount);
-    // Only abandon accounts that cannot deserialize as the current Vault.
-    require!(
-        data.len() != current_len,
-        OneVaultError::NotLegacyVault
-    );
+
+    // Current layout already Closed — count desync; decrement without draining.
+    if data.len() == current_len {
+        // VaultStatus::Closed is the 4th Borsh variant (0=Active…3=Closed).
+        let status = read_vault_status_byte(&data)?;
+        require!(status == 3, OneVaultError::NotLegacyVault);
+        let stored_strategist =
+            Pubkey::try_from(&data[8..40]).map_err(|_| error!(OneVaultError::InvalidAmount))?;
+        require_keys_eq!(
+            stored_strategist,
+            ctx.accounts.strategist.key(),
+            OneVaultError::Unauthorized
+        );
+        drop(data);
+        ctx.accounts.strategist_account.active_vault_count = ctx
+            .accounts
+            .strategist_account
+            .active_vault_count
+            .saturating_sub(1);
+        emit!(crate::events::VaultClosed {
+            vault: vault_info.key(),
+            strategist: ctx.accounts.strategist.key(),
+            timestamp: Clock::get()?.unix_timestamp,
+        });
+        return Ok(());
+    }
+
+    // Legacy layout — drain rent and decrement.
     let stored_strategist =
         Pubkey::try_from(&data[8..40]).map_err(|_| error!(OneVaultError::InvalidAmount))?;
     require_keys_eq!(
@@ -601,7 +638,7 @@ pub fn handle_force_close_legacy_vault(
     drop(data);
 
     let dest = ctx.accounts.strategist.to_account_info();
-    let src = ctx.accounts.vault.to_account_info();
+    let src = vault_info;
     let lamports = src.lamports();
     **dest.lamports.borrow_mut() = dest
         .lamports()
@@ -611,16 +648,36 @@ pub fn handle_force_close_legacy_vault(
     src.data.borrow_mut().fill(0);
     src.assign(&anchor_lang::system_program::ID);
 
-    ctx.accounts.strategist_account.active_vault_count =
-        ctx.accounts.strategist_account.active_vault_count.saturating_sub(1);
+    ctx.accounts.strategist_account.active_vault_count = ctx
+        .accounts
+        .strategist_account
+        .active_vault_count
+        .saturating_sub(1);
 
     emit!(crate::events::VaultClosed {
-        vault: ctx.accounts.vault.key(),
+        vault: src.key(),
         strategist: ctx.accounts.strategist.key(),
         timestamp: Clock::get()?.unix_timestamp,
     });
 
     Ok(())
+}
+
+/// Skip Borsh strings after disc+strategist+vault_id to read Vault.status on current layout.
+fn read_vault_status_byte(data: &[u8]) -> Result<u8> {
+    let mut o = 8 + 32 + 8; // disc + strategist + vault_id
+    for _ in 0..2 {
+        require!(o + 4 <= data.len(), OneVaultError::InvalidAmount);
+        let n = u32::from_le_bytes(data[o..o + 4].try_into().unwrap()) as usize;
+        o += 4 + n;
+        require!(o <= data.len(), OneVaultError::InvalidAmount);
+    }
+    // base_mint + accepted_mint_count + accepted_mints + share_mint + vault_token_account
+    // + total_shares + total_assets + position_value + high_water_mark
+    // + performance_fee_bps + book_mode + early_exit_fee_bps  → then status
+    o += 32 + 1 + 32 * MAX_ACCEPTED_MINTS + 32 + 32 + 8 * 4 + 2 + 1 + 2;
+    require!(o < data.len(), OneVaultError::InvalidAmount);
+    Ok(data[o])
 }
 
 #[derive(Accounts)]
