@@ -10,6 +10,7 @@ import (
 
 	"github.com/1vault/backend/internal/roles"
 	"github.com/1vault/backend/internal/signing"
+	s "github.com/1vault/backend/internal/solana"
 	"github.com/1vault/backend/internal/txconfirm"
 	"github.com/1vault/backend/internal/txprep"
 	"github.com/gagliardetto/solana-go"
@@ -119,8 +120,9 @@ func (svc *Service) autoSubmitServerStep(flowID, stepID uuid.UUID, prep *txprep.
 	rpc := txprep.NewRPC(svc.Cfg.RPCURL)
 	sig, err := rpc.SendRaw(raw)
 	if err != nil {
-		_ = svc.Store.MarkStepFailed(ctx, stepID, err.Error())
-		_ = svc.Store.SetJobStatus(ctx, flowID, StatusFailed, strPtr(err.Error()))
+		msg := s.FriendlyTxError(err)
+		_ = svc.Store.MarkStepFailed(ctx, stepID, msg)
+		_ = svc.Store.SetJobStatus(ctx, flowID, StatusFailed, strPtr(msg))
 		return
 	}
 	_ = svc.Store.MarkStepSubmitted(ctx, stepID, sig)
@@ -218,6 +220,7 @@ func (svc *Service) runConfirmAndAdvance(flowID, stepID uuid.UUID, signature str
 			if msg == "<nil>" || msg == "" {
 				msg = res.Status
 			}
+			msg = s.FriendlyTxError(fmt.Errorf("%s", msg))
 			_ = svc.Store.MarkStepFailed(ctx, stepID, msg)
 			_ = svc.Store.SetJobStatus(ctx, flowID, StatusFailed, strPtr(msg))
 			return

@@ -135,12 +135,14 @@ export async function annotateVaultLayout(
     infos = raw.map((info) => (info ? { data: new Uint8Array(info.data) } : null));
   } catch {
     // Public RPC often rate-limits — do not mark everything as legacy.
-    return vaults.map((v) => ({
-      ...v,
-      closeBlockedReason: "rpc",
-      canClose: undefined,
-      layoutCompatible: undefined,
-    }));
+    return sortVaultsOpenFirst(
+      vaults.map((v) => ({
+        ...v,
+        closeBlockedReason: "rpc",
+        canClose: undefined,
+        layoutCompatible: undefined,
+      }))
+    );
   }
 
   const byPk = new Map<string, VaultCloseMeta>();
@@ -153,20 +155,49 @@ export async function annotateVaultLayout(
     byPk.set(pk, toCloseMeta(decodeVaultMeta(info.data), false));
   });
 
-  return vaults.map((v) => {
-    const pk = String(v.pubkey ?? "");
-    const meta = byPk.get(pk) ?? toCloseMeta({ ok: false }, true);
-    return {
-      ...v,
-      layoutCompatible: meta.ok,
-      vaultStatus: meta.status,
-      vaultStatusCode: meta.statusCode,
-      openPositions: meta.openPositions,
-      pendingTrades: meta.pendingTrades,
-      canPark: meta.ok && meta.statusCode === 0,
-      canClose: meta.canClose,
-      closeBlockedReason: meta.closeBlockedReason,
-      accountLen: meta.accountLen,
-    };
-  });
+  return vaults
+    .map((v) => {
+      const pk = String(v.pubkey ?? "");
+      const meta = byPk.get(pk) ?? toCloseMeta({ ok: false }, true);
+      return {
+        ...v,
+        layoutCompatible: meta.ok,
+        vaultStatus: meta.status,
+        vaultStatusCode: meta.statusCode,
+        openPositions: meta.openPositions,
+        pendingTrades: meta.pendingTrades,
+        canPark: meta.ok && meta.statusCode === 0,
+        canClose: meta.canClose,
+        closeBlockedReason: meta.closeBlockedReason,
+        accountLen: meta.accountLen,
+      };
+    })
+    .sort(compareVaultOpenFirst);
+}
+
+/** Active first; then other open; legacy next; Closed last. */
+export function compareVaultOpenFirst(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>
+): number {
+  return vaultListRank(a) - vaultListRank(b);
+}
+
+function vaultListRank(v: Record<string, unknown>): number {
+  const status = String(v.vaultStatus ?? "").toLowerCase();
+  const statusCode = Number(v.vaultStatusCode);
+  const legacy =
+    v.layoutCompatible === false || String(v.closeBlockedReason ?? "") === "legacy";
+
+  if (legacy) return 3;
+  if (status === "closed" || statusCode === 3) return 4;
+  if (status === "active" || statusCode === 0) return 0;
+  if (status === "paused" || statusCode === 1) return 1;
+  if (status === "closing" || statusCode === 2) return 2;
+  // Unknown / RPC — keep above closed & legacy
+  return 2;
+}
+
+export function sortVaultsOpenFirst<T extends Record<string, unknown>>(vaults: T[]): T[] {
+  return [...vaults].sort(compareVaultOpenFirst);
 }

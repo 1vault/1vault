@@ -256,22 +256,9 @@ func (a *API) allowedReturnTo(raw string) bool {
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return false
 	}
-	// Open CORS mode: any http(s) returnTo is allowed.
-	if len(a.Cfg.CORSOrigins) == 0 {
-		return true
-	}
-	origin := u.Scheme + "://" + u.Host
-	allowed := append([]string{}, a.Cfg.CORSOrigins...)
-	if fb := strings.TrimSpace(a.Cfg.FrontendURL); fb != "" {
-		allowed = append(allowed, fb)
-	}
-	for _, o := range allowed {
-		o = strings.TrimSuffix(strings.TrimSpace(o), "/")
-		if o == origin {
-			return true
-		}
-	}
-	return false
+	// Open mode: any valid http(s) callback is allowed (extension chromiumapp.org,
+	// simulator, frontend). CORS_ORIGINS no longer gates OAuth returnTo.
+	return true
 }
 
 func (a *API) TwitterStart(w http.ResponseWriter, r *http.Request) {

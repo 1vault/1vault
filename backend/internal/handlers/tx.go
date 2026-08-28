@@ -35,7 +35,8 @@ func (a *API) failTxBuild(w http.ResponseWriter, r *http.Request, err error) {
 		})
 		return
 	}
-	httpx.Fail(w, r, 502, "TX_BUILD_FAILED", err.Error(), nil)
+	msg := s.FriendlyTxError(err)
+	httpx.Fail(w, r, 502, "TX_BUILD_FAILED", msg, map[string]any{"detail": err.Error()})
 }
 
 func (a *API) decodePK(w http.ResponseWriter, r *http.Request, raw, field string) (solana.PublicKey, bool) {
@@ -1245,7 +1246,7 @@ func (a *API) TxSubmit(w http.ResponseWriter, r *http.Request) {
 			httpx.Fail(w, r, 422, "MISSING_EOA_SIGNATURE", err.Error(), nil)
 			return
 		}
-		httpx.Fail(w, r, 502, "SEND_FAILED", err.Error(), nil)
+		httpx.Fail(w, r, 502, "SEND_FAILED", s.FriendlyTxError(err), map[string]any{"detail": err.Error()})
 		return
 	}
 	if body.DepositIntentID != nil {

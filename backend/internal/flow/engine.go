@@ -123,9 +123,10 @@ func (svc *Service) AdvanceToReady(ctx context.Context, id uuid.UUID) error {
 		}
 		prep, details, err := svc.prepareStep(ctx, b, params, job, st)
 		if err != nil {
-			_ = svc.Store.MarkStepFailed(ctx, st.ID, err.Error())
-			_ = svc.Store.SetJobStatus(ctx, id, StatusFailed, strPtr(err.Error()))
-			return err
+			msg := s.FriendlyTxError(err)
+			_ = svc.Store.MarkStepFailed(ctx, st.ID, msg)
+			_ = svc.Store.SetJobStatus(ctx, id, StatusFailed, strPtr(msg))
+			return fmt.Errorf("%s", msg)
 		}
 		signerPKs := make([]string, 0, len(details))
 		for _, d := range details {
@@ -154,6 +155,36 @@ func (svc *Service) shouldSkip(ctx context.Context, rpc *txprep.RPC, b *txprep.B
 	case "lock_license":
 		exists, err := rpc.AccountExists(s.LicensePDA(b.Program, stPK))
 		return exists, "license already locked", err
+	case "create_vault":
+		if p.VaultID == 0 {
+			return false, "", nil
+		}
+		vault := s.VaultPDA(b.Program, stPK, p.VaultID)
+		exists, err := rpc.AccountExists(vault)
+		if err != nil {
+			return false, "", err
+		}
+		if exists {
+			return true, fmt.Sprintf("vault id %d already exists", p.VaultID), nil
+		}
+		return false, "", nil
+	case "request_trade", "request_sell":
+		vault, err := svc.resolveVault(p, job)
+		if err != nil {
+			return false, "", err
+		}
+		tradeID := resolveTradeID(p, job)
+		if tradeID == 0 {
+			return false, "", nil
+		}
+		exists, err := rpc.AccountExists(s.TradePDA(b.Program, vault, tradeID))
+		if err != nil {
+			return false, "", err
+		}
+		if exists {
+			return true, fmt.Sprintf("trade %d already requested", tradeID), nil
+		}
+		return false, "", nil
 	case "create_investor_config":
 		inv, _ := s.ParsePK(st.SignerPubkey)
 		vault, err := svc.resolveVault(p, job)
@@ -185,23 +216,33 @@ func (svc *Service) shouldSkip(ctx context.Context, rpc *txprep.RPC, b *txprep.B
 		if err != nil {
 			return false, "", err
 		}
-		tradeID := tradeIDFromJobStep(job, "request_trade")
+		tradeID := tradeIDFromJobStep(job, "request_trade", "request_sell")
 		if tradeID == 0 {
 			tradeID = resolveTradeID(p, job)
 		}
 		if tradeID == 0 {
-			return false, "", nil
+			return false, "", fmt.Errorf("tradeId missing for execute_trade")
 		}
 		data, err := rpc.AccountData(s.TradePDA(b.Program, vault, tradeID))
 		if err != nil {
+			// Wait briefly for request_trade account visibility after confirm.
+			st, werr := waitTradeStatus(func(pk solana.PublicKey) ([]byte, error) {
+				return rpc.AccountData(pk)
+			}, s.TradePDA(b.Program, vault, tradeID), s.TradeStatusPending, 8, 100*time.Millisecond)
+			if werr != nil {
+				return false, "", fmt.Errorf("trade %d not found after request_trade (last status=%d): complete request first", tradeID, st)
+			}
 			return false, "", nil
 		}
 		st, err := s.DecodeTradeStatus(data)
 		if err != nil {
-			return false, "", nil
+			return false, "", err
 		}
 		if st == s.TradeStatusExecuted {
 			return true, fmt.Sprintf("trade %d already executed", tradeID), nil
+		}
+		if st != s.TradeStatusPending {
+			return false, "", fmt.Errorf("trade %d status %d cannot execute (want Pending)", tradeID, st)
 		}
 		return false, "", nil
 	case "unlock_license":
@@ -335,7 +376,20 @@ func (svc *Service) shouldSkip(ctx context.Context, rpc *txprep.RPC, b *txprep.B
 		if st == s.VaultStatusClosed {
 			return true, "vault already Closed — skip close_vault", nil
 		}
-		return false, "", nil
+		if st == s.VaultStatusClosing {
+			return false, "", nil
+		}
+		// Initiate may have just confirmed — wait for Closing visibility.
+		if jobStepConfirmed(job, "initiate_close") {
+			_, werr := waitVaultStatus(func(pk solana.PublicKey) ([]byte, error) {
+				return rpc.AccountData(pk)
+			}, vault, s.VaultStatusClosing, 15, 120*time.Millisecond)
+			if werr != nil {
+				return false, "", fmt.Errorf("vault %s not Closing after initiate_close: %w", vault, werr)
+			}
+			return false, "", nil
+		}
+		return false, "", fmt.Errorf("vault %s is %s — initiate_close required before close_vault", vault, st)
 	default:
 		return false, "", nil
 	}
@@ -431,12 +485,51 @@ func waitTradeStatus(load func(solana.PublicKey) ([]byte, error), tradePK solana
 		attempts = 1
 	}
 	var last uint8
+	var lastErr error
 	for i := 0; i < attempts; i++ {
 		data, err := load(tradePK)
 		if err != nil {
+			lastErr = err
+			if i+1 < attempts {
+				time.Sleep(delay)
+				continue
+			}
 			return 0, err
 		}
 		st, err := s.DecodeTradeStatus(data)
+		if err != nil {
+			return 0, err
+		}
+		if st == want {
+			return st, nil
+		}
+		last = st
+		lastErr = nil
+		if i+1 < attempts {
+			time.Sleep(delay)
+		}
+	}
+	if lastErr != nil {
+		return last, lastErr
+	}
+	return last, fmt.Errorf("trade status %d want %d after %d attempts", last, want, attempts)
+}
+
+func waitVaultStatus(load func(solana.PublicKey) ([]byte, error), vault solana.PublicKey, want s.VaultStatus, attempts int, delay time.Duration) (s.VaultStatus, error) {
+	if attempts < 1 {
+		attempts = 1
+	}
+	var last s.VaultStatus
+	for i := 0; i < attempts; i++ {
+		data, err := load(vault)
+		if err != nil {
+			if i+1 < attempts {
+				time.Sleep(delay)
+				continue
+			}
+			return 0, err
+		}
+		st, err := s.DecodeVaultStatus(data)
 		if err != nil {
 			return 0, err
 		}
@@ -448,7 +541,7 @@ func waitTradeStatus(load func(solana.PublicKey) ([]byte, error), tradePK solana
 			time.Sleep(delay)
 		}
 	}
-	return last, fmt.Errorf("trade status %d want %d after %d attempts", last, want, attempts)
+	return last, fmt.Errorf("vault status %s want %s after %d attempts", last, want, attempts)
 }
 
 func (svc *Service) resolveOpenTradeID(ctx context.Context, b *txprep.Builder, vault solana.PublicKey, p StartParams, job *Job) (tradeID, posID uint64, err error) {
@@ -1154,9 +1247,10 @@ func (svc *Service) Submit(ctx context.Context, id uuid.UUID, signedB64 string) 
 	rpc := txprep.NewRPC(svc.Cfg.RPCURL)
 	sig, err := rpc.SendRaw(raw)
 	if err != nil {
-		_ = svc.Store.MarkStepFailed(ctx, cur.ID, err.Error())
-		_ = svc.Store.SetJobStatus(ctx, id, StatusFailed, strPtr(err.Error()))
-		return nil, err
+		msg := s.FriendlyTxError(err)
+		_ = svc.Store.MarkStepFailed(ctx, cur.ID, msg)
+		_ = svc.Store.SetJobStatus(ctx, id, StatusFailed, strPtr(msg))
+		return nil, fmt.Errorf("%s", msg)
 	}
 	_ = svc.Store.MarkStepSubmitted(ctx, cur.ID, sig)
 	_ = svc.Store.SetJobStatus(ctx, id, StatusConfirming, nil)

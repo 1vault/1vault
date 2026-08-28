@@ -17,7 +17,7 @@ import { runFlow, type FlowMode, type FlowRunInput, type FlowState } from "../li
 import { indexerHealth } from "../lib/indexer/client";
 import { signWirePartial } from "../lib/signing";
 import { clearSession } from "../lib/auth";
-import { annotateVaultLayout } from "../lib/vault-layout";
+import { annotateVaultLayout, sortVaultsOpenFirst } from "../lib/vault-layout";
 import { RPC_URL } from "../lib/config";
 import { runParkGuest } from "../lib/investor-tx";
 import bs58 from "bs58";
@@ -186,12 +186,14 @@ async function handle(message: Msg): Promise<unknown> {
 
       const annotated = await annotateVaultLayout(vaults).catch(() =>
         // RPC flakiness must not permanently disable Close as "legacy".
-        vaults.map((v) => ({
-          ...v,
-          closeBlockedReason: "rpc",
-          canClose: undefined,
-          layoutCompatible: undefined,
-        }))
+        sortVaultsOpenFirst(
+          vaults.map((v) => ({
+            ...v,
+            closeBlockedReason: "rpc",
+            canClose: undefined,
+            layoutCompatible: undefined,
+          }))
+        )
       );
       return { pubkey, vaults: annotated, protocol };
     }

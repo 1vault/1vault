@@ -296,6 +296,16 @@ func (b *Builder) CreateVault(p CreateVaultParams) (*Prepared, error) {
 	if p.VaultID == 0 {
 		return nil, fmt.Errorf("vaultId required")
 	}
+	vault := s.VaultPDA(b.Program, p.Strategist, p.VaultID)
+	if b.RPC != nil {
+		exists, err := b.RPC.AccountExists(vault)
+		if err != nil {
+			return nil, fmt.Errorf("check vault PDA %s: %w", vault, err)
+		}
+		if exists {
+			return nil, fmt.Errorf("vault id %d already exists on-chain (%s) — pick a new vaultId", p.VaultID, vault)
+		}
+	}
 	if p.Name == "" {
 		p.Name = fmt.Sprintf("Vault %d", p.VaultID)
 	}
@@ -320,7 +330,6 @@ func (b *Builder) CreateVault(p CreateVaultParams) (*Prepared, error) {
 		p.AllowedMints = []solana.PublicKey{p.BaseMint}
 	}
 	bookMode, bookParam := createVaultBookMode(p.VaultType, p.ManagementFeeBps)
-	vault := s.VaultPDA(b.Program, p.Strategist, p.VaultID)
 	data := s.Concat(
 		s.DiscCreateVault,
 		s.U64LE(p.VaultID),
@@ -621,6 +630,19 @@ func (b *Builder) AccrueFees(payer, vault solana.PublicKey) (*Prepared, error) {
 	if err := b.requireCurrentVaultLayout(vault); err != nil {
 		return nil, err
 	}
+	if b.RPC != nil {
+		data, err := b.RPC.AccountData(vault)
+		if err != nil {
+			return nil, fmt.Errorf("load vault %s: %w", vault, err)
+		}
+		st, err := s.DecodeVaultStatus(data)
+		if err != nil {
+			return nil, err
+		}
+		if st == s.VaultStatusClosed {
+			return nil, fmt.Errorf("vault %s is Closed — cannot accrue fees", vault)
+		}
+	}
 	ix := s.Ix(b.Program, s.DiscAccrueFees,
 		s.Meta(b.Protocol, false, false),
 		s.Meta(vault, false, true),
@@ -837,7 +859,7 @@ type RequestTradeParams struct {
 }
 
 func (b *Builder) RequestTrade(p RequestTradeParams) (*Prepared, error) {
-	if err := b.requireCurrentVaultLayout(p.Vault); err != nil {
+	if err := b.requireVaultActive(p.Vault); err != nil {
 		return nil, err
 	}
 	if p.TradeID == 0 {
@@ -856,6 +878,15 @@ func (b *Builder) RequestTrade(p RequestTradeParams) (*Prepared, error) {
 		p.Action = "buy"
 	}
 	trade := s.TradePDA(b.Program, p.Vault, p.TradeID)
+	if b.RPC != nil {
+		exists, err := b.RPC.AccountExists(trade)
+		if err != nil {
+			return nil, fmt.Errorf("check trade PDA %s: %w", trade, err)
+		}
+		if exists {
+			return nil, fmt.Errorf("trade id %d already exists for vault %s — use a new tradeId", p.TradeID, p.Vault)
+		}
+	}
 	data := requestTradeData(p)
 	ix := s.Ix(b.Program, data,
 		s.Meta(p.Strategist, true, true),
@@ -909,17 +940,40 @@ type ExecuteTradeParams struct {
 
 // ExecuteTrade prepares execute_trade with auto-selected DEX from PROGRAM_IDS (client does not choose).
 func (b *Builder) ExecuteTrade(p ExecuteTradeParams) (*Prepared, error) {
+	if err := b.requireCurrentVaultLayout(p.Vault); err != nil {
+		return nil, err
+	}
 	if p.TradeID == 0 {
 		return nil, fmt.Errorf("tradeId required")
 	}
 	if p.VaultInputToken.IsZero() || p.VaultOutputToken.IsZero() {
 		return nil, fmt.Errorf("vaultInputToken and vaultOutputToken required")
 	}
+	trade := s.TradePDA(b.Program, p.Vault, p.TradeID)
+	if b.RPC != nil {
+		data, err := b.RPC.AccountData(trade)
+		if err != nil {
+			return nil, fmt.Errorf("trade %d not found on-chain for vault %s — complete request_trade first", p.TradeID, p.Vault)
+		}
+		st, err := s.DecodeTradeStatus(data)
+		if err != nil {
+			return nil, err
+		}
+		switch st {
+		case s.TradeStatusPending:
+			// ok
+		case s.TradeStatusExecuted:
+			return nil, fmt.Errorf("trade %d already executed — skip execute_trade", p.TradeID)
+		case s.TradeStatusCancelled:
+			return nil, fmt.Errorf("trade %d was cancelled", p.TradeID)
+		default:
+			return nil, fmt.Errorf("trade %d has unexpected status %d (want Pending)", p.TradeID, st)
+		}
+	}
 	dex, err := b.AutoDexProgramDefault()
 	if err != nil {
 		return nil, err
 	}
-	trade := s.TradePDA(b.Program, p.Vault, p.TradeID)
 	data := s.Concat(s.DiscExecuteTrade, s.EncodeBytes(p.SwapData))
 	ix := s.Ix(b.Program, data,
 		s.Meta(p.Strategist, true, true),
@@ -1244,6 +1298,24 @@ type HolderMeta struct {
 func (b *Builder) CloseVault(strategist, vault, vaultTokenAccount solana.PublicKey, holders []HolderMeta) (*Prepared, error) {
 	if err := b.requireCurrentVaultLayout(vault); err != nil {
 		return nil, err
+	}
+	if b.RPC != nil {
+		data, err := b.RPC.AccountData(vault)
+		if err != nil {
+			return nil, fmt.Errorf("load vault %s: %w", vault, err)
+		}
+		st, err := s.DecodeVaultStatus(data)
+		if err != nil {
+			return nil, err
+		}
+		switch st {
+		case s.VaultStatusClosing:
+			// ok
+		case s.VaultStatusClosed:
+			return nil, fmt.Errorf("vault %s is already Closed", vault)
+		default:
+			return nil, fmt.Errorf("vault %s is %s — must InitiateVaultClose first (status Closing)", vault, st)
+		}
 	}
 	metas := []solana.AccountMeta{
 		s.Meta(strategist, true, true),

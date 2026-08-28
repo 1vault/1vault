@@ -33,14 +33,14 @@ func (r *RPC) LatestBlockhash() (solana.Hash, error) {
 	return out.Value.Blockhash, nil
 }
 
-// SendRaw broadcasts a signed transaction. SkipPreflight: backend already
-// preflighted account layout / status before packing flow txs.
+// SendRaw broadcasts a signed transaction. Preflight at confirmed catches
+// program errors before the tx lands (avoids wasted fees / opaque confirm fails).
 func (r *RPC) SendRaw(raw []byte) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	opts := rpc.TransactionOpts{
-		SkipPreflight:       true,
-		PreflightCommitment: rpc.CommitmentProcessed,
+		SkipPreflight:       false,
+		PreflightCommitment: rpc.CommitmentConfirmed,
 		MaxRetries:          ptrUint(2),
 	}
 	sig, err := r.client.SendRawTransactionWithOpts(ctx, raw, opts)
