@@ -1,5 +1,6 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 import { RPC_URL } from "./config";
+import { withRpcRetry } from "./rpc-retry";
 
 /** Deployed Vault account size (8 + INIT_SPACE with book_mode). */
 export const CURRENT_VAULT_ACCOUNT_LEN = 565;
@@ -109,10 +110,12 @@ function toCloseMeta(meta: ReturnType<typeof decodeVaultMeta>, missing: boolean)
 /** Fresh on-chain close eligibility for one vault (used on detail screen). */
 export async function fetchVaultCloseMeta(vaultPubkey: string): Promise<VaultCloseMeta> {
   try {
-    const conn = new Connection(RPC_URL, "confirmed");
-    const info = await conn.getAccountInfo(new PublicKey(vaultPubkey), "confirmed");
-    if (!info) return toCloseMeta({ ok: false }, true);
-    return toCloseMeta(decodeVaultMeta(new Uint8Array(info.data)), false);
+    return await withRpcRetry(async () => {
+      const conn = new Connection(RPC_URL, "confirmed");
+      const info = await conn.getAccountInfo(new PublicKey(vaultPubkey), "confirmed");
+      if (!info) return toCloseMeta({ ok: false }, true);
+      return toCloseMeta(decodeVaultMeta(new Uint8Array(info.data)), false);
+    });
   } catch {
     return { ok: false, canClose: false, canRequestClose: false, closeBlockedReason: "rpc" };
   }
@@ -133,10 +136,12 @@ export async function annotateVaultLayout(
 
   let infos: Array<{ data: Uint8Array } | null>;
   try {
-    const conn = new Connection(RPC_URL, "confirmed");
-    const keys = pks.map((pk) => new PublicKey(pk));
-    const raw = await conn.getMultipleAccountsInfo(keys);
-    infos = raw.map((info) => (info ? { data: new Uint8Array(info.data) } : null));
+    infos = await withRpcRetry(async () => {
+      const conn = new Connection(RPC_URL, "confirmed");
+      const keys = pks.map((pk) => new PublicKey(pk));
+      const raw = await conn.getMultipleAccountsInfo(keys);
+      return raw.map((info) => (info ? { data: new Uint8Array(info.data) } : null));
+    });
   } catch {
     // Public RPC often rate-limits — do not mark everything as legacy.
     return sortVaultsOpenFirst(

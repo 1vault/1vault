@@ -1337,7 +1337,13 @@ func (b *Builder) CloseVault(strategist, vault, vaultTokenAccount solana.PublicK
 		)
 	}
 	ix := s.Ix(b.Program, s.DiscCloseVault, metas...)
-	p, err := b.pack(strategist, []solana.PublicKey{strategist}, s.SetComputeUnitLimit(1_200_000), ix)
+	p, err := b.pack(
+		strategist,
+		[]solana.PublicKey{strategist},
+		s.SetComputeUnitLimit(1_200_000),
+		s.CreateIdempotentATA(strategist, strategist, b.License),
+		ix,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1345,26 +1351,29 @@ func (b *Builder) CloseVault(strategist, vault, vaultTokenAccount solana.PublicK
 	return p, nil
 }
 
-// ForceCloseLegacyVault abandons a vault PDA with incompatible layout and decrements
-// strategist.active_vault_count so unlock_license can succeed.
+// ForceCloseLegacyVault abandons a vault PDA (legacy / missing / Closed desync) and
+// decrements strategist.active_vault_count so unlock_license can succeed.
 func (b *Builder) ForceCloseLegacyVault(strategist, vault solana.PublicKey, vaultID uint64) (*Prepared, error) {
 	if b.RPC != nil {
 		data, err := b.RPC.AccountData(vault)
 		if err != nil {
-			return nil, fmt.Errorf("load vault %s: %w", vault, err)
-		}
-		if len(data) == s.CurrentVaultAccountLen {
-			return nil, fmt.Errorf(
-				"vault %s uses current layout (len %d) — use Close vault, not force-close legacy",
-				vault, len(data),
-			)
-		}
-		if len(data) < 40 {
+			// Missing account is OK — program decrements active_vault_count only.
+			if !strings.Contains(strings.ToLower(err.Error()), "account not found") {
+				return nil, fmt.Errorf("load vault %s: %w", vault, err)
+			}
+		} else if len(data) == s.CurrentVaultAccountLen {
+			// Allow any status — force-close abandons Active/Paused/Closing when
+			// normal close cannot run (e.g. missing ATA → Anchor 3012).
+			if _, stErr := s.DecodeVaultStatus(data); stErr != nil {
+				return nil, stErr
+			}
+		} else if len(data) > 0 && len(data) < 40 {
 			return nil, fmt.Errorf("vault %s account too short (len %d)", vault, len(data))
-		}
-		st := solana.PublicKeyFromBytes(data[8:40])
-		if st != strategist {
-			return nil, fmt.Errorf("vault %s strategist mismatch", vault)
+		} else if len(data) >= 40 {
+			st := solana.PublicKeyFromBytes(data[8:40])
+			if st != strategist {
+				return nil, fmt.Errorf("vault %s strategist mismatch", vault)
+			}
 		}
 	}
 	idBytes := make([]byte, 8)
@@ -1380,7 +1389,7 @@ func (b *Builder) ForceCloseLegacyVault(strategist, vault solana.PublicKey, vaul
 	if err != nil {
 		return nil, err
 	}
-	p.Message = "Force-close legacy vault so $1VAULT can be released"
+	p.Message = "Force-close/purge vault slot so $1VAULT can be released"
 	p.Accounts = map[string]string{"vault": vault.String(), "vaultId": fmt.Sprintf("%d", vaultID)}
 	return p, nil
 }

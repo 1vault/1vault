@@ -8,7 +8,9 @@ import {
   importAndLock,
   isUnlocked,
   lock,
+  requireUnlockedKeypair,
   restoreSession,
+  touchSession,
   unlock,
 } from "../lib/keyring";
 import { getHealth, getProtocol, getStrategist, listVaults, listVaultPositions, listVaultTrades } from "../lib/api";
@@ -23,9 +25,11 @@ import { filterVisibleVaults, isVaultRowTradeable } from "../lib/vault-status";
 import { attachTradeIds, parseVaultPositions } from "../lib/trade/positions";
 import { RPC_URL } from "../lib/config";
 import { runParkGuest } from "../lib/investor-tx";
+import { sleep, withRpcRetry } from "../lib/rpc-retry";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
 import { runForceCloseLegacyVault, runUnlockLicense } from "../lib/tx-run";
+import { classifyVaultSlot, fetchStrategistVaultMeta } from "../lib/flow/vault-slots";
 
 export type Msg =
   | { type: "PING" }
@@ -44,6 +48,7 @@ export type Msg =
   | { type: "SIGN_BIND_MESSAGE"; message: string }
   | { type: "UNLOCK_LICENSE"; strategist: string }
   | { type: "FORCE_CLOSE_LEGACY"; vault: string; vaultId: number; strategist?: string }
+  | { type: "RELEASE_LICENSE"; strategist?: string }
   | { type: "SIGN_WIRE"; transactionB64: string }
   | {
       type: "PARK_GUEST";
@@ -151,6 +156,8 @@ chrome.runtime.onMessage.addListener((message: Msg, sender, sendResponse) => {
 async function handle(message: Msg): Promise<unknown> {
   // MV3 SW may restart and wipe in-memory session — restore first.
   await restoreSession();
+  // Any SW activity extends the unlock idle window (long close / Release flows).
+  if (isUnlocked()) touchSession();
   recoverStaleFlow();
 
   switch (message.type) {
@@ -290,38 +297,228 @@ async function handle(message: Msg): Promise<unknown> {
       return { lamports: String(bal), pubkey: pk };
     }
     case "SIGN_BIND_MESSAGE": {
-      const kp = getUnlockedKeypair();
-      if (!kp) throw new Error("keyring locked — unlock wallet password first");
+      const kp = await requireUnlockedKeypair();
       const bytes = new TextEncoder().encode(message.message);
       return { signature: bs58.encode(nacl.sign.detached(bytes, kp.secretKey)) };
     }
     case "UNLOCK_LICENSE": {
-      const kp = getUnlockedKeypair();
-      if (!kp) throw new Error("keyring locked — unlock wallet password first");
-      const sig = await runUnlockLicense(message.strategist, kp);
+      const kp = await requireUnlockedKeypair();
+      const sig = await withRpcRetry(() => runUnlockLicense(message.strategist, kp));
       return { signature: sig };
     }
     case "FORCE_CLOSE_LEGACY": {
-      const kp = getUnlockedKeypair();
-      if (!kp) throw new Error("keyring locked — unlock wallet password first");
+      const kp = await requireUnlockedKeypair();
       const strategist =
         message.strategist ?? kp.publicKey.toBase58() ?? (await getStoredPubkey());
       if (!strategist) throw new Error("strategist required");
       if (!message.vaultId) throw new Error("vaultId required for force-close legacy");
-      const sig = await runForceCloseLegacyVault(
-        { strategist, vault: message.vault, vaultId: message.vaultId },
-        kp
+      const sig = await withRpcRetry(() =>
+        runForceCloseLegacyVault(
+          { strategist, vault: message.vault, vaultId: message.vaultId },
+          kp
+        )
       );
       return { signature: sig, vault: message.vault };
     }
+    case "RELEASE_LICENSE": {
+      const kp = await requireUnlockedKeypair();
+      const strategist =
+        message.strategist ?? kp.publicKey.toBase58() ?? (await getStoredPubkey());
+      if (!strategist) throw new Error("strategist required");
+      if (flowState.status === "running" || flowJobActive) {
+        throw new Error("a flow is already running — wait or cancel, then retry Release");
+      }
+
+      const pushRelease = (detail: string) => {
+        flowState = {
+          status: "running",
+          mode: "close-vault",
+          events: [
+            ...(flowState.events ?? []),
+            { at: new Date().toISOString(), step: "release", status: "running", detail },
+          ],
+        };
+        void persistFlowState();
+      };
+
+      flowJobActive = true;
+      flowState = { status: "running", mode: "close-vault", events: [] };
+      await persistFlowState();
+
+      try {
+        // 1) Cheap path — unlock when on-chain count is already 0.
+        try {
+          pushRelease("Trying unlock…");
+          const sig = await withRpcRetry(() => runUnlockLicense(strategist, kp));
+          flowState = {
+            status: "completed",
+            mode: "close-vault",
+            events: flowState.events,
+            result: { closed: true },
+          };
+          await persistFlowState();
+          return { signature: sig, cleaned: 0 };
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          if (!/ActiveVaultsRemain|still has .* active vault|cannot unlock/i.test(msg)) {
+            throw e;
+          }
+        }
+
+        // 2) Scan on-chain vault slots (not indexer) — handles missing/legacy/Closed desync.
+        pushRelease("Scanning on-chain vault slots…");
+        await sleep(700);
+        const meta = await fetchStrategistVaultMeta(strategist);
+        const maxId = Math.max(meta.vaultCount, 1);
+
+        type Slot = { vaultId: number; kind: "missing" | "legacy" | "closed" | "open"; pubkey: string };
+        const purge: Slot[] = [];
+        const open: Slot[] = [];
+        const missing: Slot[] = [];
+
+        for (let vaultId = 1; vaultId <= maxId; vaultId++) {
+          pushRelease(`Checking vault #${vaultId}…`);
+          await sleep(vaultId === 1 ? 800 : 1400);
+          const slot = await classifyVaultSlot(meta.programId, strategist, vaultId);
+          const row: Slot = { vaultId, kind: slot.kind, pubkey: slot.pubkey };
+          if (slot.kind === "open") open.push(row);
+          else if (slot.kind === "missing") missing.push(row);
+          else purge.push(row); // legacy | closed
+        }
+
+        let cleaned = 0;
+
+        // Close live vaults first so we don't over-decrement on missing slots.
+        for (let i = 0; i < open.length; i++) {
+          const row = open[i]!;
+          pushRelease(`Closing open vault #${row.vaultId} (${i + 1}/${open.length})…`);
+          await sleep(i === 0 ? 1000 : 1600);
+          try {
+            await runFlow(
+              {
+                mode: "close-vault",
+                strategist,
+                vault: row.pubkey,
+                vaultId: row.vaultId,
+              },
+              kp,
+              {
+                onState: (s) => {
+                  flowState = {
+                    ...s,
+                    status: s.status === "failed" ? "failed" : "running",
+                    mode: "close-vault",
+                  };
+                  void persistFlowState();
+                },
+              }
+            );
+            cleaned++;
+          } catch (e) {
+            // Broken vault (missing ATA → Anchor 3012, etc.) — abandon via force-close.
+            const msg = e instanceof Error ? e.message : String(e);
+            if (
+              !/3012|AccountNotInitialized|account not found|Required account missing|VaultHasOpenPositions|still has open/i.test(
+                msg
+              )
+            ) {
+              throw e;
+            }
+            pushRelease(`Close failed for #${row.vaultId} — force-purging…`);
+            await sleep(1200);
+            await withRpcRetry(() =>
+              runForceCloseLegacyVault(
+                { strategist, vault: row.pubkey, vaultId: row.vaultId },
+                kp
+              )
+            );
+            cleaned++;
+          }
+          await sleep(1500);
+        }
+
+        // Legacy / Closed (count desync) — force-close drains or repairs.
+        for (let i = 0; i < purge.length; i++) {
+          const live = await fetchStrategistVaultMeta(strategist).catch(() => null);
+          if (live && live.activeVaultCount <= 0) break;
+          const row = purge[i]!;
+          pushRelease(`Purging ${row.kind} vault #${row.vaultId}…`);
+          await sleep(i === 0 ? 1000 : 1600);
+          try {
+            await withRpcRetry(() =>
+              runForceCloseLegacyVault(
+                { strategist, vault: row.pubkey, vaultId: row.vaultId },
+                kp
+              )
+            );
+            cleaned++;
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            if (/NotLegacy|use Close vault|current layout/i.test(msg)) {
+              throw e;
+            }
+            if (/3012|account not found|AccountNotInitialized|Required account missing/i.test(msg)) {
+              continue;
+            }
+            throw e;
+          }
+        }
+
+        // Missing PDA desync — only decrement as many times as active_count still needs.
+        for (let i = 0; i < missing.length; i++) {
+          const live = await fetchStrategistVaultMeta(strategist);
+          if (live.activeVaultCount <= 0) break;
+          const row = missing[i]!;
+          pushRelease(`Repairing missing vault slot #${row.vaultId} (count still ${live.activeVaultCount})…`);
+          await sleep(1600);
+          try {
+            await withRpcRetry(() =>
+              runForceCloseLegacyVault(
+                { strategist, vault: row.pubkey, vaultId: row.vaultId },
+                kp
+              )
+            );
+            cleaned++;
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            // Unused id that was never created — skip.
+            if (/ConstraintSeeds|seeds constraint|0x7d6|401/i.test(msg)) continue;
+            if (/3012|account not found|AccountNotInitialized|Required account missing/i.test(msg)) continue;
+            throw e;
+          }
+        }
+
+        pushRelease("Unlocking $1VAULT…");
+        await sleep(1200);
+        const sig = await withRpcRetry(() => runUnlockLicense(strategist, kp));
+        flowState = {
+          status: "completed",
+          mode: "close-vault",
+          events: flowState.events,
+          result: { closed: true },
+        };
+        await persistFlowState();
+        return { signature: sig, cleaned };
+      } catch (e) {
+        flowState = {
+          status: "failed",
+          mode: "close-vault",
+          events: flowState.events ?? [],
+          error: e instanceof Error ? e.message : String(e),
+        };
+        await persistFlowState();
+        throw e;
+      } finally {
+        flowJobActive = false;
+        flowAbort = null;
+      }
+    }
     case "SIGN_WIRE": {
-      const kp = getUnlockedKeypair();
-      if (!kp) throw new Error("keyring locked — unlock wallet password first");
+      const kp = await requireUnlockedKeypair();
       return { signedTransaction: signWirePartial(message.transactionB64, [kp]) };
     }
     case "PARK_GUEST": {
-      const kp = getUnlockedKeypair();
-      if (!kp) throw new Error("keyring locked — unlock wallet password first");
+      const kp = await requireUnlockedKeypair();
       const signature = await runParkGuest({
         investor: kp.publicKey.toBase58(),
         vault: message.vault,
@@ -360,9 +557,8 @@ async function handle(message: Msg): Promise<unknown> {
       if (flowState.status === "running") {
         throw new Error("a flow is already running");
       }
-      const kp = getUnlockedKeypair();
-      const pubkey = kp?.publicKey.toBase58() ?? (await getStoredPubkey());
-      if (!kp || !pubkey) throw new Error("keyring locked — unlock wallet password first");
+      const kp = await requireUnlockedKeypair();
+      const pubkey = kp.publicKey.toBase58();
 
       flowAbort = new AbortController();
       flowJobActive = true;
