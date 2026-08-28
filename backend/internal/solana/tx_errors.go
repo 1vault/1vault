@@ -23,6 +23,9 @@ var AnchorErrorMessages = map[int]string{
 	6026: "Trade is not pending / invalid trade state",
 	6033: "Nothing to claim — no accrued performance fees",
 	3003: "Vault account layout incompatible (legacy) — create a new vault",
+	3007: "Account owned by a different program — check Program ID / PDA",
+	3008: "Invalid Program ID for this account",
+	3012: "Required on-chain account is not initialized (missing PDA/ATA, or already closed)",
 }
 
 // FriendlyTxError turns raw RPC/simulation/Anchor errors into a short user message.
