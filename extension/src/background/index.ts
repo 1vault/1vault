@@ -29,6 +29,7 @@ import { sleep, withRpcRetry } from "../lib/rpc-retry";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
 import { runForceCloseLegacyVault, runUnlockLicense } from "../lib/tx-run";
+import { classifyVaultSlot, fetchStrategistVaultMeta } from "../lib/flow/vault-slots";
 
 export type Msg =
   | { type: "PING" }
@@ -328,8 +329,6 @@ async function handle(message: Msg): Promise<unknown> {
         throw new Error("a flow is already running — wait or cancel, then retry Release");
       }
 
-      const { fetchStrategistVaultMeta, classifyVaultSlot } = await import("../lib/flow/vault-slots");
-
       const pushRelease = (detail: string) => {
         flowState = {
           status: "running",
@@ -394,26 +393,47 @@ async function handle(message: Msg): Promise<unknown> {
           const row = open[i]!;
           pushRelease(`Closing open vault #${row.vaultId} (${i + 1}/${open.length})…`);
           await sleep(i === 0 ? 1000 : 1600);
-          await runFlow(
-            {
-              mode: "close-vault",
-              strategist,
-              vault: row.pubkey,
-              vaultId: row.vaultId,
-            },
-            kp,
-            {
-              onState: (s) => {
-                flowState = {
-                  ...s,
-                  status: s.status === "failed" ? "failed" : "running",
-                  mode: "close-vault",
-                };
-                void persistFlowState();
+          try {
+            await runFlow(
+              {
+                mode: "close-vault",
+                strategist,
+                vault: row.pubkey,
+                vaultId: row.vaultId,
               },
+              kp,
+              {
+                onState: (s) => {
+                  flowState = {
+                    ...s,
+                    status: s.status === "failed" ? "failed" : "running",
+                    mode: "close-vault",
+                  };
+                  void persistFlowState();
+                },
+              }
+            );
+            cleaned++;
+          } catch (e) {
+            // Broken vault (missing ATA → Anchor 3012, etc.) — abandon via force-close.
+            const msg = e instanceof Error ? e.message : String(e);
+            if (
+              !/3012|AccountNotInitialized|account not found|Required account missing|VaultHasOpenPositions|still has open/i.test(
+                msg
+              )
+            ) {
+              throw e;
             }
-          );
-          cleaned++;
+            pushRelease(`Close failed for #${row.vaultId} — force-purging…`);
+            await sleep(1200);
+            await withRpcRetry(() =>
+              runForceCloseLegacyVault(
+                { strategist, vault: row.pubkey, vaultId: row.vaultId },
+                kp
+              )
+            );
+            cleaned++;
+          }
           await sleep(1500);
         }
 
@@ -437,7 +457,7 @@ async function handle(message: Msg): Promise<unknown> {
             if (/NotLegacy|use Close vault|current layout/i.test(msg)) {
               throw e;
             }
-            if (/account not found|AccountNotInitialized/i.test(msg)) {
+            if (/3012|account not found|AccountNotInitialized|Required account missing/i.test(msg)) {
               continue;
             }
             throw e;
@@ -463,7 +483,7 @@ async function handle(message: Msg): Promise<unknown> {
             const msg = e instanceof Error ? e.message : String(e);
             // Unused id that was never created — skip.
             if (/ConstraintSeeds|seeds constraint|0x7d6|401/i.test(msg)) continue;
-            if (/account not found|AccountNotInitialized/i.test(msg)) continue;
+            if (/3012|account not found|AccountNotInitialized|Required account missing/i.test(msg)) continue;
             throw e;
           }
         }

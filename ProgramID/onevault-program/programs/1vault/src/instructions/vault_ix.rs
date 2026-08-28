@@ -601,33 +601,6 @@ pub fn handle_force_close_legacy_vault(
     let data = vault_info.try_borrow_data()?;
     require!(data.len() >= 40, OneVaultError::InvalidAmount);
 
-    // Current layout already Closed — count desync; decrement without draining.
-    if data.len() == current_len {
-        // VaultStatus::Closed is the 4th Borsh variant (0=Active…3=Closed).
-        let status = read_vault_status_byte(&data)?;
-        require!(status == 3, OneVaultError::NotLegacyVault);
-        let stored_strategist =
-            Pubkey::try_from(&data[8..40]).map_err(|_| error!(OneVaultError::InvalidAmount))?;
-        require_keys_eq!(
-            stored_strategist,
-            ctx.accounts.strategist.key(),
-            OneVaultError::Unauthorized
-        );
-        drop(data);
-        ctx.accounts.strategist_account.active_vault_count = ctx
-            .accounts
-            .strategist_account
-            .active_vault_count
-            .saturating_sub(1);
-        emit!(crate::events::VaultClosed {
-            vault: vault_info.key(),
-            strategist: ctx.accounts.strategist.key(),
-            timestamp: Clock::get()?.unix_timestamp,
-        });
-        return Ok(());
-    }
-
-    // Legacy layout — drain rent and decrement.
     let stored_strategist =
         Pubkey::try_from(&data[8..40]).map_err(|_| error!(OneVaultError::InvalidAmount))?;
     require_keys_eq!(
@@ -635,8 +608,30 @@ pub fn handle_force_close_legacy_vault(
         ctx.accounts.strategist.key(),
         OneVaultError::Unauthorized
     );
+
+    // Current layout Closed — count desync only (account already emptied of assets).
+    if data.len() == current_len {
+        let status = read_vault_status_byte(&data)?;
+        if status == 3 {
+            drop(data);
+            ctx.accounts.strategist_account.active_vault_count = ctx
+                .accounts
+                .strategist_account
+                .active_vault_count
+                .saturating_sub(1);
+            emit!(crate::events::VaultClosed {
+                vault: vault_info.key(),
+                strategist: ctx.accounts.strategist.key(),
+                timestamp: Clock::get()?.unix_timestamp,
+            });
+            return Ok(());
+        }
+        // Active / Paused / Closing — abandon (drain rent). Used by Release when
+        // normal close fails (missing ATA → Anchor 3012, etc.).
+    }
     drop(data);
 
+    // Legacy or abandoned current layout — drain rent and decrement.
     let dest = ctx.accounts.strategist.to_account_info();
     let src = vault_info;
     let lamports = src.lamports();

@@ -1337,7 +1337,13 @@ func (b *Builder) CloseVault(strategist, vault, vaultTokenAccount solana.PublicK
 		)
 	}
 	ix := s.Ix(b.Program, s.DiscCloseVault, metas...)
-	p, err := b.pack(strategist, []solana.PublicKey{strategist}, s.SetComputeUnitLimit(1_200_000), ix)
+	p, err := b.pack(
+		strategist,
+		[]solana.PublicKey{strategist},
+		s.SetComputeUnitLimit(1_200_000),
+		s.CreateIdempotentATA(strategist, strategist, b.License),
+		ix,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1356,17 +1362,11 @@ func (b *Builder) ForceCloseLegacyVault(strategist, vault solana.PublicKey, vaul
 				return nil, fmt.Errorf("load vault %s: %w", vault, err)
 			}
 		} else if len(data) == s.CurrentVaultAccountLen {
-			st, stErr := s.DecodeVaultStatus(data)
-			if stErr != nil {
+			// Allow any status — force-close abandons Active/Paused/Closing when
+			// normal close cannot run (e.g. missing ATA → Anchor 3012).
+			if _, stErr := s.DecodeVaultStatus(data); stErr != nil {
 				return nil, stErr
 			}
-			if st != s.VaultStatusClosed {
-				return nil, fmt.Errorf(
-					"vault %s is %s (current layout) — use Close vault, not force-close",
-					vault, st,
-				)
-			}
-			// Closed + count desync — allow purge.
 		} else if len(data) > 0 && len(data) < 40 {
 			return nil, fmt.Errorf("vault %s account too short (len %d)", vault, len(data))
 		} else if len(data) >= 40 {

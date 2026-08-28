@@ -1,6 +1,7 @@
 /**
- * Chrome MV3 service workers have no `window`. Solana web3.js / rpc-websockets
- * still reference it at module init — alias to globalThis before those imports load.
+ * Chrome MV3 service workers have no `window` / `document`. Solana web3.js /
+ * rpc-websockets still reference window at module init — alias to globalThis.
+ * Never use Vite dynamic import() here: its preload helper needs `document`.
  */
 const g = globalThis as Record<string, unknown>;
 

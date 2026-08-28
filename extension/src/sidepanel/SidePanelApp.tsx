@@ -128,6 +128,9 @@ function friendlyFlowError(raw: string): string {
   if (/keyring locked|unlock wallet password|unlock first/i.test(raw)) {
     return "Wallet is locked. Enter your keyring password on the unlock screen, then retry.";
   }
+  if (/3012|AccountNotInitialized|Required account missing/i.test(raw)) {
+    return "Required on-chain account is missing (often a vault/licence token account). Upgrade the program + redeploy backend, reload the extension, then tap Release again — it will force-purge broken slots.";
+  }
   if (/ActiveVaultsRemain|still has .* active vault|cannot unlock 1VL|cannot unlock \$1VAULT/i.test(raw)) {
     return "On-chain still has active vaults (often hidden/missing slots). Tap Release again — it scans vault IDs on-chain and purges leftovers. If it keeps failing, upgrade the program + redeploy backend.";
   }
