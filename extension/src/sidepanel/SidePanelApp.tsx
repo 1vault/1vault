@@ -41,7 +41,7 @@ import { VaultSummary, VaultSummaryShimmer } from "./VaultSummary";
 import { BindWalletModal } from "./BindWalletModal";
 import { CapitalDetail } from "./CapitalDetail";
 import { CreateVaultWizard, type CreateVaultResult } from "./CreateVaultWizard";
-import { DiscoverPanel } from "./DiscoverPanel";
+import { LeaderboardPanel } from "./LeaderboardPanel";
 import { HoldingsTab } from "./HoldingsTab";
 import { HistoryPanel, historyEntryFromMode, type TxHistoryItem } from "./HistoryPanel";
 import { ProcessingBanner, completedLabel } from "./ProcessingBanner";
@@ -1384,7 +1384,7 @@ export function SidePanelApp() {
         )}
 
         {!overlayOpen && nav === "discover" && (
-          <DiscoverPanel
+          <LeaderboardPanel
             busy={busy || flowRunning}
             onOpenVault={(vault) => {
               setActiveVault(vault);
@@ -1979,7 +1979,7 @@ function BottomNav({
 }) {
   const items: Array<{ id: NavId; label: string; icon: ReactNode; disabled?: boolean }> = [
     { id: "home", label: "Home", icon: <IconHome /> },
-    { id: "discover", label: "Discover", icon: <IconDiscover /> },
+    { id: "discover", label: "Leaderboard", icon: <IconDiscover /> },
     { id: "trade", label: "Trade", icon: <IconMarket />, disabled: tradeDisabled },
     { id: "activity", label: "History", icon: <IconActivity /> },
     { id: "vault", label: "Vault", icon: <IconVault /> },

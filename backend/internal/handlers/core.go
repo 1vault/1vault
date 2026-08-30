@@ -233,9 +233,11 @@ func (a *API) VaultTrades(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) Leaderboard(w http.ResponseWriter, r *http.Request) {
-	// Top 10 vaults by realized performance (return_pct = profit %), highest first.
-	const limit = 10
-	a.okCachedDB(w, r, "leaderboard:top10:return_pct", 15*time.Second, func() (any, error) {
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit < 1 || limit > 100 {
+		limit = 50
+	}
+	a.okCachedDB(w, r, fmt.Sprintf("leaderboard:return_pct:limit=%d", limit), 15*time.Second, func() (any, error) {
 		items, err := queryMaps(r.Context(), a.Pool, `
 			SELECT * FROM vault_leaderboard
 			ORDER BY return_pct DESC NULLS LAST, nav DESC NULLS LAST
@@ -243,7 +245,7 @@ func (a *API) Leaderboard(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"items": items, "limit": limit, "orderBy": "return_pct"}, nil
+		return map[string]any{"items": items, "limit": limit, "orderBy": "return_pct", "scope": "global"}, nil
 	})
 }
 

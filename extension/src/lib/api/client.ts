@@ -104,14 +104,65 @@ export async function listVaults(query?: {
   strategist?: string;
   vaultType?: string;
   pageSize?: number;
-}): Promise<{ items?: Array<Record<string, unknown>> }> {
+  page?: number;
+}): Promise<{ items?: Array<Record<string, unknown>>; total?: number; page?: number; pageSize?: number }> {
   return api("/v1/vaults", {
     query: {
       strategist: query?.strategist,
       vaultType: query?.vaultType,
       pageSize: query?.pageSize,
+      page: query?.page,
     },
   });
+}
+
+/** All indexed vaults — never scoped to the connected wallet. */
+export async function listGlobalVaults(opts?: {
+  maxItems?: number;
+  pageSize?: number;
+}): Promise<Array<Record<string, unknown>>> {
+  const maxItems = opts?.maxItems ?? 200;
+  const pageSize = Math.min(opts?.pageSize ?? 100, 100);
+  const out: Array<Record<string, unknown>> = [];
+  let page = 1;
+  let total = Infinity;
+
+  while (out.length < maxItems && out.length < total && page <= 10) {
+    const data = await listVaults({ page, pageSize });
+    const batch = data.items ?? [];
+    if (batch.length === 0) break;
+    out.push(...batch);
+    total = Number(data.total ?? out.length);
+    if (out.length >= total) break;
+    page++;
+  }
+
+  return out.slice(0, maxItems);
+}
+
+export type LeaderboardRow = {
+  pubkey?: string;
+  name?: string;
+  strategist?: string;
+  active_followers?: number;
+  activeFollowers?: number;
+  estimated_follower_capital?: string | number;
+  estimatedFollowerCapital?: string | number;
+  return_pct?: number | string;
+  returnPct?: number | string;
+  nav?: string | number;
+  last_updated?: string;
+  lastUpdated?: string;
+  [k: string]: unknown;
+};
+
+export async function getLeaderboard(limit = 50): Promise<{
+  items?: LeaderboardRow[];
+  limit?: number;
+  orderBy?: string;
+  scope?: string;
+}> {
+  return api("/v1/leaderboard", { query: { limit } });
 }
 
 export async function listVaultPositions(pubkey: string): Promise<{
@@ -146,30 +197,6 @@ export async function getVaultFees(pubkey: string): Promise<VaultFees> {
 
 export async function getTokenResearch(mint: string): Promise<Record<string, unknown>> {
   return api(`/v1/tokens/${encodeURIComponent(mint)}/research`);
-}
-
-export type LeaderboardRow = {
-  pubkey?: string;
-  name?: string;
-  strategist?: string;
-  active_followers?: number;
-  activeFollowers?: number;
-  estimated_follower_capital?: string | number;
-  estimatedFollowerCapital?: string | number;
-  return_pct?: number | string;
-  returnPct?: number | string;
-  nav?: string | number;
-  last_updated?: string;
-  lastUpdated?: string;
-  [k: string]: unknown;
-};
-
-export async function getLeaderboard(): Promise<{
-  items?: LeaderboardRow[];
-  limit?: number;
-  orderBy?: string;
-}> {
-  return api("/v1/leaderboard");
 }
 
 export type VaultHoldingRow = {

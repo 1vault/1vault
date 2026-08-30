@@ -1,4 +1,4 @@
-export { api, openapi, getHealth, getProtocol, getStrategist, getVault, listVaults } from "./client";
+export { api, openapi, getHealth, getProtocol, getStrategist, getVault, listVaults, listGlobalVaults } from "./client";
 export {
   getLeaderboard,
   getVaultHoldings,
