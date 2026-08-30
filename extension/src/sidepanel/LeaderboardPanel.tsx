@@ -9,6 +9,8 @@ import {
   type LeaderboardEntry,
   type LeaderboardPeriod,
 } from "../lib/leaderboard";
+import { annotateVaultLayout } from "../lib/vault-layout";
+import { filterVisibleVaults } from "../lib/vault-status";
 import { formatLamportsAsSol } from "../lib/estimate";
 import { ShimmerList } from "./Shimmer";
 import { SolAmount } from "./SolAmount";
@@ -48,7 +50,9 @@ export function LeaderboardPanel({
         getLeaderboard(100),
       ]);
 
-      const vaults = mergeGlobalVaultRows(allVaults, ranked.items);
+      const merged = mergeGlobalVaultRows(allVaults, ranked.items);
+      const annotated = await annotateVaultLayout(merged).catch(() => merged);
+      const vaults = filterVisibleVaults(annotated);
       const strategists = [
         ...new Set(
           vaults
@@ -79,7 +83,7 @@ export function LeaderboardPanel({
         <div>
           <h1 className="hero-title">Leaderboard</h1>
           <p className="leaderboard-sub">
-            All indexed vaults on {CLUSTER} — ranked by win rate ({periodLabel})
+            Active vaults on {CLUSTER} — closed and legacy hidden ({periodLabel})
           </p>
         </div>
         <div className="leaderboard-period" role="tablist" aria-label="Win rate period">
@@ -104,7 +108,7 @@ export function LeaderboardPanel({
       ) : error ? (
         <div className="err">{error}</div>
       ) : entries.length === 0 ? (
-        <div className="empty-hint">No vaults ranked yet.</div>
+        <div className="empty-hint">No active vaults ranked yet.</div>
       ) : (
         <div className="list leaderboard-list">
           {entries.map((row) => (

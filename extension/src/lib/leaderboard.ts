@@ -1,5 +1,6 @@
 import { BACKEND_URL, CLUSTER } from "./config";
 import type { ApiEnvelope } from "./api/client";
+import { filterVisibleVaults } from "./vault-status";
 
 export type LeaderboardPeriod = "7d" | "30d";
 
@@ -135,7 +136,7 @@ export function buildWinrateLeaderboard(
   winByStrategist: Map<string, number | null>,
   limit = 25
 ): LeaderboardEntry[] {
-  const rows = vaults
+  const rows = filterVisibleVaults(vaults)
     .filter((v) => String(v.pubkey ?? "").length >= 32)
     .map((v) => {
       const strategist = String(v.strategist ?? "");
