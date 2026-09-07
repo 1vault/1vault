@@ -17,6 +17,7 @@ import (
 	"github.com/1vault/backend/internal/httpx"
 	"github.com/1vault/backend/internal/indexer"
 	"github.com/1vault/backend/internal/signing"
+	"github.com/1vault/backend/internal/txprep"
 	"github.com/1vault/backend/internal/wallets"
 	"github.com/gagliardetto/solana-go"
 	"github.com/go-chi/chi/v5"
@@ -33,16 +34,19 @@ type API struct {
 	Indexer *indexer.Client
 	Keeper  solana.PrivateKey
 
-	MetaCache   *cache.TTL // token lite metadata by mint
-	ListCache   *cache.TTL // discover list responses
-	DBCache     *cache.TTL // vaults/leaderboard/protocol DB reads
-	MarketCache *cache.TTL // GMGN/Dex full responses (SWR)
-	VaultIndex  *wallets.VaultIndex
-	enrichSem   chan struct{}
-	limitMu     sync.Mutex
-	authLimits  map[string]*simpleLimiter
+	MetaCache    *cache.TTL // token lite metadata by mint
+	ListCache    *cache.TTL // discover list responses
+	DBCache      *cache.TTL // vaults/leaderboard/protocol DB reads
+	MarketCache  *cache.TTL // GMGN/Dex full responses (SWR)
+	VaultIndex   *wallets.VaultIndex
+	enrichSem    chan struct{}
+	limitMu      sync.Mutex
+	authLimits   map[string]*simpleLimiter
 	ledgerLimits map[string]*simpleLimiter
 	marketLimits map[string]*simpleLimiter
+
+	rpcMu   sync.Mutex
+	rpcByURL map[string]*txprep.RPC
 }
 
 // NewAPI wires shared HTTP clients, caches, and concurrency guards.
@@ -60,6 +64,7 @@ func NewAPI(cfg config.Config, pool *pgxpool.Pool) *API {
 		authLimits:   map[string]*simpleLimiter{},
 		ledgerLimits: map[string]*simpleLimiter{},
 		marketLimits: map[string]*simpleLimiter{},
+		rpcByURL:     map[string]*txprep.RPC{},
 	}
 	wallets.DefaultIndex = a.VaultIndex
 	if cfg.GMGNConfigured() {
@@ -71,6 +76,23 @@ func NewAPI(cfg config.Config, pool *pgxpool.Pool) *API {
 		a.Keeper = kp
 	}
 	return a
+}
+
+func (a *API) rpcFor(url string) *txprep.RPC {
+	if url == "" {
+		url = a.Cfg.DevnetRPCURL
+	}
+	a.rpcMu.Lock()
+	defer a.rpcMu.Unlock()
+	if a.rpcByURL == nil {
+		a.rpcByURL = map[string]*txprep.RPC{}
+	}
+	if rpc, ok := a.rpcByURL[url]; ok {
+		return rpc
+	}
+	rpc := txprep.NewRPC(url)
+	a.rpcByURL[url] = rpc
+	return rpc
 }
 
 func (a *API) Routes() http.Handler {
@@ -377,7 +399,7 @@ func (a *API) marketLimit(next http.Handler) http.Handler {
 		if strings.HasPrefix(path, "/v1/tokens/") ||
 			strings.HasPrefix(path, "/v1/discover/") ||
 			strings.HasPrefix(path, "/v1/wallets/") {
-			a.limitMW(&a.marketLimits, 120.0/60.0, 40, next).ServeHTTP(w, r)
+			a.limitMW(&a.marketLimits, 180.0/60.0, 60, next).ServeHTTP(w, r)
 			return
 		}
 		next.ServeHTTP(w, r)

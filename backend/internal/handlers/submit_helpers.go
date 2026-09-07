@@ -26,9 +26,11 @@ func (a *API) txConfirmOpts() txconfirm.Options {
 }
 
 func (a *API) txConfirmOptsFor(clusterName string) txconfirm.Options {
+	addr := a.clusterAddrs(clusterName)
 	auto := a.Indexer != nil && a.Indexer.Enabled()
 	return txconfirm.Options{
-		RPCURL:     a.clusterAddrs(clusterName).RPCURL,
+		RPCURL:     addr.RPCURL,
+		RPC:        a.rpcFor(addr.RPCURL),
 		Indexer:    a.Indexer,
 		AutoIngest: auto,
 		OnConfirmed: func(_ string, _ txconfirm.IngestInfo) {
@@ -66,7 +68,7 @@ func (a *API) finalizeAndSend(r *http.Request, signedB64 string, details []signi
 			return "", err
 		}
 	}
-	rpc := txprep.NewRPC(a.addresses(r).RPCURL)
+	rpc := a.rpcFor(a.addresses(r).RPCURL)
 	sig, err := rpc.SendRaw(raw)
 	if err != nil {
 		return "", err

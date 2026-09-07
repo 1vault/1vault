@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 
 	s "github.com/1vault/backend/internal/solana"
@@ -15,22 +16,56 @@ import (
 	"github.com/gagliardetto/solana-go/rpc"
 )
 
+const accountCacheTTL = 3 * time.Second
+
+type accountCacheEntry struct {
+	data    []byte
+	exists  bool
+	missing bool
+	at      time.Time
+}
+
 type RPC struct {
 	client *rpc.Client
+
+	mu    sync.Mutex
+	cache map[string]accountCacheEntry
+
+	bhMu  sync.Mutex
+	bh    solana.Hash
+	bhAt  time.Time
+	bhOK  bool
 }
 
 func NewRPC(url string) *RPC {
-	return &RPC{client: rpc.New(url)}
+	return &RPC{
+		client: rpc.New(url),
+		cache:  make(map[string]accountCacheEntry),
+	}
 }
 
 func (r *RPC) LatestBlockhash() (solana.Hash, error) {
+	r.bhMu.Lock()
+	if r.bhOK && time.Since(r.bhAt) < 1500*time.Millisecond {
+		h := r.bh
+		r.bhMu.Unlock()
+		return h, nil
+	}
+	r.bhMu.Unlock()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	out, err := r.client.GetLatestBlockhash(ctx, rpc.CommitmentConfirmed)
 	if err != nil {
 		return solana.Hash{}, err
 	}
-	return out.Value.Blockhash, nil
+	h := out.Value.Blockhash
+	r.bhMu.Lock()
+	r.bh = h
+	r.bhAt = time.Now()
+	r.bhOK = true
+	r.bhMu.Unlock()
+	return h, nil
 }
 
 // SendRaw broadcasts a signed transaction. Preflight at confirmed catches
@@ -90,7 +125,37 @@ func (r *RPC) StatusOpts(signature string, searchHistory bool) (map[string]any, 
 	}, nil
 }
 
+func (r *RPC) cacheGet(pubkey solana.PublicKey) (accountCacheEntry, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e, ok := r.cache[pubkey.String()]
+	if !ok || time.Since(e.at) > accountCacheTTL {
+		return accountCacheEntry{}, false
+	}
+	return e, true
+}
+
+func (r *RPC) cachePut(pubkey solana.PublicKey, data []byte, exists bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cache == nil {
+		r.cache = make(map[string]accountCacheEntry)
+	}
+	r.cache[pubkey.String()] = accountCacheEntry{
+		data:    data,
+		exists:  exists,
+		missing: !exists,
+		at:      time.Now(),
+	}
+}
+
 func (r *RPC) AccountData(pubkey solana.PublicKey) ([]byte, error) {
+	if e, ok := r.cacheGet(pubkey); ok {
+		if e.missing || !e.exists {
+			return nil, fmt.Errorf("account not found: %s", pubkey)
+		}
+		return e.data, nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	info, err := r.client.GetAccountInfoWithOpts(ctx, pubkey, &rpc.GetAccountInfoOpts{
@@ -98,17 +163,24 @@ func (r *RPC) AccountData(pubkey solana.PublicKey) ([]byte, error) {
 	})
 	if err != nil {
 		if err == rpc.ErrNotFound {
+			r.cachePut(pubkey, nil, false)
 			return nil, fmt.Errorf("account not found: %s", pubkey)
 		}
 		return nil, err
 	}
 	if info == nil || info.Value == nil {
+		r.cachePut(pubkey, nil, false)
 		return nil, fmt.Errorf("account not found: %s", pubkey)
 	}
-	return info.Value.Data.GetBinary(), nil
+	data := info.Value.Data.GetBinary()
+	r.cachePut(pubkey, data, true)
+	return data, nil
 }
 
 func (r *RPC) AccountExists(pubkey solana.PublicKey) (bool, error) {
+	if e, ok := r.cacheGet(pubkey); ok {
+		return e.exists, nil
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	info, err := r.client.GetAccountInfoWithOpts(ctx, pubkey, &rpc.GetAccountInfoOpts{
@@ -116,15 +188,72 @@ func (r *RPC) AccountExists(pubkey solana.PublicKey) (bool, error) {
 	})
 	if err != nil {
 		if err == rpc.ErrNotFound {
+			r.cachePut(pubkey, nil, false)
 			return false, nil
 		}
 		msg := err.Error()
 		if msg == "not found" || msg == "NotFound" {
+			r.cachePut(pubkey, nil, false)
 			return false, nil
 		}
 		return false, err
 	}
-	return info != nil && info.Value != nil, nil
+	exists := info != nil && info.Value != nil
+	var data []byte
+	if exists {
+		data = info.Value.Data.GetBinary()
+	}
+	r.cachePut(pubkey, data, exists)
+	return exists, nil
+}
+
+// AccountsData fetches many accounts in one RPC round-trip and warms the cache.
+func (r *RPC) AccountsData(pubkeys []solana.PublicKey) (map[string][]byte, error) {
+	out := make(map[string][]byte, len(pubkeys))
+	if len(pubkeys) == 0 {
+		return out, nil
+	}
+	need := make([]solana.PublicKey, 0, len(pubkeys))
+	seen := make(map[string]struct{}, len(pubkeys))
+	for _, pk := range pubkeys {
+		key := pk.String()
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		if e, ok := r.cacheGet(pk); ok {
+			if e.exists {
+				out[key] = e.data
+			}
+			continue
+		}
+		need = append(need, pk)
+	}
+	if len(need) == 0 {
+		return out, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	res, err := r.client.GetMultipleAccountsWithOpts(ctx, need, &rpc.GetMultipleAccountsOpts{
+		Commitment: rpc.CommitmentConfirmed,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if res == nil {
+		return out, nil
+	}
+	for i, pk := range need {
+		key := pk.String()
+		if i >= len(res.Value) || res.Value[i] == nil {
+			r.cachePut(pk, nil, false)
+			continue
+		}
+		data := res.Value[i].Data.GetBinary()
+		r.cachePut(pk, data, true)
+		out[key] = data
+	}
+	return out, nil
 }
 
 func DecodeSignedTx(b64 string) ([]byte, error) {

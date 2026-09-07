@@ -17,20 +17,25 @@ import (
 
 func (a *API) GetStrategist(w http.ResponseWriter, r *http.Request) {
 	pk := chi.URLParam(r, "pubkey")
-	a.okCachedErr(w, r, a.DBCache, "strategist:"+pk, 15*time.Second, func() (any, error) {
+	a.okCachedErr(w, r, a.DBCache, "strategist:"+pk, 30*time.Second, func() (any, error) {
 		ctx := r.Context()
 		var strat any
-		err := a.Pool.QueryRow(ctx, `SELECT row_to_json(s) FROM strategists s WHERE pubkey=$1`, pk).Scan(&strat)
-		if err != nil {
-			return nil, err
-		}
-		rows, err := queryMaps(ctx, a.Pool, `
-			SELECT v.*,
-				COALESCE(NULLIF(r.vault_type,''), NULLIF(v.vault_type,''), 'pooled') AS resolved_vault_type
-			FROM vaults v
-			LEFT JOIN vault_type_registry r ON r.vault_pubkey = v.pubkey
-			WHERE v.strategist=$1 ORDER BY v.updated_at DESC`, pk)
-		if err != nil {
+		var rows []map[string]any
+		var eg errgroup.Group
+		eg.Go(func() error {
+			return a.Pool.QueryRow(ctx, `SELECT row_to_json(s) FROM strategists s WHERE pubkey=$1`, pk).Scan(&strat)
+		})
+		eg.Go(func() error {
+			var e error
+			rows, e = queryMaps(ctx, a.Pool, `
+				SELECT v.*,
+					COALESCE(NULLIF(r.vault_type,''), NULLIF(v.vault_type,''), 'pooled') AS resolved_vault_type
+				FROM vaults v
+				LEFT JOIN vault_type_registry r ON r.vault_pubkey = v.pubkey
+				WHERE v.strategist=$1 ORDER BY v.updated_at DESC`, pk)
+			return e
+		})
+		if err := eg.Wait(); err != nil {
 			return nil, err
 		}
 		for _, it := range rows {
@@ -157,28 +162,29 @@ func (a *API) ProtocolState(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) VaultProfile(w http.ResponseWriter, r *http.Request) {
 	pk := chi.URLParam(r, "pubkey")
-	a.okCachedErr(w, r, a.DBCache, "vault-profile:"+pk, 15*time.Second, func() (any, error) {
+	a.okCachedErr(w, r, a.DBCache, "vault-profile:"+pk, 30*time.Second, func() (any, error) {
 		ctx := r.Context()
-		var name, strategist string
-		var nav any
+		var name, strategist, resolvedType string
+		var nav, returnPct, estCapital any
 		var activeFollowers int
-		var estCapital any
 		err := a.Pool.QueryRow(ctx, `
-			SELECT v.name, v.strategist, v.nav, v.active_followers, v.estimated_follower_capital
-			FROM vaults v WHERE v.pubkey=$1`, pk).Scan(&name, &strategist, &nav, &activeFollowers, &estCapital)
+			SELECT
+				v.name,
+				v.strategist,
+				v.nav,
+				v.active_followers,
+				v.estimated_follower_capital,
+				COALESCE(NULLIF(r.vault_type,''), NULLIF(v.vault_type,''), 'pooled'),
+				lb.return_pct
+			FROM vaults v
+			LEFT JOIN vault_type_registry r ON r.vault_pubkey = v.pubkey
+			LEFT JOIN vault_leaderboard lb ON lb.pubkey = v.pubkey
+			WHERE v.pubkey=$1`, pk).Scan(
+			&name, &strategist, &nav, &activeFollowers, &estCapital, &resolvedType, &returnPct,
+		)
 		if err != nil {
 			return nil, err
 		}
-		var returnPct any
-		_ = a.Pool.QueryRow(ctx, `
-			SELECT return_pct FROM vault_leaderboard WHERE pubkey=$1`, pk).Scan(&returnPct)
-
-		var resolvedType string
-		_ = a.Pool.QueryRow(ctx, `
-			SELECT COALESCE(NULLIF(r.vault_type,''), NULLIF(v.vault_type,''), 'pooled')
-			FROM vaults v
-			LEFT JOIN vault_type_registry r ON r.vault_pubkey = v.pubkey
-			WHERE v.pubkey=$1`, pk).Scan(&resolvedType)
 		vt := vaults.FromResolved(resolvedType)
 
 		var twitter map[string]any
@@ -201,16 +207,16 @@ func (a *API) VaultProfile(w http.ResponseWriter, r *http.Request) {
 		}
 
 		out := map[string]any{
-			"pubkey":                    pk,
-			"name":                      name,
-			"strategist":                strategist,
-			"vaultType":                 string(vt),
-			"vaultTypeLabel":            vt.Label(),
-			"returnPct":                 returnPct,
-			"nav":                       nav,
-			"activeFollowers":           activeFollowers,
-			"estimatedFollowerCapital":  estCapital,
-			"twitter":                   twitter,
+			"pubkey":                   pk,
+			"name":                     name,
+			"strategist":               strategist,
+			"vaultType":                string(vt),
+			"vaultTypeLabel":           vt.Label(),
+			"returnPct":                returnPct,
+			"nav":                      nav,
+			"activeFollowers":          activeFollowers,
+			"estimatedFollowerCapital": estCapital,
+			"twitter":                  twitter,
 		}
 		return vaults.Attach(out, vt), nil
 	}, func(err error) bool {

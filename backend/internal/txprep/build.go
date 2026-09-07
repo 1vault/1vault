@@ -87,21 +87,35 @@ func (b *Builder) AutoDexProgram(venue uint8) (solana.PublicKey, error) {
 	for _, pk := range allowed {
 		allowedSet[pk.String()] = pk
 	}
-	// Prefer backend PROGRAM_IDS priority when also on-chain allowlisted.
+	candidates := make([]solana.PublicKey, 0, len(b.AllowedDexPrograms)+len(allowed))
+	seen := make(map[string]struct{}, len(allowed)+len(b.AllowedDexPrograms))
 	for _, pk := range b.AllowedDexPrograms {
 		if hit, ok := allowedSet[pk.String()]; ok {
-			if b.RPC == nil || b.dexAccountExists(hit) {
-				return hit, nil
+			if _, dup := seen[hit.String()]; !dup {
+				seen[hit.String()] = struct{}{}
+				candidates = append(candidates, hit)
 			}
 		}
 	}
-	// Fall back to first allowlisted program that exists on RPC (devnet programs may be missing).
 	for _, pk := range allowed {
-		if b.RPC == nil || b.dexAccountExists(pk) {
+		if _, dup := seen[pk.String()]; !dup {
+			seen[pk.String()] = struct{}{}
+			candidates = append(candidates, pk)
+		}
+	}
+	if b.RPC == nil {
+		return candidates[0], nil
+	}
+	exists, err := b.RPC.AccountsData(candidates)
+	if err != nil {
+		return candidates[0], nil
+	}
+	for _, pk := range candidates {
+		if _, ok := exists[pk.String()]; ok {
 			return pk, nil
 		}
 	}
-	return allowed[0], nil
+	return candidates[0], nil
 }
 
 func (b *Builder) allowedTradePrograms(venue uint8) ([]solana.PublicKey, error) {
@@ -569,9 +583,6 @@ func (b *Builder) WithdrawOpts(p WithdrawParams) (*Prepared, error) {
 	if p.Shares == 0 {
 		return nil, fmt.Errorf("shares required")
 	}
-	if err := b.requireCurrentVaultLayout(p.Vault); err != nil {
-		return nil, err
-	}
 	shareMint := s.ShareMintPDA(b.Program, p.Vault)
 	wsolATA := s.ATA(s.WSOL, p.Investor)
 	shareATA := s.ATA(shareMint, p.Investor)
@@ -584,6 +595,23 @@ func (b *Builder) WithdrawOpts(p WithdrawParams) (*Prepared, error) {
 	if priority == 0 {
 		priority = 100_000
 	}
+	needInvestorConfig := false
+	if b.RPC != nil {
+		acc, err := b.RPC.AccountsData([]solana.PublicKey{p.Vault, cfg})
+		if err != nil {
+			return nil, fmt.Errorf("load vault/config accounts: %w", err)
+		}
+		vData, ok := acc[p.Vault.String()]
+		if !ok {
+			return nil, fmt.Errorf("load vault %s: account not found", p.Vault)
+		}
+		if err := s.ValidateVaultAccountData(p.Vault, vData); err != nil {
+			return nil, err
+		}
+		if _, ok := acc[cfg.String()]; !ok {
+			needInvestorConfig = true
+		}
+	}
 	ixs := []solana.Instruction{
 		s.SetComputeUnitPrice(priority),
 		s.SetComputeUnitLimit(cu),
@@ -594,10 +622,8 @@ func (b *Builder) WithdrawOpts(p WithdrawParams) (*Prepared, error) {
 		s.CreateIdempotentATA(p.Investor, p.Investor, s.WSOL),
 		s.CreateIdempotentATA(p.Investor, p.Investor, shareMint),
 	}
-	if b.RPC != nil {
-		if exists, err := b.RPC.AccountExists(cfg); err == nil && !exists {
-			ixs = append(ixs, b.investorConfigIx(p.Investor, p.Vault))
-		}
+	if needInvestorConfig {
+		ixs = append(ixs, b.investorConfigIx(p.Investor, p.Vault))
 	}
 	ixs = append(ixs,
 		s.Ix(b.Program, s.Concat(s.DiscWithdraw, s.U64LE(p.Shares)),
@@ -628,13 +654,13 @@ func (b *Builder) WithdrawOpts(p WithdrawParams) (*Prepared, error) {
 }
 
 func (b *Builder) AccrueFees(payer, vault solana.PublicKey) (*Prepared, error) {
-	if err := b.requireCurrentVaultLayout(vault); err != nil {
-		return nil, err
-	}
 	if b.RPC != nil {
 		data, err := b.RPC.AccountData(vault)
 		if err != nil {
 			return nil, fmt.Errorf("load vault %s: %w", vault, err)
+		}
+		if err := s.ValidateVaultAccountData(vault, data); err != nil {
+			return nil, err
 		}
 		st, err := s.DecodeVaultStatus(data)
 		if err != nil {
@@ -658,23 +684,24 @@ func (b *Builder) AccrueFees(payer, vault solana.PublicKey) (*Prepared, error) {
 }
 
 func (b *Builder) ClaimFees(strategist, vault, vaultTokenAccount, degenFeeWallet solana.PublicKey) (*Prepared, error) {
-	if err := b.requireCurrentVaultLayout(vault); err != nil {
-		return nil, err
-	}
 	if b.RPC != nil {
 		feePDA := s.VaultFeePDA(b.Program, vault)
-		exists, err := b.RPC.AccountExists(feePDA)
+		acc, err := b.RPC.AccountsData([]solana.PublicKey{vault, feePDA})
 		if err != nil {
-			return nil, fmt.Errorf("load vault fee state %s: %w", feePDA, err)
+			return nil, fmt.Errorf("load vault/fee accounts: %w", err)
 		}
-		if !exists {
+		vData, ok := acc[vault.String()]
+		if !ok {
+			return nil, fmt.Errorf("load vault %s: account not found", vault)
+		}
+		if err := s.ValidateVaultAccountData(vault, vData); err != nil {
+			return nil, err
+		}
+		fData, ok := acc[feePDA.String()]
+		if !ok {
 			return nil, fmt.Errorf("vault %s has no fee state — nothing to claim (Anchor NothingToClaim 6033)", vault)
 		}
-		data, err := b.RPC.AccountData(feePDA)
-		if err != nil {
-			return nil, fmt.Errorf("load vault fee state %s: %w", feePDA, err)
-		}
-		claimable, err := s.DecodeVaultFeeClaimable(data)
+		claimable, err := s.DecodeVaultFeeClaimable(fData)
 		if err != nil {
 			return nil, err
 		}
@@ -727,13 +754,13 @@ func (b *Builder) requireCurrentVaultLayout(vault solana.PublicKey) error {
 }
 
 func (b *Builder) InitiateVaultClose(strategist, vault solana.PublicKey) (*Prepared, error) {
-	if err := b.requireCurrentVaultLayout(vault); err != nil {
-		return nil, err
-	}
 	if b.RPC != nil {
 		data, err := b.RPC.AccountData(vault)
 		if err != nil {
 			return nil, fmt.Errorf("load vault %s: %w", vault, err)
+		}
+		if err := s.ValidateVaultAccountData(vault, data); err != nil {
+			return nil, err
 		}
 		if err := s.RequireVaultLiquidForClose(vault, data); err != nil {
 			return nil, err
@@ -768,16 +795,14 @@ func (b *Builder) InitiateVaultClose(strategist, vault solana.PublicKey) (*Prepa
 func (b *Builder) UnlockLicense(strategist solana.PublicKey) (*Prepared, error) {
 	if b.RPC != nil {
 		pda := s.StrategistPDA(b.Program, strategist)
-		exists, err := b.RPC.AccountExists(pda)
+		licPDA := s.LicensePDA(b.Program, strategist)
+		accounts, err := b.RPC.AccountsData([]solana.PublicKey{pda, licPDA})
 		if err != nil {
-			return nil, fmt.Errorf("load strategist account %s: %w", pda, err)
+			return nil, fmt.Errorf("load strategist/licence accounts: %w", err)
 		}
-		if !exists {
+		data, ok := accounts[pda.String()]
+		if !ok || len(data) == 0 {
 			return nil, fmt.Errorf("strategist %s has no on-chain account — lock a licence first", strategist)
-		}
-		data, err := b.RPC.AccountData(pda)
-		if err != nil {
-			return nil, fmt.Errorf("load strategist account %s: %w", pda, err)
 		}
 		active, err := s.DecodeStrategistActiveVaultCount(data)
 		if err != nil {
@@ -789,13 +814,7 @@ func (b *Builder) UnlockLicense(strategist solana.PublicKey) (*Prepared, error) 
 				active,
 			)
 		}
-		// Licence PDA is closed on unlock — if it's already gone, Release is done.
-		licPDA := s.LicensePDA(b.Program, strategist)
-		licExists, err := b.RPC.AccountExists(licPDA)
-		if err != nil {
-			return nil, fmt.Errorf("load licence account %s: %w", licPDA, err)
-		}
-		if !licExists {
+		if _, licOK := accounts[licPDA.String()]; !licOK {
 			return nil, fmt.Errorf("licence already unlocked for strategist %s", strategist)
 		}
 	}
@@ -943,9 +962,6 @@ type ExecuteTradeParams struct {
 
 // ExecuteTrade prepares execute_trade with auto-selected DEX from PROGRAM_IDS (client does not choose).
 func (b *Builder) ExecuteTrade(p ExecuteTradeParams) (*Prepared, error) {
-	if err := b.requireCurrentVaultLayout(p.Vault); err != nil {
-		return nil, err
-	}
 	if p.TradeID == 0 {
 		return nil, fmt.Errorf("tradeId required")
 	}
@@ -954,11 +970,22 @@ func (b *Builder) ExecuteTrade(p ExecuteTradeParams) (*Prepared, error) {
 	}
 	trade := s.TradePDA(b.Program, p.Vault, p.TradeID)
 	if b.RPC != nil {
-		data, err := b.RPC.AccountData(trade)
+		acc, err := b.RPC.AccountsData([]solana.PublicKey{p.Vault, trade, b.Protocol})
 		if err != nil {
+			return nil, fmt.Errorf("load execute_trade accounts: %w", err)
+		}
+		vData, ok := acc[p.Vault.String()]
+		if !ok {
+			return nil, fmt.Errorf("load vault %s: account not found", p.Vault)
+		}
+		if err := s.ValidateVaultAccountData(p.Vault, vData); err != nil {
+			return nil, err
+		}
+		tData, ok := acc[trade.String()]
+		if !ok {
 			return nil, fmt.Errorf("trade %d not found on-chain for vault %s — complete request_trade first", p.TradeID, p.Vault)
 		}
-		st, err := s.DecodeTradeStatus(data)
+		st, err := s.DecodeTradeStatus(tData)
 		if err != nil {
 			return nil, err
 		}
@@ -971,6 +998,13 @@ func (b *Builder) ExecuteTrade(p ExecuteTradeParams) (*Prepared, error) {
 			return nil, fmt.Errorf("trade %d was cancelled", p.TradeID)
 		default:
 			return nil, fmt.Errorf("trade %d has unexpected status %d (want Pending)", p.TradeID, st)
+		}
+		if pData, ok := acc[b.Protocol.String()]; ok && !b.cachedTradeProgramsOK {
+			if dex, launch, err := s.DecodeProtocolTradePrograms(pData); err == nil {
+				b.cachedDexPrograms = dex
+				b.cachedLaunchPrograms = launch
+				b.cachedTradeProgramsOK = true
+			}
 		}
 	}
 	dex, err := b.AutoDexProgramDefault()

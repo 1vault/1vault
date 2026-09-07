@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/1vault/backend/internal/cluster"
@@ -27,6 +28,9 @@ type Service struct {
 	Keeper   solana.PrivateKey
 	GMGN     *gmgn.Client
 	OnIngest func()
+
+	rpcOnce sync.Once
+	rpc     *txprep.RPC
 }
 
 func NewService(d Deps) *Service {
@@ -41,8 +45,15 @@ func NewService(d Deps) *Service {
 	}
 }
 
+func (svc *Service) rpcClient() *txprep.RPC {
+	svc.rpcOnce.Do(func() {
+		svc.rpc = txprep.NewRPC(svc.Cfg.RPCURL)
+	})
+	return svc.rpc
+}
+
 func (svc *Service) builder() *txprep.Builder {
-	return txprep.NewBuilder(svc.Cfg, txprep.NewRPC(svc.Cfg.RPCURL))
+	return txprep.NewBuilder(svc.Cfg, svc.rpcClient())
 }
 
 func (svc *Service) Start(ctx context.Context, p StartParams) (*Job, error) {
@@ -99,7 +110,7 @@ func (svc *Service) AdvanceToReady(ctx context.Context, id uuid.UUID) error {
 	b := svc.builder()
 	rpcClient := b.RPC
 	if rpcClient == nil {
-		rpcClient = txprep.NewRPC(svc.Cfg.RPCURL)
+		rpcClient = svc.rpcClient()
 		b.RPC = rpcClient
 	}
 
@@ -545,7 +556,7 @@ func waitVaultStatus(load func(solana.PublicKey) ([]byte, error), vault solana.P
 }
 
 func (svc *Service) resolveOpenTradeID(ctx context.Context, b *txprep.Builder, vault solana.PublicKey, p StartParams, job *Job) (tradeID, posID uint64, err error) {
-	rpc := txprep.NewRPC(svc.Cfg.RPCURL)
+	rpc := svc.rpcClient()
 	load := func(pk solana.PublicKey) ([]byte, error) { return rpc.AccountData(pk) }
 
 	// Same-flow trade: execute_trade step is source of truth (not stale executed trades).
@@ -617,7 +628,7 @@ func (svc *Service) preflightExistingVault(p StartParams) error {
 	if err != nil {
 		return err
 	}
-	data, err := txprep.NewRPC(svc.Cfg.RPCURL).AccountData(vault)
+	data, err := svc.rpcClient().AccountData(vault)
 	if err != nil {
 		return fmt.Errorf("load vault %s: %w", vault, err)
 	}
@@ -642,7 +653,7 @@ func (svc *Service) resolveVTA(ctx context.Context, p StartParams, job *Job) (so
 	if err != nil {
 		return solana.PublicKey{}, err
 	}
-	data, err := txprep.NewRPC(svc.Cfg.RPCURL).AccountData(vault)
+	data, err := svc.rpcClient().AccountData(vault)
 	if err != nil {
 		return solana.PublicKey{}, fmt.Errorf("resolve vaultTokenAccount: %w", err)
 	}
@@ -860,7 +871,7 @@ func (svc *Service) prepareStep(ctx context.Context, b *txprep.Builder, p StartP
 			return nil, nil, err
 		}
 		tradeID := p.TradeID
-		if data, derr := txprep.NewRPC(svc.Cfg.RPCURL).AccountData(vault); derr == nil {
+		if data, derr := svc.rpcClient().AccountData(vault); derr == nil {
 			if onChain, _, err := s.DecodeVaultNextIDs(data); err == nil {
 				tradeID = onChain
 			}
@@ -1244,7 +1255,7 @@ func (svc *Service) Submit(ctx context.Context, id uuid.UUID, signedB64 string) 
 			return nil, err
 		}
 	}
-	rpc := txprep.NewRPC(svc.Cfg.RPCURL)
+	rpc := svc.rpcClient()
 	sig, err := rpc.SendRaw(raw)
 	if err != nil {
 		msg := s.FriendlyTxError(err)

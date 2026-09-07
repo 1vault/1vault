@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -41,34 +42,33 @@ func (a *API) DiscoverMetaBySlug(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, r, 422, "VALIDATION_ERROR", "slug required", nil)
 		return
 	}
-	raw, err := a.dexClient().MetaBySlug(r.Context(), slug)
-	if err != nil {
-		a.writeDexErr(w, r, err)
-		return
-	}
-	var meta map[string]any
-	if err := json.Unmarshal(raw, &meta); err != nil {
-		httpx.OK(w, r, map[string]any{"slug": slug, "chainId": dex.DefaultChain, "meta": json.RawMessage(raw)}, http.StatusOK)
-		return
-	}
-	if pairsRaw, ok := meta["pairs"]; ok {
-		b, _ := json.Marshal(pairsRaw)
-		pairs := dex.SanitizePairs(dex.FilterPairsByChain(dex.ParsePairs(b), dex.DefaultChain))
-		pairs = sortPairsByLiquidity(pairs)
-		if len(pairs) > 20 {
-			pairs = pairs[:20]
+	a.okCachedDex(w, r, "meta-slug:"+strings.ToLower(slug), 45*time.Second, func() (any, error) {
+		raw, err := a.dexClient().MetaBySlug(r.Context(), slug)
+		if err != nil {
+			return nil, err
 		}
-		// Bound enrich time so the meta response never turns into a gateway timeout.
-		enrichCtx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
-		pairs = a.enrichDiscoverItemsLite(enrichCtx, pairs, 8)
-		cancel()
-		meta["pairs"] = pairs
-		meta["pairCount"] = len(pairs)
-	} else {
-		meta["pairs"] = []any{}
-		meta["pairCount"] = 0
-	}
-	httpx.OK(w, r, map[string]any{"slug": slug, "chainId": dex.DefaultChain, "meta": meta}, http.StatusOK)
+		var meta map[string]any
+		if err := json.Unmarshal(raw, &meta); err != nil {
+			return map[string]any{"slug": slug, "chainId": dex.DefaultChain, "meta": json.RawMessage(raw)}, nil
+		}
+		if pairsRaw, ok := meta["pairs"]; ok {
+			b, _ := json.Marshal(pairsRaw)
+			pairs := dex.SanitizePairs(dex.FilterPairsByChain(dex.ParsePairs(b), dex.DefaultChain))
+			pairs = sortPairsByLiquidity(pairs)
+			if len(pairs) > 20 {
+				pairs = pairs[:20]
+			}
+			enrichCtx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+			pairs = a.enrichDiscoverItemsLite(enrichCtx, pairs, 8)
+			cancel()
+			meta["pairs"] = pairs
+			meta["pairCount"] = len(pairs)
+		} else {
+			meta["pairs"] = []any{}
+			meta["pairCount"] = 0
+		}
+		return map[string]any{"slug": slug, "chainId": dex.DefaultChain, "meta": meta}, nil
+	})
 }
 
 func (a *API) DiscoverProfilesLatest(w http.ResponseWriter, r *http.Request) {
@@ -133,33 +133,35 @@ func (a *API) DiscoverSearch(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, r, 422, "VALIDATION_ERROR", "q required", nil)
 		return
 	}
-	raw, err := a.dexClient().Search(r.Context(), q)
-	if err != nil {
-		a.writeDexErr(w, r, err)
-		return
-	}
-	pairs := dex.SanitizePairs(dex.FilterPairsByChain(dex.ParsePairs(raw), dex.DefaultChain))
-	enrichCtx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
-	pairs = a.enrichDiscoverItemsLite(enrichCtx, pairs, 10)
-	cancel()
-	httpx.OK(w, r, map[string]any{
-		"query":   q,
-		"chainId": dex.DefaultChain,
-		"pairs":   pairs,
-		"count":   len(pairs),
-	}, http.StatusOK)
+	a.okCachedDex(w, r, "search:"+strings.ToLower(q), 20*time.Second, func() (any, error) {
+		raw, err := a.dexClient().Search(r.Context(), q)
+		if err != nil {
+			return nil, err
+		}
+		pairs := dex.SanitizePairs(dex.FilterPairsByChain(dex.ParsePairs(raw), dex.DefaultChain))
+		enrichCtx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+		pairs = a.enrichDiscoverItemsLite(enrichCtx, pairs, 10)
+		cancel()
+		return map[string]any{
+			"query":   q,
+			"chainId": dex.DefaultChain,
+			"pairs":   pairs,
+			"count":   len(pairs),
+		}, nil
+	})
 }
 
 func (a *API) DiscoverMetasTrending(w http.ResponseWriter, r *http.Request) {
-	raw, err := a.dexClient().MetasTrending(r.Context())
-	if err != nil {
-		a.writeDexErr(w, r, err)
-		return
-	}
-	httpx.OK(w, r, map[string]any{
-		"chainId": dex.DefaultChain,
-		"metas":   json.RawMessage(raw),
-	}, http.StatusOK)
+	a.okCachedDex(w, r, "metas:trending", 30*time.Second, func() (any, error) {
+		raw, err := a.dexClient().MetasTrending(r.Context())
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"chainId": dex.DefaultChain,
+			"metas":   json.RawMessage(raw),
+		}, nil
+	})
 }
 
 func (a *API) DiscoverPair(w http.ResponseWriter, r *http.Request) {
@@ -290,7 +292,7 @@ func (a *API) enrichDiscoverItemsLite(ctx context.Context, items []map[string]an
 	needFetch := make([]string, 0, len(unique))
 	for _, mint := range unique {
 		if a.MetaCache != nil {
-			if hit, ok := a.MetaCache.Get("meta:" + mint); ok {
+			if hit, ok := a.MetaCache.GetFresh("meta:" + mint); ok {
 				local[mint] = hit
 				continue
 			}
@@ -315,14 +317,24 @@ func (a *API) enrichDiscoverItemsLite(ctx context.Context, items []map[string]an
 					return
 				}
 			}
-			child, cancel := context.WithTimeout(ctx, 3*time.Second)
-			meta := a.buildTokenMetadataLite(child, mint)
-			cancel()
-			if meta == nil {
-				return
+			load := func() (any, error) {
+				child, cancel := context.WithTimeout(ctx, 3*time.Second)
+				defer cancel()
+				meta := a.buildTokenMetadataLite(child, mint)
+				if meta == nil {
+					return nil, fmt.Errorf("no meta for %s", mint)
+				}
+				return meta, nil
 			}
+			var meta any
+			var err error
 			if a.MetaCache != nil {
-				a.MetaCache.Set("meta:"+mint, meta)
+				meta, err = a.MetaCache.GetOrSet("meta:"+mint, 90*time.Second, load)
+			} else {
+				meta, err = load()
+			}
+			if err != nil || meta == nil {
+				return
 			}
 			mu.Lock()
 			local[mint] = meta

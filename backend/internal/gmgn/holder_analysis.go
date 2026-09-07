@@ -7,6 +7,8 @@ import (
 	"math"
 	"sort"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 )
 
 type HolderAnalysis struct {
@@ -29,12 +31,18 @@ type HolderAnalysis struct {
 
 func (c *Client) HolderAnalysis(ctx context.Context, mint string) (*HolderAnalysis, error) {
 	chain := DefaultChain
-	holdersRaw, err := c.TokenHolders(ctx, chain, mint, HolderListParams{Limit: 100, OrderBy: "amount_percentage", Direction: "desc"})
-	if err != nil {
-		return nil, err
-	}
-	devsRaw, err := c.TokenHolders(ctx, chain, mint, HolderListParams{Limit: 20, OrderBy: "amount_percentage", Direction: "desc", Tag: "dev"})
-	if err != nil {
+	var holdersRaw, devsRaw json.RawMessage
+	var holdersErr, devsErr error
+	var eg errgroup.Group
+	eg.Go(func() error {
+		holdersRaw, holdersErr = c.TokenHolders(ctx, chain, mint, HolderListParams{Limit: 100, OrderBy: "amount_percentage", Direction: "desc"})
+		return holdersErr
+	})
+	eg.Go(func() error {
+		devsRaw, devsErr = c.TokenHolders(ctx, chain, mint, HolderListParams{Limit: 20, OrderBy: "amount_percentage", Direction: "desc", Tag: "dev"})
+		return devsErr
+	})
+	if err := eg.Wait(); err != nil {
 		return nil, err
 	}
 	holders := unwrapHolderList(holdersRaw)

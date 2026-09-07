@@ -21,6 +21,7 @@ func (svc *Service) confirmOpts() txconfirm.Options {
 	auto := svc.Indexer != nil && svc.Indexer.Enabled()
 	return txconfirm.Options{
 		RPCURL:     svc.Cfg.RPCURL,
+		RPC:        svc.rpcClient(),
 		Indexer:    svc.Indexer,
 		AutoIngest: auto,
 		OnConfirmed: func(_ string, _ txconfirm.IngestInfo) {
@@ -117,7 +118,7 @@ func (svc *Service) autoSubmitServerStep(flowID, stepID uuid.UUID, prep *txprep.
 		_ = svc.Store.SetJobStatus(ctx, flowID, StatusFailed, strPtr(err.Error()))
 		return
 	}
-	rpc := txprep.NewRPC(svc.Cfg.RPCURL)
+	rpc := svc.rpcClient()
 	sig, err := rpc.SendRaw(raw)
 	if err != nil {
 		msg := s.FriendlyTxError(err)

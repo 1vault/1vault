@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"math"
 	"sort"
+
+	"golang.org/x/sync/errgroup"
 )
 
 type WalletScoreParams struct {
@@ -43,14 +45,26 @@ func (c *Client) WalletScore(ctx context.Context, wallet string, p WalletScorePa
 		p.GasUSD = 0.2
 	}
 	if p.Sample <= 0 {
+		p.Sample = 100
+	}
+	if p.Sample > 200 {
 		p.Sample = 200
 	}
-	if p.Sample > 400 {
-		p.Sample = 400
-	}
 
-	statsRaw, err := c.WalletStats(ctx, chain, []string{wallet}, "7d")
-	if err != nil {
+	var statsRaw json.RawMessage
+	var acts []map[string]any
+	var eg errgroup.Group
+	eg.Go(func() error {
+		var err error
+		statsRaw, err = c.WalletStats(ctx, chain, []string{wallet}, "7d")
+		return err
+	})
+	eg.Go(func() error {
+		var err error
+		acts, err = c.sampleActivity(ctx, chain, wallet, p.Sample)
+		return err
+	})
+	if err := eg.Wait(); err != nil {
 		return nil, err
 	}
 	statsRoot, err := decodeMap(statsRaw)
@@ -124,10 +138,6 @@ func (c *Client) WalletScore(ctx context.Context, wallet string, p WalletScorePa
 		return out, nil
 	}
 
-	acts, err := c.sampleActivity(ctx, chain, wallet, p.Sample)
-	if err != nil {
-		return nil, err
-	}
 	summ := summarizeActivity(acts)
 	out.ActivitySummary = summ
 
@@ -260,10 +270,10 @@ func normalizeStatsObj(root map[string]any, wallet string) map[string]any {
 }
 
 func (c *Client) sampleActivity(ctx context.Context, chain, wallet string, target int) ([]map[string]any, error) {
-	target = max(20, min(target, 400))
+	target = max(20, min(target, 200))
 	var acts []map[string]any
 	var cursor string
-	for try := 0; try < 4; try++ {
+	for try := 0; try < 2; try++ {
 		limit := min(100, target-len(acts))
 		raw, err := c.WalletActivity(ctx, chain, wallet, WalletActivityParams{Limit: limit, Cursor: cursor})
 		if err != nil {

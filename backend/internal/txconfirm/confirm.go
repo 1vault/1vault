@@ -55,20 +55,24 @@ func (t *Tracker) MergeStatus(sig string, st map[string]any) map[string]any {
 
 type Options struct {
 	RPCURL      string
+	RPC         *txprep.RPC // optional shared client (reuses account/blockhash cache)
 	Indexer     *indexer.Client
 	AutoIngest  bool
 	OnConfirmed func(signature string, ingest IngestInfo)
 }
 
 const (
-	confirmPollInterval = 120 * time.Millisecond
-	confirmMaxAttempts  = 160 // ~19s at 120ms
+	confirmPollInterval = 200 * time.Millisecond
+	confirmMaxAttempts  = 90 // ~18s with backoff average
 	// After this many polls without finding the sig, enable searchTransactionHistory.
-	confirmSearchHistoryAfter = 40
+	confirmSearchHistoryAfter = 25
 )
 
 func ConfirmAndIngest(ctx context.Context, signature string, opt Options) Result {
-	rpcClient := txprep.NewRPC(opt.RPCURL)
+	rpcClient := opt.RPC
+	if rpcClient == nil {
+		rpcClient = txprep.NewRPC(opt.RPCURL)
+	}
 	out := Result{Signature: signature, Status: "submitted"}
 	DefaultTracker.Set(signature, out)
 
@@ -85,7 +89,11 @@ func ConfirmAndIngest(ctx context.Context, signature string, opt Options) Result
 		st, err := rpcClient.StatusOpts(signature, searchHistory)
 		if err != nil {
 			lastErr = err.Error()
-			time.Sleep(confirmPollInterval)
+			sleep := confirmPollInterval + time.Duration(i/10)*50*time.Millisecond
+			if sleep > 800*time.Millisecond {
+				sleep = 800 * time.Millisecond
+			}
+			time.Sleep(sleep)
 			continue
 		}
 		status, _ := st["status"].(string)

@@ -75,8 +75,13 @@ export async function fetchWalletWinrates(
   if (unique.length === 0) return result;
 
   const CHUNK = 10;
+  const CONCURRENCY = 4;
+  const chunks: string[][] = [];
   for (let i = 0; i < unique.length; i += CHUNK) {
-    const chunk = unique.slice(i, i + CHUNK);
+    chunks.push(unique.slice(i, i + CHUNK));
+  }
+
+  async function loadChunk(chunk: string[]): Promise<void> {
     const primary = chunk[0]!;
     const url = new URL(
       `${BACKEND_URL}/v1/wallets/${encodeURIComponent(primary)}/stats`
@@ -106,6 +111,10 @@ export async function fetchWalletWinrates(
     const data = (json?.data ?? json) as Record<string, unknown>;
     const rates = parseWalletWinrates(data, chunk);
     for (const [k, v] of rates) result.set(k, v);
+  }
+
+  for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+    await Promise.all(chunks.slice(i, i + CONCURRENCY).map(loadChunk));
   }
 
   return result;

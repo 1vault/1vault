@@ -51,8 +51,23 @@ export function LeaderboardPanel({
       ]);
 
       const merged = mergeGlobalVaultRows(allVaults, ranked.items);
-      const annotated = await annotateVaultLayout(merged).catch(() => merged);
-      const vaults = filterVisibleVaults(annotated);
+      // Prefer indexer status for a fast first pass — avoid RPC annotate on every vault.
+      const quick = filterVisibleVaults(merged);
+      // Only RPC-annotate a small set that still look open but might be legacy.
+      const maybeLegacy = quick.filter(
+        (v) => v.layoutCompatible === undefined && v.closeBlockedReason == null
+      );
+      const sample = maybeLegacy.slice(0, 40);
+      const annotatedSample =
+        sample.length > 0
+          ? await annotateVaultLayout(sample).catch(() => sample)
+          : [];
+      const byPk = new Map(quick.map((v) => [String(v.pubkey ?? ""), v]));
+      for (const v of annotatedSample) {
+        const pk = String(v.pubkey ?? "");
+        if (pk) byPk.set(pk, v);
+      }
+      const vaults = filterVisibleVaults([...byPk.values()]);
       const strategists = [
         ...new Set(
           vaults

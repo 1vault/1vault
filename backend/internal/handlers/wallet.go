@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -91,17 +92,22 @@ func (a *API) WalletHoldings(w http.ResponseWriter, r *http.Request) {
 	p.HideClosed = r.URL.Query().Get("hideClosed") != "false"
 	p.HideAbnormal = r.URL.Query().Get("hideAbnormal") == "true"
 	p.SellOut = r.URL.Query().Get("sellOut") == "true"
-	raw, err := c.WalletHoldings(r.Context(), gmgn.DefaultChain, wallet, p)
-	if err != nil {
-		a.writeGMGNErr(w, r, err)
-		return
-	}
-	kind := a.walletKindFromRequest(r, wallet)
-	httpx.OK(w, r, withWalletKind(map[string]any{
-		"wallet":   wallet,
-		"chain":    gmgn.DefaultChain,
-		"holdings": json.RawMessage(raw),
-	}, kind), http.StatusOK)
+	key := fmt.Sprintf(
+		"wholdings:%s:%s:%s:%s:%d:%t:%t:%t:%t",
+		wallet, p.Cursor, p.OrderBy, p.Direction, p.Limit, p.HideAirdrop, p.HideClosed, p.HideAbnormal, p.SellOut,
+	)
+	a.okCachedGMGN(w, r, key, 20*time.Second, func() (any, error) {
+		raw, err := c.WalletHoldings(r.Context(), gmgn.DefaultChain, wallet, p)
+		if err != nil {
+			return nil, err
+		}
+		kind := a.walletKindFromRequest(r, wallet)
+		return withWalletKind(map[string]any{
+			"wallet":   wallet,
+			"chain":    gmgn.DefaultChain,
+			"holdings": json.RawMessage(raw),
+		}, kind), nil
+	})
 }
 
 func (a *API) WalletActivity(w http.ResponseWriter, r *http.Request) {
@@ -168,7 +174,7 @@ func (a *API) WalletStats(w http.ResponseWriter, r *http.Request) {
 		addrs = append(addrs, extra...)
 	}
 	key := "wstats:" + period + ":" + strings.Join(addrs, ",")
-	a.okCachedGMGN(w, r, key, 15*time.Second, func() (any, error) {
+	a.okCachedGMGN(w, r, key, 45*time.Second, func() (any, error) {
 		raw, err := c.WalletStats(r.Context(), gmgn.DefaultChain, addrs, period)
 		if err != nil {
 			return nil, err
@@ -207,18 +213,19 @@ func (a *API) WalletTokenBalance(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, r, 422, "VALIDATION_ERROR", "walletAddress and token required", nil)
 		return
 	}
-	raw, err := c.WalletTokenBalance(r.Context(), gmgn.DefaultChain, wallet, token)
-	if err != nil {
-		a.writeGMGNErr(w, r, err)
-		return
-	}
-	kind := a.walletKindFromRequest(r, wallet)
-	httpx.OK(w, r, withWalletKind(map[string]any{
-		"wallet":  wallet,
-		"token":   token,
-		"chain":   gmgn.DefaultChain,
-		"balance": json.RawMessage(raw),
-	}, kind), http.StatusOK)
+	a.okCachedGMGN(w, r, "wbal:"+wallet+":"+token, 20*time.Second, func() (any, error) {
+		raw, err := c.WalletTokenBalance(r.Context(), gmgn.DefaultChain, wallet, token)
+		if err != nil {
+			return nil, err
+		}
+		kind := a.walletKindFromRequest(r, wallet)
+		return withWalletKind(map[string]any{
+			"wallet":  wallet,
+			"token":   token,
+			"chain":   gmgn.DefaultChain,
+			"balance": json.RawMessage(raw),
+		}, kind), nil
+	})
 }
 
 func (a *API) WalletCreatedTokens(w http.ResponseWriter, r *http.Request) {
@@ -239,17 +246,19 @@ func (a *API) WalletCreatedTokens(w http.ResponseWriter, r *http.Request) {
 		Direction:    r.URL.Query().Get("direction"),
 		MigrateState: r.URL.Query().Get("migrateState"),
 	}
-	raw, err := c.CreatedTokens(r.Context(), gmgn.DefaultChain, wallet, p)
-	if err != nil {
-		a.writeGMGNErr(w, r, err)
-		return
-	}
-	kind := a.walletKindFromRequest(r, wallet)
-	httpx.OK(w, r, withWalletKind(map[string]any{
-		"wallet": wallet,
-		"chain":  gmgn.DefaultChain,
-		"tokens": json.RawMessage(raw),
-	}, kind), http.StatusOK)
+	key := fmt.Sprintf("wcreated:%s:%s:%s:%s", wallet, p.OrderBy, p.Direction, p.MigrateState)
+	a.okCachedGMGN(w, r, key, 45*time.Second, func() (any, error) {
+		raw, err := c.CreatedTokens(r.Context(), gmgn.DefaultChain, wallet, p)
+		if err != nil {
+			return nil, err
+		}
+		kind := a.walletKindFromRequest(r, wallet)
+		return withWalletKind(map[string]any{
+			"wallet": wallet,
+			"chain":  gmgn.DefaultChain,
+			"tokens": json.RawMessage(raw),
+		}, kind), nil
+	})
 }
 
 func (a *API) WalletScore(w http.ResponseWriter, r *http.Request) {
@@ -286,17 +295,18 @@ func (a *API) WalletScore(w http.ResponseWriter, r *http.Request) {
 			p.Sample = n
 		}
 	}
-	out, err := c.WalletScore(r.Context(), wallet, p)
-	if err != nil {
-		a.writeGMGNErr(w, r, err)
-		return
-	}
-	kind := a.walletKindFromRequest(r, wallet)
-	payload := map[string]any{
-		"wallet": wallet,
-		"score":  out,
-	}
-	httpx.OK(w, r, withWalletKind(payload, kind), http.StatusOK)
+	key := fmt.Sprintf("wscore:%s:%.2f:%.4f:%.2f:%d", wallet, p.LatencyS, p.SlippagePct, p.GasUSD, p.Sample)
+	a.okCachedGMGN(w, r, key, 90*time.Second, func() (any, error) {
+		out, err := c.WalletScore(r.Context(), wallet, p)
+		if err != nil {
+			return nil, err
+		}
+		kind := a.walletKindFromRequest(r, wallet)
+		return withWalletKind(map[string]any{
+			"wallet": wallet,
+			"score":  out,
+		}, kind), nil
+	})
 }
 
 func (a *API) WalletProfits(w http.ResponseWriter, r *http.Request) {
@@ -337,11 +347,6 @@ func (a *API) WalletProfits(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	raw, err := c.WalletProfits(r.Context(), gmgn.DefaultChain, body.Wallets, body.Period)
-	if err != nil {
-		a.writeGMGNErr(w, r, err)
-		return
-	}
 	overrides := map[string]string{}
 	if body.WalletKinds != nil {
 		for k, v := range body.WalletKinds {
@@ -355,14 +360,21 @@ func (a *API) WalletProfits(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	kinds := wallets.ResolveMany(r.Context(), a.Pool, body.Wallets, overrides)
-	httpx.OK(w, r, map[string]any{
-		"wallets":     body.Wallets,
-		"walletKinds": wallets.MetaMap(kinds),
-		"chain":       gmgn.DefaultChain,
-		"period":      body.Period,
-		"profits":     json.RawMessage(raw),
-	}, http.StatusOK)
+	key := "wprofits:" + body.Period + ":" + strings.Join(body.Wallets, ",")
+	a.okCachedGMGN(w, r, key, 45*time.Second, func() (any, error) {
+		raw, err := c.WalletProfits(r.Context(), gmgn.DefaultChain, body.Wallets, body.Period)
+		if err != nil {
+			return nil, err
+		}
+		kinds := wallets.ResolveMany(r.Context(), a.Pool, body.Wallets, overrides)
+		return map[string]any{
+			"wallets":     body.Wallets,
+			"walletKinds": wallets.MetaMap(kinds),
+			"chain":       gmgn.DefaultChain,
+			"period":      body.Period,
+			"profits":     json.RawMessage(raw),
+		}, nil
+	})
 }
 
 func (a *API) TokenHolderAnalysis(w http.ResponseWriter, r *http.Request) {

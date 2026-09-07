@@ -22,7 +22,7 @@ import (
 
 func (a *API) txBuilder(r *http.Request) *txprep.Builder {
 	addr := a.addresses(r)
-	return txprep.NewBuilder(addr, txprep.NewRPC(addr.RPCURL))
+	return txprep.NewBuilder(addr, a.rpcFor(addr.RPCURL))
 }
 
 func (a *API) failTxBuild(w http.ResponseWriter, r *http.Request, err error) {
@@ -1133,7 +1133,7 @@ func (a *API) PrepUpdateVaultRisk(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	desc, slip := "1Vault pooled book", uint16(100)
-	if vd, err := txprep.NewRPC(a.addresses(r).RPCURL).AccountData(vault); err == nil {
+	if vd, err := a.rpcFor(a.addresses(r).RPCURL).AccountData(vault); err == nil {
 		if d, s, err := s.DecodeVaultDescriptionAndSlippage(vd); err == nil {
 			desc, slip = d, s
 		}
@@ -1306,7 +1306,7 @@ func (a *API) serverSignerKeys(extra map[string]string) map[string]solana.Privat
 
 func (a *API) TxStatus(w http.ResponseWriter, r *http.Request) {
 	sig := chi.URLParam(r, "signature")
-	rpc := txprep.NewRPC(a.addresses(r).RPCURL)
+	rpc := a.rpcFor(a.addresses(r).RPCURL)
 	st, err := rpc.Status(sig)
 	if err != nil {
 		httpx.Fail(w, r, 502, "STATUS_FAILED", err.Error(), nil)

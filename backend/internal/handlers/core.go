@@ -96,11 +96,10 @@ func (a *API) ListVaults(w http.ResponseWriter, r *http.Request) {
 	}
 
 	key := fmt.Sprintf("vaults:p=%d:ps=%d:t=%s", page, pageSize, filterType)
-	a.okCachedDB(w, r, key, 12*time.Second, func() (any, error) {
+	a.okCachedDB(w, r, key, 25*time.Second, func() (any, error) {
 		const listSQL = `
 			SELECT v.*,
-				COALESCE(NULLIF(r.vault_type,''), NULLIF(v.vault_type,''), 'pooled') AS resolved_vault_type,
-				COUNT(*) OVER() AS _total
+				COALESCE(NULLIF(r.vault_type,''), NULLIF(v.vault_type,''), 'pooled') AS resolved_vault_type
 			FROM vaults v
 			LEFT JOIN vault_type_registry r ON r.vault_pubkey = v.pubkey
 			WHERE ($1::text = '' OR COALESCE(NULLIF(r.vault_type,''), NULLIF(v.vault_type,''), 'pooled') = $1)
@@ -110,12 +109,43 @@ func (a *API) ListVaults(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return nil, err
 		}
-		total := 0
-		for _, it := range items {
-			if total == 0 {
-				total = intFromAny(it["_total"])
+		totalKey := fmt.Sprintf("vaults:total:t=%s", filterType)
+		var total int
+		if a.DBCache != nil {
+			tv, err := a.DBCache.GetOrSet(totalKey, 45*time.Second, func() (any, error) {
+				const countSQL = `
+					SELECT COUNT(*)::int
+					FROM vaults v
+					LEFT JOIN vault_type_registry r ON r.vault_pubkey = v.pubkey
+					WHERE ($1::text = '' OR COALESCE(NULLIF(r.vault_type,''), NULLIF(v.vault_type,''), 'pooled') = $1)`
+				var n int
+				if err := a.Pool.QueryRow(r.Context(), countSQL, filterType).Scan(&n); err != nil {
+					return nil, err
+				}
+				return n, nil
+			})
+			if err != nil {
+				return nil, err
 			}
-			delete(it, "_total")
+			switch n := tv.(type) {
+			case int:
+				total = n
+			case int32:
+				total = int(n)
+			case int64:
+				total = int(n)
+			}
+		} else {
+			const countSQL = `
+				SELECT COUNT(*)::int
+				FROM vaults v
+				LEFT JOIN vault_type_registry r ON r.vault_pubkey = v.pubkey
+				WHERE ($1::text = '' OR COALESCE(NULLIF(r.vault_type,''), NULLIF(v.vault_type,''), 'pooled') = $1)`
+			if err := a.Pool.QueryRow(r.Context(), countSQL, filterType).Scan(&total); err != nil {
+				return nil, err
+			}
+		}
+		for _, it := range items {
 			vt := vaults.FromResolved(stringField(it, "resolved_vault_type"))
 			delete(it, "resolved_vault_type")
 			vaults.Attach(it, vt)
@@ -237,7 +267,7 @@ func (a *API) Leaderboard(w http.ResponseWriter, r *http.Request) {
 	if limit < 1 || limit > 100 {
 		limit = 50
 	}
-	a.okCachedDB(w, r, fmt.Sprintf("leaderboard:return_pct:limit=%d", limit), 15*time.Second, func() (any, error) {
+	a.okCachedDB(w, r, fmt.Sprintf("leaderboard:return_pct:limit=%d", limit), 45*time.Second, func() (any, error) {
 		items, err := queryMaps(r.Context(), a.Pool, `
 			SELECT * FROM vault_leaderboard
 			ORDER BY return_pct DESC NULLS LAST, nav DESC NULLS LAST

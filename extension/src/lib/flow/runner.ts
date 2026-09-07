@@ -44,8 +44,8 @@ function clampPriorityFee(v?: number): number {
   if (!Number.isFinite(n)) return DEFAULT_PRIORITY_FEE;
   return Math.min(MAX_PRIORITY_FEE, Math.max(MIN_PRIORITY_FEE, Math.round(n)));
 }
-const FLOW_POLL_MS = 350;
-const CONFIRM_POLL_MS = 400;
+const FLOW_POLL_MS = 200;
+const CONFIRM_POLL_MS = 220;
 
 type FlowStep = NonNullable<FlowJob["steps"]>[number];
 
